@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    image: ghcr.io/k4hvh/clanker-bot:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
