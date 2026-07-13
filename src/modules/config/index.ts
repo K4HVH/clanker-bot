@@ -41,6 +41,24 @@ const data = new SlashCommandBuilder()
       .addBooleanOption((o) =>
         o.setName("enabled").setDescription("Enable DMs on action").setRequired(true),
       ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("toggle")
+      .setDescription("Enable or disable a feature flag.")
+      .addStringOption((o) =>
+        o
+          .setName("feature")
+          .setDescription("Feature to toggle")
+          .setRequired(true)
+          .addChoices(
+            { name: "automod-spam", value: "automod_spam" },
+            { name: "automod-invites", value: "automod_invites" },
+            { name: "automod-links", value: "automod_links" },
+            { name: "auto-escalation", value: "auto_escalation" },
+          ),
+      )
+      .addBooleanOption((o) => o.setName("enabled").setDescription("On or off").setRequired(true)),
   );
 
 const config: SlashCommand = {
@@ -57,13 +75,23 @@ const config: SlashCommand = {
       const modCh = ctx.config.get<string>(guildId, CONFIG_KEYS.modLogChannelId);
       const memCh = ctx.config.get<string>(guildId, CONFIG_KEYS.memberLogChannelId);
       const dm = ctx.config.get<boolean>(guildId, CONFIG_KEYS.dmOnAction) ?? false;
-      const embed = new EmbedBuilder()
-        .setTitle("Configuration")
-        .addFields(
-          { name: "Mod log channel", value: modCh ? `<#${modCh}>` : "*(unset)*" },
-          { name: "Member log channel", value: memCh ? `<#${memCh}>` : "*(unset)*" },
-          { name: "DM on action", value: dm ? "enabled" : "disabled" },
-        );
+      const embed = new EmbedBuilder().setTitle("Configuration").addFields(
+        { name: "Mod log channel", value: modCh ? `<#${modCh}>` : "*(unset)*" },
+        { name: "Member log channel", value: memCh ? `<#${memCh}>` : "*(unset)*" },
+        { name: "DM on action", value: dm ? "enabled" : "disabled" },
+        {
+          name: "Automod",
+          value: [
+            `spam: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodSpam) ? "on" : "off"}`,
+            `invites: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodInvites) ? "on" : "off"}`,
+            `links: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodLinks) ? "on" : "off"}`,
+          ].join(" · "),
+        },
+        {
+          name: "Auto-escalation",
+          value: ctx.config.get<boolean>(guildId, CONFIG_KEYS.autoEscalation) ? "on" : "off",
+        },
+      );
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       return;
     }
@@ -85,6 +113,17 @@ const config: SlashCommand = {
       ctx.config.set(guildId, CONFIG_KEYS.dmOnAction, enabled);
       await interaction.reply({
         content: `DM on action is now ${enabled ? "enabled" : "disabled"}.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "toggle") {
+      const feature = interaction.options.getString("feature", true);
+      const enabled = interaction.options.getBoolean("enabled", true);
+      ctx.config.set(guildId, feature, enabled);
+      await interaction.reply({
+        content: `\`${feature}\` is now ${enabled ? "enabled" : "disabled"}.`,
         flags: MessageFlags.Ephemeral,
       });
     }

@@ -11,6 +11,10 @@ export const CONFIG_KEYS = {
   memberLogChannelId: "member_log_channel_id",
   dmOnAction: "dm_on_action",
   strikeDecayDays: "strike_decay_days",
+  automodSpam: "automod_spam",
+  automodInvites: "automod_invites",
+  automodLinks: "automod_links",
+  autoEscalation: "auto_escalation",
 } as const;
 
 export class ConfigService {
