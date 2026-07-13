@@ -1,0 +1,31 @@
+# Secrets — never commit real env files
+.env
+.env.*
+!.env.example
+
+# Data (SQLite lives on a mounted volume, never in git)
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Dependencies
+node_modules/
+
+# Bun
+.bun/
+
+# Build / output
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
