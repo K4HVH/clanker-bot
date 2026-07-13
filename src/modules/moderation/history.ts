@@ -7,6 +7,8 @@ import {
 } from "discord.js";
 import type { SlashCommand } from "../../core/module";
 import { listCasesByUser } from "../../repositories/cases.repository";
+import { CONFIG_KEYS } from "../../services/config.service";
+import { computeActiveScore } from "../../services/infractions.service";
 
 export const historyCommand: SlashCommand = {
   data: new SlashCommandBuilder()
@@ -26,10 +28,14 @@ export const historyCommand: SlashCommand = {
       });
       return;
     }
+    const decayDays =
+      ctx.config.get<number>(interaction.guildId, CONFIG_KEYS.strikeDecayDays) ?? 90;
+    const score = computeActiveScore(records, Date.now(), decayDays);
     const lines = records.map((r) => `**#${r.caseNumber}** \`${r.type}\` — ${r.reason}`);
     const embed = new EmbedBuilder()
       .setTitle(`History for ${user.tag}`)
-      .setDescription(lines.join("\n"));
+      .setDescription(lines.join("\n"))
+      .setFooter({ text: `Active strike score: ${score} (last ${decayDays}d)` });
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
 };

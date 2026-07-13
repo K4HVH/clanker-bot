@@ -10,6 +10,7 @@ export const CONFIG_KEYS = {
   modLogChannelId: "mod_log_channel_id",
   memberLogChannelId: "member_log_channel_id",
   dmOnAction: "dm_on_action",
+  strikeDecayDays: "strike_decay_days",
 } as const;
 
 export class ConfigService {
