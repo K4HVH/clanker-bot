@@ -104,3 +104,11 @@ export async function logMemberEvent(
 ): Promise<void> {
   await sendToConfigured(ctx, guild, CONFIG_KEYS.memberLogChannelId, embed);
 }
+
+export async function logModAlert(
+  ctx: AppContext,
+  guild: Guild,
+  embed: EmbedBuilder,
+): Promise<void> {
+  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, embed);
+}
