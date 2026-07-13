@@ -1,6 +1,13 @@
-import { InteractionContextType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
+import {
+  InteractionContextType,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+} from "discord.js";
 import type { SlashCommand } from "../../core/module";
+import { scheduleAction } from "../../repositories/scheduled-actions.repository";
 import { CONFIG_KEYS } from "../../services/config.service";
+import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../util/duration";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 export const banCommand: SlashCommand = {
@@ -17,6 +24,9 @@ export const banCommand: SlashCommand = {
         .setDescription("Delete this many days of their messages (0-7)")
         .setMinValue(0)
         .setMaxValue(7),
+    )
+    .addStringOption((o) =>
+      o.setName("duration").setDescription("Temp-ban length, e.g. 7d, 12h (omit for permanent)"),
     ),
   async execute(interaction, ctx) {
     const guild = interaction.guild;
@@ -24,6 +34,19 @@ export const banCommand: SlashCommand = {
     const user = interaction.options.getUser("user", true);
     const reason = interaction.options.getString("reason", true);
     const deleteDays = interaction.options.getInteger("delete_days") ?? 0;
+
+    const durationText = interaction.options.getString("duration");
+    let durationMs: number | null = null;
+    if (durationText) {
+      durationMs = parseDuration(durationText);
+      if (durationMs === null || durationMs > MAX_TIMEOUT_MS) {
+        await interaction.reply({
+          content: "Invalid temp-ban duration. Use e.g. `12h`, `7d` (max 28d).",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
 
     const target = await assertActionable(interaction, user.id, { requireMember: false });
     if (target === null) return;
@@ -35,6 +58,23 @@ export const banCommand: SlashCommand = {
     }
 
     await guild.members.ban(user.id, { reason, deleteMessageSeconds: deleteDays * 86_400 });
-    await recordAndAnnounce(interaction, ctx, { target: user, type: "ban", reason });
+
+    const reasonWithDuration = durationMs
+      ? `${reason} (temp-ban ${formatDuration(durationMs)})`
+      : reason;
+    if (durationMs) {
+      scheduleAction(ctx.db, {
+        guildId: guild.id,
+        type: "unban",
+        userId: user.id,
+        reason: "Temp-ban expired",
+        runAt: Date.now() + durationMs,
+      });
+    }
+    await recordAndAnnounce(interaction, ctx, {
+      target: user,
+      type: "ban",
+      reason: reasonWithDuration,
+    });
   },
 };

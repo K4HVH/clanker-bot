@@ -1,4 +1,11 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // Guild-scoped key/value config. `value` holds JSON-encoded data.
 export const guildConfig = sqliteTable(
@@ -27,4 +34,19 @@ export const cases = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("cases_guild_case_idx").on(t.guildId, t.caseNumber)],
+);
+
+// Durable queue of future actions (e.g. expire a temp-ban).
+export const scheduledActions = sqliteTable(
+  "scheduled_actions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    guildId: text("guild_id").notNull(),
+    type: text("type").notNull(),
+    userId: text("user_id").notNull(),
+    reason: text("reason"),
+    runAt: integer("run_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("scheduled_actions_run_at_idx").on(t.runAt)],
 );
