@@ -15,6 +15,7 @@ export const CONFIG_KEYS = {
   automodInvites: "automod_invites",
   automodLinks: "automod_links",
   autoEscalation: "auto_escalation",
+  verifiedRoleId: "verified_role_id",
 } as const;
 
 export class ConfigService {

@@ -59,6 +59,12 @@ const data = new SlashCommandBuilder()
           ),
       )
       .addBooleanOption((o) => o.setName("enabled").setDescription("On or off").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("verified-role")
+      .setDescription("Set the role granted when a member passes verification.")
+      .addRoleOption((o) => o.setName("role").setDescription("Verified role").setRequired(true)),
   );
 
 const config: SlashCommand = {
@@ -90,6 +96,13 @@ const config: SlashCommand = {
         {
           name: "Auto-escalation",
           value: ctx.config.get<boolean>(guildId, CONFIG_KEYS.autoEscalation) ? "on" : "off",
+        },
+        {
+          name: "Verified role",
+          value: (() => {
+            const r = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
+            return r ? `<@&${r}>` : "*(unset)*";
+          })(),
         },
       );
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -124,6 +137,16 @@ const config: SlashCommand = {
       ctx.config.set(guildId, feature, enabled);
       await interaction.reply({
         content: `\`${feature}\` is now ${enabled ? "enabled" : "disabled"}.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "verified-role") {
+      const role = interaction.options.getRole("role", true);
+      ctx.config.set(guildId, CONFIG_KEYS.verifiedRoleId, role.id);
+      await interaction.reply({
+        content: `Verified role set to <@&${role.id}>.`,
         flags: MessageFlags.Ephemeral,
       });
     }
