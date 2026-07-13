@@ -29,6 +29,13 @@
       "when": 1783945021029,
       "tag": "0003_talented_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783946284954,
+      "tag": "0004_awesome_preak",
+      "breakpoints": true
     }
   ]
 }
