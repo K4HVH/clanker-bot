@@ -1,5 +1,6 @@
 import { InteractionContextType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 import type { SlashCommand } from "../../core/module";
+import { applyEscalation } from "../../services/escalation.service";
 import { recordAndAnnounce } from "./shared";
 
 export const warnCommand: SlashCommand = {
@@ -19,5 +20,6 @@ export const warnCommand: SlashCommand = {
       reason,
       dmText: `You were warned in **${interaction.guild?.name}**. Reason: ${reason}`,
     });
+    if (interaction.guild) await applyEscalation(ctx, interaction.guild, target.id);
   },
 };
