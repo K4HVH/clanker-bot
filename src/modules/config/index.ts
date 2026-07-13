@@ -78,6 +78,24 @@ const data = new SlashCommandBuilder()
           .setMinValue(0)
           .setRequired(true),
       ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("ticket-category")
+      .setDescription("Category new ticket channels are created under.")
+      .addChannelOption((o) =>
+        o
+          .setName("category")
+          .setDescription("Category channel")
+          .addChannelTypes(ChannelType.GuildCategory)
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("ticket-staff")
+      .setDescription("Role that can see and handle tickets.")
+      .addRoleOption((o) => o.setName("role").setDescription("Staff role").setRequired(true)),
   );
 
 const config: SlashCommand = {
@@ -181,6 +199,23 @@ const config: SlashCommand = {
       ctx.config.set(guildId, CONFIG_KEYS.minAccountAgeDays, days);
       await interaction.reply({
         content: days > 0 ? `Account-age gate set to ${days}d.` : "Account-age gate disabled.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "ticket-category") {
+      const category = interaction.options.getChannel("category", true);
+      ctx.config.set(guildId, CONFIG_KEYS.ticketCategoryId, category.id);
+      await interaction.reply({ content: "Ticket category set.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    if (sub === "ticket-staff") {
+      const role = interaction.options.getRole("role", true);
+      ctx.config.set(guildId, CONFIG_KEYS.ticketStaffRoleId, role.id);
+      await interaction.reply({
+        content: `Ticket staff role set to <@&${role.id}>.`,
         flags: MessageFlags.Ephemeral,
       });
     }

@@ -62,3 +62,21 @@ export const verificationChallenges = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.guildId, t.userId] })],
 );
+
+// Support tickets (one private channel each).
+export const tickets = sqliteTable(
+  "tickets",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    guildId: text("guild_id").notNull(),
+    ticketNumber: integer("ticket_number").notNull(),
+    channelId: text("channel_id").notNull(),
+    openerId: text("opener_id").notNull(),
+    subject: text("subject").notNull(),
+    status: text("status").notNull(),
+    transcript: text("transcript"),
+    createdAt: integer("created_at").notNull(),
+    closedAt: integer("closed_at"),
+  },
+  (t) => [uniqueIndex("tickets_channel_idx").on(t.channelId)],
+);
