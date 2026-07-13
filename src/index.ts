@@ -6,6 +6,7 @@ import { registerGuildCommands } from "./core/register-commands";
 import { createDatabase, runMigrations } from "./db/client";
 import { modules } from "./modules";
 import { ConfigService } from "./services/config.service";
+import { startScheduler } from "./services/scheduler.service";
 
 async function main(): Promise<void> {
   const env = loadEnv(process.env);
@@ -22,9 +23,11 @@ async function main(): Promise<void> {
   logger.info("registered guild commands", { count: registered, guildId: env.guildId });
 
   const client = createClient(modules, ctx);
+  const stopScheduler = startScheduler(ctx, client);
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("shutting down", { signal });
+    stopScheduler();
     await client.destroy();
     process.exit(0);
   };
