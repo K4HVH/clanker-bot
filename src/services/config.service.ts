@@ -16,6 +16,8 @@ export const CONFIG_KEYS = {
   automodLinks: "automod_links",
   autoEscalation: "auto_escalation",
   verifiedRoleId: "verified_role_id",
+  minAccountAgeDays: "min_account_age_days",
+  raidDetection: "raid_detection",
 } as const;
 
 export class ConfigService {

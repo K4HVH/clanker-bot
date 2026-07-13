@@ -1,6 +1,7 @@
 import type { BotModule } from "../core/module";
 import { automodModule } from "./automod";
 import { configModule } from "./config";
+import { guardsModule } from "./guards";
 import { loggingModule } from "./logging";
 import { moderationModule } from "./moderation";
 import { pingModule } from "./ping";
@@ -15,4 +16,5 @@ export const modules: BotModule[] = [
   moderationModule,
   automodModule,
   verificationModule,
+  guardsModule,
 ];

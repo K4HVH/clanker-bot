@@ -56,6 +56,7 @@ const data = new SlashCommandBuilder()
             { name: "automod-invites", value: "automod_invites" },
             { name: "automod-links", value: "automod_links" },
             { name: "auto-escalation", value: "auto_escalation" },
+            { name: "raid-detection", value: "raid_detection" },
           ),
       )
       .addBooleanOption((o) => o.setName("enabled").setDescription("On or off").setRequired(true)),
@@ -65,6 +66,18 @@ const data = new SlashCommandBuilder()
       .setName("verified-role")
       .setDescription("Set the role granted when a member passes verification.")
       .addRoleOption((o) => o.setName("role").setDescription("Verified role").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("min-account-age")
+      .setDescription("Kick+flag accounts younger than this many days (0 = off).")
+      .addIntegerOption((o) =>
+        o
+          .setName("days")
+          .setDescription("Minimum age in days (0 disables)")
+          .setMinValue(0)
+          .setRequired(true),
+      ),
   );
 
 const config: SlashCommand = {
@@ -103,6 +116,17 @@ const config: SlashCommand = {
             const r = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
             return r ? `<@&${r}>` : "*(unset)*";
           })(),
+        },
+        {
+          name: "Min account age",
+          value: (() => {
+            const d = ctx.config.get<number>(guildId, CONFIG_KEYS.minAccountAgeDays) ?? 0;
+            return d > 0 ? `${d}d` : "off";
+          })(),
+        },
+        {
+          name: "Raid detection",
+          value: ctx.config.get<boolean>(guildId, CONFIG_KEYS.raidDetection) ? "on" : "off",
         },
       );
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -147,6 +171,16 @@ const config: SlashCommand = {
       ctx.config.set(guildId, CONFIG_KEYS.verifiedRoleId, role.id);
       await interaction.reply({
         content: `Verified role set to <@&${role.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "min-account-age") {
+      const days = interaction.options.getInteger("days", true);
+      ctx.config.set(guildId, CONFIG_KEYS.minAccountAgeDays, days);
+      await interaction.reply({
+        content: days > 0 ? `Account-age gate set to ${days}d.` : "Account-age gate disabled.",
         flags: MessageFlags.Ephemeral,
       });
     }
