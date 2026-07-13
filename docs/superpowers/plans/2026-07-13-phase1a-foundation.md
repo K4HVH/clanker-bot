@@ -1008,8 +1008,10 @@ git commit -m "feat: containerize the bot with Docker + Compose"
 
 ## Task 10: CI/CD workflows
 
+> **Executor note (deviation):** Docker is unavailable in the build environment, so the Dockerfile can't be validated locally. To validate it on the merge gate instead of only after merge, the two workflows were **merged into a single `.github/workflows/ci.yml`** with two jobs: `check` (typecheck + lint + test) and `docker` (builds the image on every PR with `push: false`, and builds **and** pushes to GHCR only on `master`/tags). `release.yml` was not created. The committed `ci.yml` is the source of truth.
+
 **Files:**
-- Create: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
+- Create: `.github/workflows/ci.yml` (single workflow; see executor note)
 
 **Interfaces:**
 - Consumes: the `typecheck`, `lint`, `test` scripts and the Dockerfile.
