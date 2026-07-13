@@ -96,6 +96,26 @@ const data = new SlashCommandBuilder()
       .setName("ticket-staff")
       .setDescription("Role that can see and handle tickets.")
       .addRoleOption((o) => o.setName("role").setDescription("Staff role").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("welcome-channel")
+      .setDescription("Channel where welcome messages are posted.")
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Welcome channel")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("welcome-message")
+      .setDescription("Welcome message template ({user} = mention).")
+      .addStringOption((o) =>
+        o.setName("text").setDescription("Template; use {user} for the mention").setRequired(true),
+      ),
   );
 
 const config: SlashCommand = {
@@ -216,6 +236,26 @@ const config: SlashCommand = {
       ctx.config.set(guildId, CONFIG_KEYS.ticketStaffRoleId, role.id);
       await interaction.reply({
         content: `Ticket staff role set to <@&${role.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "welcome-channel") {
+      const channel = interaction.options.getChannel("channel", true);
+      ctx.config.set(guildId, CONFIG_KEYS.welcomeChannelId, channel.id);
+      await interaction.reply({
+        content: `Welcome channel set to <#${channel.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "welcome-message") {
+      const text = interaction.options.getString("text", true);
+      ctx.config.set(guildId, CONFIG_KEYS.welcomeMessage, text);
+      await interaction.reply({
+        content: "Welcome message updated.",
         flags: MessageFlags.Ephemeral,
       });
     }
