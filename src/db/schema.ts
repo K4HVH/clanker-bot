@@ -80,3 +80,15 @@ export const tickets = sqliteTable(
   },
   (t) => [uniqueIndex("tickets_channel_idx").on(t.channelId)],
 );
+
+// Canned-response tags (FAQ answers).
+export const tags = sqliteTable(
+  "tags",
+  {
+    guildId: text("guild_id").notNull(),
+    name: text("name").notNull(),
+    content: text("content").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.guildId, t.name] })],
+);
