@@ -18,6 +18,8 @@ export const CONFIG_KEYS = {
   verifiedRoleId: "verified_role_id",
   minAccountAgeDays: "min_account_age_days",
   raidDetection: "raid_detection",
+  ticketCategoryId: "ticket_category_id",
+  ticketStaffRoleId: "ticket_staff_role_id",
 } as const;
 
 export class ConfigService {

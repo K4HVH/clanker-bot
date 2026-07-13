@@ -5,6 +5,7 @@ import { guardsModule } from "./guards";
 import { loggingModule } from "./logging";
 import { moderationModule } from "./moderation";
 import { pingModule } from "./ping";
+import { ticketsModule } from "./tickets";
 import { verificationModule } from "./verification";
 
 // Modules are registered explicitly (no filesystem scanning) so Bun never has to
@@ -17,4 +18,5 @@ export const modules: BotModule[] = [
   automodModule,
   verificationModule,
   guardsModule,
+  ticketsModule,
 ];
