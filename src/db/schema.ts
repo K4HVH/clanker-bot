@@ -50,3 +50,15 @@ export const scheduledActions = sqliteTable(
   },
   (t) => [index("scheduled_actions_run_at_idx").on(t.runAt)],
 );
+
+// Pending captcha challenges (one active per user per guild).
+export const verificationChallenges = sqliteTable(
+  "verification_challenges",
+  {
+    guildId: text("guild_id").notNull(),
+    userId: text("user_id").notNull(),
+    code: text("code").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.guildId, t.userId] })],
+);

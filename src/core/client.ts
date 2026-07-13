@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { CommandRouter } from "./command-router";
+import { ComponentRouter } from "./component-router";
 import type { AppContext } from "./context";
 import type { BotModule } from "./module";
 
@@ -16,9 +17,15 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
 
   const commands = modules.flatMap((m) => m.commands ?? []);
   const router = new CommandRouter(commands, ctx);
+  const componentRouter = new ComponentRouter(
+    modules.flatMap((m) => m.components ?? []),
+    ctx,
+  );
 
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) void router.handle(interaction);
+    else if (interaction.isButton() || interaction.isModalSubmit())
+      void componentRouter.handle(interaction);
   });
 
   for (const module of modules) {

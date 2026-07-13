@@ -1,4 +1,10 @@
-import type { ChatInputCommandInteraction, ClientEvents, SlashCommandBuilder } from "discord.js";
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  ClientEvents,
+  ModalSubmitInteraction,
+  SlashCommandBuilder,
+} from "discord.js";
 import type { AppContext } from "./context";
 
 // Structural type satisfied by SlashCommandBuilder and its subcommand/option variants.
@@ -15,8 +21,15 @@ export interface Listener<K extends keyof ClientEvents = keyof ClientEvents> {
   handle(ctx: AppContext, ...args: ClientEvents[K]): Promise<void> | void;
 }
 
+export interface ComponentHandler {
+  customId: string;
+  type: "button" | "modal";
+  handle(interaction: ButtonInteraction | ModalSubmitInteraction, ctx: AppContext): Promise<void>;
+}
+
 export interface BotModule {
   name: string;
   commands?: SlashCommand[];
   listeners?: Listener[];
+  components?: ComponentHandler[];
 }
