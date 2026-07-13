@@ -1,0 +1,94 @@
+import {
+  ChannelType,
+  EmbedBuilder,
+  InteractionContextType,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+} from "discord.js";
+import type { BotModule, SlashCommand } from "../../core/module";
+import { CONFIG_KEYS } from "../../services/config.service";
+
+const data = new SlashCommandBuilder()
+  .setName("config")
+  .setDescription("View or change bot configuration.")
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setContexts(InteractionContextType.Guild)
+  .addSubcommand((s) => s.setName("view").setDescription("Show the current configuration."))
+  .addSubcommand((s) =>
+    s
+      .setName("log-channel")
+      .setDescription("Set a log channel.")
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Which log to set")
+          .setRequired(true)
+          .addChoices({ name: "mod", value: "mod" }, { name: "member", value: "member" }),
+      )
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Target text channel")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("dm-on-action")
+      .setDescription("Whether to DM users when they are actioned.")
+      .addBooleanOption((o) =>
+        o.setName("enabled").setDescription("Enable DMs on action").setRequired(true),
+      ),
+  );
+
+const config: SlashCommand = {
+  data,
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild()) {
+      await interaction.reply({ content: "Guild only.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const guildId = interaction.guildId;
+    const sub = interaction.options.getSubcommand();
+
+    if (sub === "view") {
+      const modCh = ctx.config.get<string>(guildId, CONFIG_KEYS.modLogChannelId);
+      const memCh = ctx.config.get<string>(guildId, CONFIG_KEYS.memberLogChannelId);
+      const dm = ctx.config.get<boolean>(guildId, CONFIG_KEYS.dmOnAction) ?? false;
+      const embed = new EmbedBuilder()
+        .setTitle("Configuration")
+        .addFields(
+          { name: "Mod log channel", value: modCh ? `<#${modCh}>` : "*(unset)*" },
+          { name: "Member log channel", value: memCh ? `<#${memCh}>` : "*(unset)*" },
+          { name: "DM on action", value: dm ? "enabled" : "disabled" },
+        );
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    if (sub === "log-channel") {
+      const kind = interaction.options.getString("kind", true);
+      const channel = interaction.options.getChannel("channel", true);
+      const key = kind === "mod" ? CONFIG_KEYS.modLogChannelId : CONFIG_KEYS.memberLogChannelId;
+      ctx.config.set(guildId, key, channel.id);
+      await interaction.reply({
+        content: `Set the ${kind} log channel to <#${channel.id}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (sub === "dm-on-action") {
+      const enabled = interaction.options.getBoolean("enabled", true);
+      ctx.config.set(guildId, CONFIG_KEYS.dmOnAction, enabled);
+      await interaction.reply({
+        content: `DM on action is now ${enabled ? "enabled" : "disabled"}.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  },
+};
+
+export const configModule: BotModule = { name: "config", commands: [config] };
