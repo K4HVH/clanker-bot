@@ -20,6 +20,8 @@ export const CONFIG_KEYS = {
   raidDetection: "raid_detection",
   ticketCategoryId: "ticket_category_id",
   ticketStaffRoleId: "ticket_staff_role_id",
+  welcomeChannelId: "welcome_channel_id",
+  welcomeMessage: "welcome_message",
 } as const;
 
 export class ConfigService {

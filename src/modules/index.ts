@@ -5,8 +5,10 @@ import { guardsModule } from "./guards";
 import { loggingModule } from "./logging";
 import { moderationModule } from "./moderation";
 import { pingModule } from "./ping";
+import { tagsModule } from "./tags";
 import { ticketsModule } from "./tickets";
 import { verificationModule } from "./verification";
+import { welcomeModule } from "./welcome";
 
 // Modules are registered explicitly (no filesystem scanning) so Bun never has to
 // glob at runtime, and the set of features is type-checked.
@@ -19,4 +21,6 @@ export const modules: BotModule[] = [
   verificationModule,
   guardsModule,
   ticketsModule,
+  tagsModule,
+  welcomeModule,
 ];
