@@ -20,3 +20,11 @@ test("ignores cases older than the decay window", () => {
   ];
   expect(computeActiveScore(cases, NOW, 90)).toBe(3); // only the kick counts
 });
+
+test("auto-applied cases do not count toward the score", () => {
+  const cases = [
+    { type: "warn", createdAt: NOW - 1_000 },
+    { type: "kick", createdAt: NOW - 1_000, meta: '{"auto":true}' },
+  ];
+  expect(computeActiveScore(cases, NOW, 90)).toBe(1); // only the manual warn
+});
