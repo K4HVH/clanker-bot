@@ -22,6 +22,13 @@
       "when": 1783942725117,
       "tag": "0002_yellow_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783945021029,
+      "tag": "0003_talented_supernaut",
+      "breakpoints": true
     }
   ]
 }
