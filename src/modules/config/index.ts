@@ -1,265 +1,310 @@
 import {
-  ChannelType,
-  EmbedBuilder,
+  ActionRowBuilder,
+  type AnySelectMenuInteraction,
+  AttachmentBuilder,
+  ButtonBuilder,
+  type ButtonInteraction,
+  ButtonStyle,
+  ContainerBuilder,
   InteractionContextType,
+  type MessageComponentInteraction,
   MessageFlags,
+  type ModalSubmitInteraction,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  TextDisplayBuilder,
 } from "discord.js";
-import type { BotModule, SlashCommand } from "../../core/module";
-import { CONFIG_KEYS } from "../../lib/config";
+import type { AppContext } from "../../core/context";
+import type { BotModule, ComponentHandler, SlashCommand } from "../../core/module";
+import { getSetting, REGISTRY, validateSetting } from "../../lib/config";
+import { buildModal, buildPanel } from "./panel";
 
-const data = new SlashCommandBuilder()
-  .setName("config")
-  .setDescription("View or change bot configuration.")
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-  .setContexts(InteractionContextType.Guild)
-  .addSubcommand((s) => s.setName("view").setDescription("Show the current configuration."))
-  .addSubcommand((s) =>
-    s
-      .setName("log-channel")
-      .setDescription("Set a log channel.")
-      .addStringOption((o) =>
-        o
-          .setName("kind")
-          .setDescription("Which log to set")
-          .setRequired(true)
-          .addChoices({ name: "mod", value: "mod" }, { name: "member", value: "member" }),
-      )
-      .addChannelOption((o) =>
-        o
-          .setName("channel")
-          .setDescription("Target text channel")
-          .addChannelTypes(ChannelType.GuildText)
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("dm-on-action")
-      .setDescription("Whether to DM users when they are actioned.")
-      .addBooleanOption((o) =>
-        o.setName("enabled").setDescription("Enable DMs on action").setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("toggle")
-      .setDescription("Enable or disable a feature flag.")
-      .addStringOption((o) =>
-        o
-          .setName("feature")
-          .setDescription("Feature to toggle")
-          .setRequired(true)
-          .addChoices(
-            { name: "automod-spam", value: "automod_spam" },
-            { name: "automod-invites", value: "automod_invites" },
-            { name: "automod-links", value: "automod_links" },
-            { name: "auto-escalation", value: "auto_escalation" },
-            { name: "raid-detection", value: "raid_detection" },
-          ),
-      )
-      .addBooleanOption((o) => o.setName("enabled").setDescription("On or off").setRequired(true)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("verified-role")
-      .setDescription("Set the role granted when a member passes verification.")
-      .addRoleOption((o) => o.setName("role").setDescription("Verified role").setRequired(true)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("min-account-age")
-      .setDescription("Kick+flag accounts younger than this many days (0 = off).")
-      .addIntegerOption((o) =>
-        o
-          .setName("days")
-          .setDescription("Minimum age in days (0 disables)")
-          .setMinValue(0)
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("ticket-category")
-      .setDescription("Category new ticket channels are created under.")
-      .addChannelOption((o) =>
-        o
-          .setName("category")
-          .setDescription("Category channel")
-          .addChannelTypes(ChannelType.GuildCategory)
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("ticket-staff")
-      .setDescription("Role that can see and handle tickets.")
-      .addRoleOption((o) => o.setName("role").setDescription("Staff role").setRequired(true)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("welcome-channel")
-      .setDescription("Channel where welcome messages are posted.")
-      .addChannelOption((o) =>
-        o
-          .setName("channel")
-          .setDescription("Welcome channel")
-          .addChannelTypes(ChannelType.GuildText)
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("welcome-message")
-      .setDescription("Welcome message template ({user} = mention).")
-      .addStringOption((o) =>
-        o.setName("text").setDescription("Template; use {user} for the mention").setRequired(true),
-      ),
-  );
+const V2 = MessageFlags.IsComponentsV2;
+const DEFAULT_CATEGORY = "general";
 
-const config: SlashCommand = {
-  data,
+type Interaction = MessageComponentInteraction | ModalSubmitInteraction;
+
+async function requireManageGuild(interaction: Interaction): Promise<boolean> {
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return true;
+  await interaction
+    .reply({ content: "You need the Manage Server permission.", flags: MessageFlags.Ephemeral })
+    .catch(() => {});
+  return false;
+}
+
+// ── /config command ─────────────────────────────────────────────────────────
+const configCommand: SlashCommand = {
+  data: new SlashCommandBuilder()
+    .setName("config")
+    .setDescription("Open the server configuration panel.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
   async execute(interaction, ctx) {
-    if (!interaction.inGuild()) {
-      await interaction.reply({ content: "Guild only.", flags: MessageFlags.Ephemeral });
+    if (!interaction.inGuild()) return;
+    await interaction.reply({
+      flags: V2 | MessageFlags.Ephemeral,
+      components: buildPanel(ctx, interaction.guildId, DEFAULT_CATEGORY),
+    });
+  },
+};
+
+// ── Export / Import handlers ─────────────────────────────────────────────────
+async function handleExport(
+  interaction: ButtonInteraction,
+  ctx: AppContext,
+  guildId: string,
+): Promise<void> {
+  const config: Record<string, unknown> = {};
+  for (const s of REGISTRY) {
+    const value = ctx.config.getEffective<unknown>(guildId, s.key);
+    if (value !== undefined) config[s.key] = value;
+  }
+  const payload = { schemaVersion: 1, guildId, exportedAt: new Date().toISOString(), config };
+  const file = new AttachmentBuilder(Buffer.from(JSON.stringify(payload, null, 2), "utf8"), {
+    name: `clanker-config-${guildId}.json`,
+  });
+  await interaction.reply({
+    content:
+      "Here's your config export.\n⚠️ Channel/role/category IDs are specific to **this** server and won't resolve if imported elsewhere.",
+    files: [file],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+async function handleImport(
+  interaction: ButtonInteraction,
+  ctx: AppContext,
+  guildId: string,
+): Promise<void> {
+  const channel = interaction.channel;
+  if (!channel || !channel.isTextBased() || channel.isDMBased()) {
+    await interaction.reply({ content: "Can't import here.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  await interaction.reply({
+    content: "Upload your `.json` config in this channel within 60s (or type `cancel`).",
+    flags: MessageFlags.Ephemeral,
+  });
+
+  const collector = channel.createMessageCollector({
+    filter: (m) => m.author.id === interaction.user.id,
+    max: 1,
+    time: 60_000,
+  });
+
+  collector.on("collect", async (msg) => {
+    if (msg.content.trim().toLowerCase() === "cancel") {
+      await interaction.followUp({ content: "Import cancelled.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const guildId = interaction.guildId;
-    const sub = interaction.options.getSubcommand();
-
-    if (sub === "view") {
-      const modCh = ctx.config.get<string>(guildId, CONFIG_KEYS.modLogChannelId);
-      const memCh = ctx.config.get<string>(guildId, CONFIG_KEYS.memberLogChannelId);
-      const dm = ctx.config.get<boolean>(guildId, CONFIG_KEYS.dmOnAction) ?? false;
-      const embed = new EmbedBuilder().setTitle("Configuration").addFields(
-        { name: "Mod log channel", value: modCh ? `<#${modCh}>` : "*(unset)*" },
-        { name: "Member log channel", value: memCh ? `<#${memCh}>` : "*(unset)*" },
-        { name: "DM on action", value: dm ? "enabled" : "disabled" },
-        {
-          name: "Automod",
-          value: [
-            `spam: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodSpam) ? "on" : "off"}`,
-            `invites: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodInvites) ? "on" : "off"}`,
-            `links: ${ctx.config.get<boolean>(guildId, CONFIG_KEYS.automodLinks) ? "on" : "off"}`,
-          ].join(" · "),
-        },
-        {
-          name: "Auto-escalation",
-          value: ctx.config.get<boolean>(guildId, CONFIG_KEYS.autoEscalation) ? "on" : "off",
-        },
-        {
-          name: "Verified role",
-          value: (() => {
-            const r = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
-            return r ? `<@&${r}>` : "*(unset)*";
-          })(),
-        },
-        {
-          name: "Min account age",
-          value: (() => {
-            const d = ctx.config.get<number>(guildId, CONFIG_KEYS.minAccountAgeDays) ?? 0;
-            return d > 0 ? `${d}d` : "off";
-          })(),
-        },
-        {
-          name: "Raid detection",
-          value: ctx.config.get<boolean>(guildId, CONFIG_KEYS.raidDetection) ? "on" : "off",
-        },
-      );
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    const attachment = msg.attachments.first();
+    if (!attachment || !/\.json$/i.test(attachment.name)) {
+      await interaction.followUp({
+        content: "No `.json` file attached — nothing imported.",
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
-
-    if (sub === "log-channel") {
-      const kind = interaction.options.getString("kind", true);
-      const channel = interaction.options.getChannel("channel", true);
-      const key = kind === "mod" ? CONFIG_KEYS.modLogChannelId : CONFIG_KEYS.memberLogChannelId;
-      ctx.config.set(guildId, key, channel.id);
-      await interaction.reply({
-        content: `Set the ${kind} log channel to <#${channel.id}>.`,
+    if (attachment.size > 65_536) {
+      await interaction.followUp({ content: "That file is too large.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    let incoming: Record<string, unknown>;
+    try {
+      const text = await fetch(attachment.url).then((r) => r.text());
+      const parsed = JSON.parse(text) as { config?: Record<string, unknown> } & Record<
+        string,
+        unknown
+      >;
+      incoming = parsed.config ?? parsed;
+    } catch {
+      await interaction.followUp({
+        content: "Couldn't read that file as JSON.",
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    if (sub === "dm-on-action") {
-      const enabled = interaction.options.getBoolean("enabled", true);
-      ctx.config.set(guildId, CONFIG_KEYS.dmOnAction, enabled);
-      await interaction.reply({
-        content: `DM on action is now ${enabled ? "enabled" : "disabled"}.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    let applied = 0;
+    let skipped = 0;
+    for (const [key, value] of Object.entries(incoming)) {
+      const setting = getSetting(key);
+      if (!setting || !validateSetting(setting, value)) {
+        skipped++;
+        continue;
+      }
+      ctx.config.set(guildId, key, value);
+      applied++;
+    }
+    await msg.delete().catch(() => {});
+    await interaction.followUp({
+      content: `Import complete — **${applied}** applied, **${skipped}** skipped (unknown or invalid). Reopen \`/config\` to see the changes.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  });
+
+  collector.on("end", (collected) => {
+    if (collected.size === 0) {
+      void interaction
+        .followUp({ content: "Import timed out — nothing changed.", flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
+  });
+}
+
+// ── Button handler (toggle/edit/export/import/reset/close) ───────────────────
+const buttonHandler: ComponentHandler = {
+  customId: "cfg",
+  type: "button",
+  match: "prefix",
+  async handle(interaction, ctx) {
+    const button = interaction as ButtonInteraction;
+    if (!(await requireManageGuild(button))) return;
+    const guildId = button.guildId ?? ctx.env.guildId;
+    const [, verb, arg] = button.customId.split(":");
+
+    if (verb === "toggle" && arg) {
+      const setting = getSetting(arg);
+      if (!setting) return;
+      ctx.config.set(guildId, setting.key, !ctx.config.getEffective<boolean>(guildId, setting.key));
+      await button.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
       return;
     }
 
-    if (sub === "toggle") {
-      const feature = interaction.options.getString("feature", true);
-      const enabled = interaction.options.getBoolean("enabled", true);
-      ctx.config.set(guildId, feature, enabled);
-      await interaction.reply({
-        content: `\`${feature}\` is now ${enabled ? "enabled" : "disabled"}.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    if (verb === "edit" && arg) {
+      const setting = getSetting(arg);
+      if (!setting) return;
+      const current = ctx.config.getEffective<unknown>(guildId, setting.key);
+      await button.showModal(buildModal(setting, current === undefined ? "" : String(current)));
       return;
     }
 
-    if (sub === "verified-role") {
-      const role = interaction.options.getRole("role", true);
-      ctx.config.set(guildId, CONFIG_KEYS.verifiedRoleId, role.id);
-      await interaction.reply({
-        content: `Verified role set to <@&${role.id}>.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    if (verb === "export") {
+      await handleExport(button, ctx, guildId);
       return;
     }
 
-    if (sub === "min-account-age") {
-      const days = interaction.options.getInteger("days", true);
-      ctx.config.set(guildId, CONFIG_KEYS.minAccountAgeDays, days);
-      await interaction.reply({
-        content: days > 0 ? `Account-age gate set to ${days}d.` : "Account-age gate disabled.",
-        flags: MessageFlags.Ephemeral,
-      });
+    if (verb === "import") {
+      await handleImport(button, ctx, guildId);
       return;
     }
 
-    if (sub === "ticket-category") {
-      const category = interaction.options.getChannel("category", true);
-      ctx.config.set(guildId, CONFIG_KEYS.ticketCategoryId, category.id);
-      await interaction.reply({ content: "Ticket category set.", flags: MessageFlags.Ephemeral });
+    if (verb === "reset" && arg) {
+      const confirm = new ContainerBuilder()
+        .setAccentColor(0xe74c3c)
+        .addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(
+            "## ⚠️ Reset everything?\nThis reverts **every** setting to its default by clearing all saved config for this server. This cannot be undone.",
+          ),
+        )
+        .addActionRowComponents(
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`cfg:resetyes:${arg}`)
+              .setStyle(ButtonStyle.Danger)
+              .setLabel("Reset everything"),
+            new ButtonBuilder()
+              .setCustomId(`cfg:resetno:${arg}`)
+              .setStyle(ButtonStyle.Secondary)
+              .setLabel("Cancel"),
+          ),
+        );
+      await button.update({ flags: V2, components: [confirm] });
       return;
     }
 
-    if (sub === "ticket-staff") {
-      const role = interaction.options.getRole("role", true);
-      ctx.config.set(guildId, CONFIG_KEYS.ticketStaffRoleId, role.id);
-      await interaction.reply({
-        content: `Ticket staff role set to <@&${role.id}>.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    if (verb === "resetyes" && arg) {
+      const cleared = ctx.config.reset(guildId);
+      ctx.logger.info("config reset", { guildId, cleared });
+      await button.update({ flags: V2, components: buildPanel(ctx, guildId, arg) });
       return;
     }
 
-    if (sub === "welcome-channel") {
-      const channel = interaction.options.getChannel("channel", true);
-      ctx.config.set(guildId, CONFIG_KEYS.welcomeChannelId, channel.id);
-      await interaction.reply({
-        content: `Welcome channel set to <#${channel.id}>.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    if (verb === "resetno" && arg) {
+      await button.update({ flags: V2, components: buildPanel(ctx, guildId, arg) });
       return;
     }
 
-    if (sub === "welcome-message") {
-      const text = interaction.options.getString("text", true);
-      ctx.config.set(guildId, CONFIG_KEYS.welcomeMessage, text);
-      await interaction.reply({
-        content: "Welcome message updated.",
-        flags: MessageFlags.Ephemeral,
+    if (verb === "close") {
+      await button.update({
+        flags: V2,
+        components: [
+          new ContainerBuilder().addTextDisplayComponents(
+            new TextDisplayBuilder().setContent("Configuration panel closed."),
+          ),
+        ],
       });
     }
   },
 };
 
-export const configModule: BotModule = { name: "config", commands: [config] };
+// ── Select handler (category nav / channel / role) ──────────────────────────
+const selectHandler: ComponentHandler = {
+  customId: "cfg",
+  type: "select",
+  match: "prefix",
+  async handle(interaction, ctx) {
+    const select = interaction as AnySelectMenuInteraction;
+    if (!(await requireManageGuild(select))) return;
+    const guildId = select.guildId ?? ctx.env.guildId;
+    const [, verb, arg] = select.customId.split(":");
+
+    if (verb === "cat") {
+      const category = select.values[0] ?? DEFAULT_CATEGORY;
+      await select.update({ flags: V2, components: buildPanel(ctx, guildId, category) });
+      return;
+    }
+
+    // chan / role: set the chosen id, or unset when the selection is cleared
+    if (arg) {
+      const setting = getSetting(arg);
+      if (!setting) return;
+      const chosen = select.values[0];
+      if (chosen) ctx.config.set(guildId, setting.key, chosen);
+      else ctx.config.unset(guildId, setting.key);
+      await select.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
+    }
+  },
+};
+
+// ── Modal handler (text/int edits) ──────────────────────────────────────────
+const modalHandler: ComponentHandler = {
+  customId: "cfg",
+  type: "modal",
+  match: "prefix",
+  async handle(interaction, ctx) {
+    const modal = interaction as ModalSubmitInteraction;
+    if (!(await requireManageGuild(modal))) return;
+    const guildId = modal.guildId ?? ctx.env.guildId;
+    const [, , key] = modal.customId.split(":");
+    const setting = key ? getSetting(key) : undefined;
+    if (!setting) return;
+
+    const raw = modal.fields.getTextInputValue("val");
+    let value: unknown = raw;
+    if (setting.type === "int") {
+      const parsed = Number.parseInt(raw.trim(), 10);
+      if (!validateSetting(setting, parsed)) {
+        await modal.reply({
+          content: `Invalid value — must be a whole number between ${setting.min} and ${setting.max}.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      value = parsed;
+    }
+    ctx.config.set(guildId, setting.key, value);
+
+    if (modal.isFromMessage()) {
+      await modal.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
+    } else {
+      await modal.reply({ content: "Saved.", flags: MessageFlags.Ephemeral });
+    }
+  },
+};
+
+export const configModule: BotModule = {
+  name: "config",
+  commands: [configCommand],
+  components: [buttonHandler, selectHandler, modalHandler],
+};

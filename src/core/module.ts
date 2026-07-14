@@ -1,7 +1,7 @@
 import type {
-  ButtonInteraction,
   ChatInputCommandInteraction,
   ClientEvents,
+  MessageComponentInteraction,
   ModalSubmitInteraction,
   SlashCommandBuilder,
 } from "discord.js";
@@ -23,8 +23,13 @@ export interface Listener<K extends keyof ClientEvents = keyof ClientEvents> {
 
 export interface ComponentHandler {
   customId: string;
-  type: "button" | "modal";
-  handle(interaction: ButtonInteraction | ModalSubmitInteraction, ctx: AppContext): Promise<void>;
+  type: "button" | "modal" | "select";
+  // "exact" (default) matches customId exactly; "prefix" matches customId or `${customId}:...`.
+  match?: "exact" | "prefix";
+  handle(
+    interaction: MessageComponentInteraction | ModalSubmitInteraction,
+    ctx: AppContext,
+  ): Promise<void>;
 }
 
 export interface BotModule {

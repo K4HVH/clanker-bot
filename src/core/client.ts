@@ -24,7 +24,11 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
 
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) void router.handle(interaction);
-    else if (interaction.isButton() || interaction.isModalSubmit())
+    else if (
+      interaction.isButton() ||
+      interaction.isModalSubmit() ||
+      interaction.isAnySelectMenu()
+    )
       void componentRouter.handle(interaction);
   });
 
