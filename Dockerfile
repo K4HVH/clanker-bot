@@ -10,7 +10,7 @@ FROM base AS release
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock ./
-COPY drizzle ./drizzle
+COPY schema.sql ./schema.sql
 COPY assets ./assets
 COPY src ./src
 # Migrations run on startup inside src/index.ts before the gateway connects.

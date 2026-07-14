@@ -5,10 +5,10 @@ import {
   type User,
 } from "discord.js";
 import type { AppContext } from "../../core/context";
-import { type CaseType, createCase } from "../../repositories/cases.repository";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { checkActionable } from "../../services/moderation.service";
-import { logCase } from "../../services/modlog.service";
+import { type CaseType, createCase } from "../../db/cases";
+import { CONFIG_KEYS } from "../../lib/config";
+import { checkActionable } from "../../lib/moderation";
+import { logCase } from "../../lib/modlog";
 
 export async function recordAndAnnounce(
   interaction: ChatInputCommandInteraction,

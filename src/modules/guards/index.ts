@@ -1,8 +1,8 @@
 import { EmbedBuilder, Events } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { logModAlert } from "../../services/modlog.service";
-import { RaidDetector } from "../../services/raid.service";
+import { CONFIG_KEYS } from "../../lib/config";
+import { logModAlert } from "../../lib/modlog";
+import { RaidDetector } from "../../lib/raid";
 
 const raid = new RaidDetector();
 

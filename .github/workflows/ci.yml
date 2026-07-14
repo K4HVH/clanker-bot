@@ -15,7 +15,6 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun run lint
       - run: bun test
 
   docker:

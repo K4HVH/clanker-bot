@@ -22,9 +22,9 @@ import {
   closeTicket,
   createTicket,
   getTicketByChannel,
-} from "../../repositories/tickets.repository";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { logModAlert } from "../../services/modlog.service";
+} from "../../db/tickets";
+import { CONFIG_KEYS } from "../../lib/config";
+import { logModAlert } from "../../lib/modlog";
 
 function closeRow(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
