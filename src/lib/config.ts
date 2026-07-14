@@ -39,8 +39,6 @@ export const CONFIG_KEYS = {
   ticketStaffRoleId: "ticket_staff_role_id",
   ticketTranscriptLimit: "ticket_transcript_limit",
   ticketPanelText: "ticket_panel_text",
-  welcomeChannelId: "welcome_channel_id",
-  welcomeMessage: "welcome_message",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -73,7 +71,6 @@ export const CATEGORIES: Category[] = [
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
-  { id: "welcome", label: "Welcome", accentColor: 0x1abc9c },
 ];
 
 const K = CONFIG_KEYS;
@@ -124,9 +121,6 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketStaffRoleId, category: "tickets", type: "role", default: undefined, label: "Ticket staff role" },
   { key: K.ticketTranscriptLimit, category: "tickets", type: "int", min: 1, max: 100, default: 100, label: "Transcript limit" },
   { key: K.ticketPanelText, category: "tickets", type: "text", default: "Need help? Click **Open Ticket** to talk to the team privately.", label: "Ticket panel text" },
-  // Welcome
-  { key: K.welcomeChannelId, category: "welcome", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Welcome channel" },
-  { key: K.welcomeMessage, category: "welcome", type: "text", default: "Welcome {user}!", label: "Welcome message ({user}=mention)" },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));

@@ -13,7 +13,7 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Verification** — distorted-image captcha (DM on join + `/verify-panel` fallback) → grants a configured role.
 - **Join guards** — account-age gate (flag + auto-kick) and join-velocity raid detection (mod-log alert).
 - **Tickets** — `/ticket-panel` → private channel per ticket → transcript saved on close.
-- **Support helpers** — `/tag` canned answers + configurable welcome messages.
+- **Support helpers** — `/tag` canned answers for common questions.
 
 All automod / escalation / verification / raid features **default OFF** and are enabled via `/config`.
 
@@ -49,7 +49,7 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 
 Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
 
-**Categories** (38 settings): General · Automod · Escalation · Strike Weights · Raid · Guards · Verification · Tickets · Welcome — covering log channels, automod thresholds, the full escalation ladder, strike weights, raid detection, the account-age gate, captcha tuning, ticket setup, and the welcome message.
+**Categories** (36 settings): General · Automod · Escalation · Strike Weights · Raid · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, raid detection, the account-age gate, captcha tuning, and ticket setup.
 
 The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 
@@ -68,4 +68,4 @@ Layout: `src/core/` (framework), `src/db/` (connection + one query file per tabl
 
 ## Roadmap
 
-Done: moderation, automod, verification, tickets, tags/welcome. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.
+Done: moderation, automod, verification, tickets, tags. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.
