@@ -34,8 +34,23 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
 
   for (const module of modules) {
     for (const listener of module.listeners ?? []) {
-      const invoke = (...args: unknown[]) =>
-        (listener.handle as (ctx: AppContext, ...a: unknown[]) => void)(ctx, ...args);
+      // Wrap every listener in an error boundary so a throw/rejection in one
+      // handler (e.g. a failed captcha render on join) is logged, not an
+      // unhandled rejection — mirroring how ComponentRouter guards components.
+      const handle = listener.handle as (
+        ctx: AppContext,
+        ...a: unknown[]
+      ) => Promise<void> | void;
+      const invoke = async (...args: unknown[]) => {
+        try {
+          await handle(ctx, ...args);
+        } catch (error) {
+          ctx.logger.error("listener failed", {
+            event: String(listener.event),
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
       if (listener.once) client.once(listener.event, invoke);
       else client.on(listener.event, invoke);
     }
