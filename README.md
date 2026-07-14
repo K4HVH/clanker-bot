@@ -45,22 +45,17 @@ docker compose pull && docker compose up -d
 
 The SQLite database lives on the `./data` bind-mount and persists across redeploys. `restart: unless-stopped` keeps the bot up.
 
-## Configuration (`/config`, requires Manage Server)
+## Configuration
 
-| Subcommand | Purpose |
-|---|---|
-| `view` | Show all current settings |
-| `log-channel <mod\|member> <#channel>` | Set the mod-log / member-log channels |
-| `dm-on-action <bool>` | DM users when actioned |
-| `toggle <feature> <bool>` | Enable/disable `automod-spam`, `automod-invites`, `automod-links`, `auto-escalation`, `raid-detection` |
-| `min-account-age <days>` | Flag + kick accounts younger than N days (0 = off) |
-| `verified-role <@role>` | Role granted on passing verification |
-| `ticket-category <category>` / `ticket-staff <@role>` | Where ticket channels go + who staffs them |
-| `welcome-channel <#channel>` / `welcome-message <text>` | Welcome on join (`{user}` = mention) |
+Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
+
+**Categories** (38 settings): General · Automod · Escalation · Strike Weights · Raid · Guards · Verification · Tickets · Welcome — covering log channels, automod thresholds, the full escalation ladder, strike weights, raid detection, the account-age gate, captcha tuning, ticket setup, and the welcome message.
+
+The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 
 ## Commands
 
-`/ping` · `/config` · `/warn` `/note` `/timeout` `/kick` `/ban` `/unban` `/case` `/history` · `/verify-panel` · `/ticket-panel` · `/tag`
+`/config` (settings panel) · `/warn` `/note` `/timeout` `/kick` `/ban` `/unban` `/case` `/history` · `/verify-panel` · `/ticket-panel` · `/tag`
 
 ## Development
 
