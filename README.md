@@ -19,14 +19,14 @@ All automod / escalation / verification / raid features **default OFF** and are 
 
 ## Stack
 
-TypeScript on **Bun** · **discord.js v14** · **Drizzle ORM** on `bun:sqlite` (repository layer) · Docker + Compose · GitHub Actions → GHCR. Captcha rendering via `@resvg/resvg-wasm` + a bundled font (no native modules).
+TypeScript on **Bun** · **discord.js v14** · raw **`bun:sqlite`** (single `schema.sql`, no ORM) · Docker + Compose · GitHub Actions → GHCR. Captcha rendering via `@resvg/resvg-wasm` + a bundled font (no native modules).
 
 ## Quick start
 
 ```bash
 bun install
 cp .env.example .env      # fill in DISCORD_TOKEN, DISCORD_APPLICATION_ID, DISCORD_GUILD_ID
-bun run start             # migrations run automatically on startup
+bun run start             # schema is applied automatically on startup
 ```
 
 Dev with hot reload: `bun run dev`.
@@ -67,11 +67,9 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 ```bash
 bun test              # unit tests (in-memory SQLite)
 bun run typecheck     # tsc --noEmit
-bun run lint          # biome check  (lint:fix to auto-format)
-bun run db:generate   # generate a Drizzle migration after editing src/db/schema.ts
 ```
 
-Architecture, decision log, and per-phase implementation plans live in `docs/superpowers/`.
+Layout: `src/core/` (framework), `src/db/` (connection + one query file per table), `src/lib/` (shared logic), `src/modules/` (features). The database schema is `schema.sql` at the repo root — edit it directly (tables use `CREATE TABLE IF NOT EXISTS`; in dev, delete the SQLite file to pick up changes).
 
 ## Roadmap
 

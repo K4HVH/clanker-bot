@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { ConfigService } from "../../src/lib/config";
 import { makeTestDb } from "../helpers/db";
 
-test("typed get/set round-trips and caches", () => {
+test("typed get/set round-trips", () => {
   const cfg = new ConfigService(makeTestDb());
   expect(cfg.get<string>("g1", "chan")).toBeUndefined();
   cfg.set("g1", "chan", "123");
