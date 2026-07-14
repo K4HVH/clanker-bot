@@ -1,12 +1,11 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import type { AppContext } from "../../src/core/context";
 import { createLogger } from "../../src/core/logger";
-import { createDatabase, runMigrations } from "../../src/db/client";
-import { ConfigService } from "../../src/services/config.service";
+import { createDatabase } from "../../src/db/index";
+import { ConfigService } from "../../src/lib/config";
 
 export function silentContext(): AppContext {
   const db = createDatabase(":memory:");
-  runMigrations(db);
   return {
     db,
     logger: createLogger("error", () => {}),

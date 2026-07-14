@@ -1,6 +1,6 @@
-import type { Env } from "../config/env";
-import type { BotDatabase } from "../db/client";
-import type { ConfigService } from "../services/config.service";
+import type { Env } from "../core/env";
+import type { BotDatabase } from "../db/index";
+import type { ConfigService } from "../lib/config";
 import type { Logger } from "./logger";
 
 export interface AppContext {

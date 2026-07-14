@@ -1,6 +1,6 @@
 import { Events } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
-import { CONFIG_KEYS } from "../../services/config.service";
+import { CONFIG_KEYS } from "../../lib/config";
 
 const onJoin: Listener<Events.GuildMemberAdd> = {
   event: Events.GuildMemberAdd,

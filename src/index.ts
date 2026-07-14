@@ -1,20 +1,19 @@
-import { loadEnv } from "./config/env";
+import { loadEnv } from "./core/env";
 import { createClient } from "./core/client";
 import type { AppContext } from "./core/context";
 import { createLogger } from "./core/logger";
 import { registerGuildCommands } from "./core/register-commands";
-import { createDatabase, runMigrations } from "./db/client";
+import { createDatabase } from "./db/index";
 import { modules } from "./modules";
-import { ConfigService } from "./services/config.service";
-import { startScheduler } from "./services/scheduler.service";
+import { ConfigService } from "./lib/config";
+import { startScheduler } from "./lib/scheduler";
 
 async function main(): Promise<void> {
   const env = loadEnv(process.env);
   const logger = createLogger(env.logLevel);
 
   const db = createDatabase(env.databasePath);
-  runMigrations(db);
-  logger.info("migrations applied", { databasePath: env.databasePath });
+  logger.info("database ready", { databasePath: env.databasePath });
 
   const config = new ConfigService(db);
   const ctx: AppContext = { db, logger, env, config };

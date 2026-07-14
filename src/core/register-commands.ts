@@ -1,5 +1,5 @@
 import { REST, Routes } from "discord.js";
-import type { Env } from "../config/env";
+import type { Env } from "../core/env";
 import type { BotModule } from "./module";
 
 export function collectCommandData(modules: BotModule[]): unknown[] {

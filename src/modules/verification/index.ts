@@ -22,9 +22,9 @@ import {
   deleteChallenge,
   getChallenge,
   setChallenge,
-} from "../../repositories/verification.repository";
-import { generateCode, renderCaptcha } from "../../services/captcha.service";
-import { CONFIG_KEYS } from "../../services/config.service";
+} from "../../db/verification";
+import { generateCode, renderCaptcha } from "../../lib/captcha";
+import { CONFIG_KEYS } from "../../lib/config";
 
 const CHALLENGE_TTL_MS = 10 * 60_000;
 

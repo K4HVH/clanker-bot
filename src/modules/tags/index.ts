@@ -5,7 +5,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { BotModule, SlashCommand } from "../../core/module";
-import { deleteTag, getTag, listTags, setTag } from "../../repositories/tags.repository";
+import { deleteTag, getTag, listTags, setTag } from "../../db/tags";
 
 const tag: SlashCommand = {
   data: new SlashCommandBuilder()

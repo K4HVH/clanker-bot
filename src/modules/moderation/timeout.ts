@@ -5,7 +5,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { SlashCommand } from "../../core/module";
-import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../util/duration";
+import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 export const timeoutCommand: SlashCommand = {
