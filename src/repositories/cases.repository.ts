@@ -1,6 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import type { BotDatabase } from "../db/client";
-import { cases } from "../db/schema";
+import { type BotDatabase, many, one } from "../db/client";
 
 export type CaseType = "warn" | "timeout" | "kick" | "ban" | "unban" | "note";
 
@@ -25,30 +23,34 @@ export interface CaseRecord {
   createdAt: number;
 }
 
+const COLUMNS = `id, guild_id AS guildId, case_number AS caseNumber, user_id AS userId,
+  moderator_id AS moderatorId, type, reason, meta, created_at AS createdAt`;
+
 export function createCase(db: BotDatabase, input: NewCase): CaseRecord {
-  return db.transaction((tx) => {
-    const row = tx
-      .select({ max: sql<number | null>`max(${cases.caseNumber})` })
-      .from(cases)
-      .where(eq(cases.guildId, input.guildId))
-      .get();
+  const insert = db.transaction((i: NewCase): CaseRecord => {
+    const row = one<{ max: number | null }>(
+      db,
+      "SELECT MAX(case_number) AS max FROM cases WHERE guild_id = ?",
+      i.guildId,
+    );
     const nextNumber = (row?.max ?? 0) + 1;
-    const inserted = tx
-      .insert(cases)
-      .values({
-        guildId: input.guildId,
-        caseNumber: nextNumber,
-        userId: input.userId,
-        moderatorId: input.moderatorId,
-        type: input.type,
-        reason: input.reason,
-        meta: input.meta === undefined ? null : JSON.stringify(input.meta),
-        createdAt: Date.now(),
-      })
-      .returning()
-      .get();
-    return inserted as CaseRecord;
+    const created = one<CaseRecord>(
+      db,
+      `INSERT INTO cases (guild_id, case_number, user_id, moderator_id, type, reason, meta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
+      i.guildId,
+      nextNumber,
+      i.userId,
+      i.moderatorId,
+      i.type,
+      i.reason,
+      i.meta === undefined ? null : JSON.stringify(i.meta),
+      Date.now(),
+    );
+    if (!created) throw new Error("failed to insert case");
+    return created;
   });
+  return insert(input);
 }
 
 export function getCaseByNumber(
@@ -56,11 +58,12 @@ export function getCaseByNumber(
   guildId: string,
   caseNumber: number,
 ): CaseRecord | undefined {
-  return db
-    .select()
-    .from(cases)
-    .where(and(eq(cases.guildId, guildId), eq(cases.caseNumber, caseNumber)))
-    .get() as CaseRecord | undefined;
+  return one<CaseRecord>(
+    db,
+    `SELECT ${COLUMNS} FROM cases WHERE guild_id = ? AND case_number = ?`,
+    guildId,
+    caseNumber,
+  );
 }
 
 export function listCasesByUser(
@@ -69,11 +72,11 @@ export function listCasesByUser(
   userId: string,
   limit = 10,
 ): CaseRecord[] {
-  return db
-    .select()
-    .from(cases)
-    .where(and(eq(cases.guildId, guildId), eq(cases.userId, userId)))
-    .orderBy(desc(cases.caseNumber))
-    .limit(limit)
-    .all() as CaseRecord[];
+  return many<CaseRecord>(
+    db,
+    `SELECT ${COLUMNS} FROM cases WHERE guild_id = ? AND user_id = ? ORDER BY case_number DESC LIMIT ?`,
+    guildId,
+    userId,
+    limit,
+  );
 }

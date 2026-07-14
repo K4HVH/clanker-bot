@@ -1,6 +1,4 @@
-import { asc, eq, lte } from "drizzle-orm";
-import type { BotDatabase } from "../db/client";
-import { scheduledActions } from "../db/schema";
+import { type BotDatabase, many, one, run } from "../db/client";
 
 export type ScheduledActionType = "unban";
 
@@ -14,6 +12,9 @@ export interface ScheduledAction {
   createdAt: number;
 }
 
+const COLUMNS = `id, guild_id AS guildId, type, user_id AS userId, reason,
+  run_at AS runAt, created_at AS createdAt`;
+
 export function scheduleAction(
   db: BotDatabase,
   input: {
@@ -24,29 +25,29 @@ export function scheduleAction(
     runAt: number;
   },
 ): ScheduledAction {
-  return db
-    .insert(scheduledActions)
-    .values({
-      guildId: input.guildId,
-      type: input.type,
-      userId: input.userId,
-      reason: input.reason ?? null,
-      runAt: input.runAt,
-      createdAt: Date.now(),
-    })
-    .returning()
-    .get() as ScheduledAction;
+  const created = one<ScheduledAction>(
+    db,
+    `INSERT INTO scheduled_actions (guild_id, type, user_id, reason, run_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
+    input.guildId,
+    input.type,
+    input.userId,
+    input.reason ?? null,
+    input.runAt,
+    Date.now(),
+  );
+  if (!created) throw new Error("failed to schedule action");
+  return created;
 }
 
 export function dueActions(db: BotDatabase, now: number): ScheduledAction[] {
-  return db
-    .select()
-    .from(scheduledActions)
-    .where(lte(scheduledActions.runAt, now))
-    .orderBy(asc(scheduledActions.runAt))
-    .all() as ScheduledAction[];
+  return many<ScheduledAction>(
+    db,
+    `SELECT ${COLUMNS} FROM scheduled_actions WHERE run_at <= ? ORDER BY run_at ASC`,
+    now,
+  );
 }
 
 export function deleteScheduledAction(db: BotDatabase, id: number): void {
-  db.delete(scheduledActions).where(eq(scheduledActions.id, id)).run();
+  run(db, "DELETE FROM scheduled_actions WHERE id = ?", id);
 }

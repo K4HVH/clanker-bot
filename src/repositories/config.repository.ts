@@ -1,14 +1,12 @@
-import { and, eq } from "drizzle-orm";
-import type { BotDatabase } from "../db/client";
-import { guildConfig } from "../db/schema";
+import { type BotDatabase, many, one, run } from "../db/client";
 
 export function getConfigRow(db: BotDatabase, guildId: string, key: string): string | undefined {
-  const row = db
-    .select()
-    .from(guildConfig)
-    .where(and(eq(guildConfig.guildId, guildId), eq(guildConfig.key, key)))
-    .get();
-  return row?.value;
+  return one<{ value: string }>(
+    db,
+    "SELECT value FROM guild_config WHERE guild_id = ? AND key = ?",
+    guildId,
+    key,
+  )?.value;
 }
 
 export function setConfigRow(
@@ -18,25 +16,28 @@ export function setConfigRow(
   value: string,
   updatedAt: number,
 ): void {
-  db.insert(guildConfig)
-    .values({ guildId, key, value, updatedAt })
-    .onConflictDoUpdate({
-      target: [guildConfig.guildId, guildConfig.key],
-      set: { value, updatedAt },
-    })
-    .run();
+  run(
+    db,
+    `INSERT INTO guild_config (guild_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    guildId,
+    key,
+    value,
+    updatedAt,
+  );
 }
 
-export function listConfigRows(db: BotDatabase, guildId: string): { key: string; value: string }[] {
-  return db
-    .select({ key: guildConfig.key, value: guildConfig.value })
-    .from(guildConfig)
-    .where(eq(guildConfig.guildId, guildId))
-    .all();
+export function listConfigRows(
+  db: BotDatabase,
+  guildId: string,
+): { key: string; value: string }[] {
+  return many<{ key: string; value: string }>(
+    db,
+    "SELECT key, value FROM guild_config WHERE guild_id = ?",
+    guildId,
+  );
 }
 
 export function deleteConfigRow(db: BotDatabase, guildId: string, key: string): void {
-  db.delete(guildConfig)
-    .where(and(eq(guildConfig.guildId, guildId), eq(guildConfig.key, key)))
-    .run();
+  run(db, "DELETE FROM guild_config WHERE guild_id = ? AND key = ?", guildId, key);
 }

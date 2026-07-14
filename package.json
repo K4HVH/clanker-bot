@@ -9,19 +9,15 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "bun test",
-    "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
+    "test": "bun test"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
-    "discord.js": "^14.26.0",
-    "drizzle-orm": "^0.44.0"
+    "discord.js": "^14.26.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.1.0",
     "@types/bun": "latest",
-    "drizzle-kit": "^0.31.0",
     "typescript": "^5.6.0"
   }
 }

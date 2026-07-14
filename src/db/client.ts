@@ -1,27 +1,33 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import * as schema from "./schema";
 
-export type BotDatabase = BunSQLiteDatabase<typeof schema>;
+export type BotDatabase = Database;
 
-const MIGRATIONS_DIR = "./drizzle";
+const SCHEMA_PATH = "./schema.sql";
 
+// Open (or create) the SQLite database, apply pragmas, and ensure the schema
+// exists. There are no migrations — schema.sql uses CREATE TABLE IF NOT EXISTS.
 export function createDatabase(path: string): BotDatabase {
-  // bun:sqlite creates the file but not its parent directory.
-  if (path !== ":memory:") {
-    mkdirSync(dirname(path), { recursive: true });
-  }
-  const sqlite = new Database(path, { create: true });
-  sqlite.exec("PRAGMA journal_mode = WAL;");
-  sqlite.exec("PRAGMA busy_timeout = 5000;");
-  sqlite.exec("PRAGMA synchronous = NORMAL;");
-  sqlite.exec("PRAGMA foreign_keys = ON;");
-  return drizzle({ client: sqlite, schema });
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path, { create: true });
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA busy_timeout = 5000;");
+  db.exec("PRAGMA synchronous = NORMAL;");
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec(readFileSync(SCHEMA_PATH, "utf8"));
+  return db;
 }
 
-export function runMigrations(db: BotDatabase): void {
-  migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+// Small typed query helpers so callers write plain SQL without repeating generics.
+export function one<T>(db: BotDatabase, sql: string, ...params: SQLQueryBindings[]): T | undefined {
+  return db.query<T, SQLQueryBindings[]>(sql).get(...params) ?? undefined;
+}
+
+export function many<T>(db: BotDatabase, sql: string, ...params: SQLQueryBindings[]): T[] {
+  return db.query<T, SQLQueryBindings[]>(sql).all(...params);
+}
+
+export function run(db: BotDatabase, sql: string, ...params: SQLQueryBindings[]): void {
+  db.query<unknown, SQLQueryBindings[]>(sql).run(...params);
 }

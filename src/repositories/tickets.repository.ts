@@ -1,6 +1,4 @@
-import { eq, sql } from "drizzle-orm";
-import type { BotDatabase } from "../db/client";
-import { tickets } from "../db/schema";
+import { type BotDatabase, one, run } from "../db/client";
 
 export interface TicketRecord {
   id: number;
@@ -15,38 +13,39 @@ export interface TicketRecord {
   closedAt: number | null;
 }
 
+const COLUMNS = `id, guild_id AS guildId, ticket_number AS ticketNumber, channel_id AS channelId,
+  opener_id AS openerId, subject, status, transcript, created_at AS createdAt, closed_at AS closedAt`;
+
 export function createTicket(
   db: BotDatabase,
   input: { guildId: string; channelId: string; openerId: string; subject: string },
 ): TicketRecord {
-  return db.transaction((tx) => {
-    const row = tx
-      .select({ max: sql<number | null>`max(${tickets.ticketNumber})` })
-      .from(tickets)
-      .where(eq(tickets.guildId, input.guildId))
-      .get();
-    return tx
-      .insert(tickets)
-      .values({
-        guildId: input.guildId,
-        ticketNumber: (row?.max ?? 0) + 1,
-        channelId: input.channelId,
-        openerId: input.openerId,
-        subject: input.subject,
-        status: "open",
-        transcript: null,
-        createdAt: Date.now(),
-        closedAt: null,
-      })
-      .returning()
-      .get() as TicketRecord;
+  const insert = db.transaction((i: typeof input): TicketRecord => {
+    const row = one<{ max: number | null }>(
+      db,
+      "SELECT MAX(ticket_number) AS max FROM tickets WHERE guild_id = ?",
+      i.guildId,
+    );
+    const nextNumber = (row?.max ?? 0) + 1;
+    const created = one<TicketRecord>(
+      db,
+      `INSERT INTO tickets (guild_id, ticket_number, channel_id, opener_id, subject, status, transcript, created_at, closed_at)
+       VALUES (?, ?, ?, ?, ?, 'open', NULL, ?, NULL) RETURNING ${COLUMNS}`,
+      i.guildId,
+      nextNumber,
+      i.channelId,
+      i.openerId,
+      i.subject,
+      Date.now(),
+    );
+    if (!created) throw new Error("failed to insert ticket");
+    return created;
   });
+  return insert(input);
 }
 
 export function getTicketByChannel(db: BotDatabase, channelId: string): TicketRecord | undefined {
-  return db.select().from(tickets).where(eq(tickets.channelId, channelId)).get() as
-    | TicketRecord
-    | undefined;
+  return one<TicketRecord>(db, `SELECT ${COLUMNS} FROM tickets WHERE channel_id = ?`, channelId);
 }
 
 export function closeTicket(
@@ -55,8 +54,11 @@ export function closeTicket(
   transcript: string,
   closedAt: number,
 ): void {
-  db.update(tickets)
-    .set({ status: "closed", transcript, closedAt })
-    .where(eq(tickets.channelId, channelId))
-    .run();
+  run(
+    db,
+    "UPDATE tickets SET status = 'closed', transcript = ?, closed_at = ? WHERE channel_id = ?",
+    transcript,
+    closedAt,
+    channelId,
+  );
 }

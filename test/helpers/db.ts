@@ -1,7 +1,5 @@
-import { type BotDatabase, createDatabase, runMigrations } from "../../src/db/client";
+import { type BotDatabase, createDatabase } from "../../src/db/client";
 
 export function makeTestDb(): BotDatabase {
-  const db = createDatabase(":memory:");
-  runMigrations(db);
-  return db;
+  return createDatabase(":memory:");
 }

@@ -1,6 +1,4 @@
-import { and, eq } from "drizzle-orm";
-import type { BotDatabase } from "../db/client";
-import { verificationChallenges } from "../db/schema";
+import { type BotDatabase, one, run } from "../db/client";
 
 export function setChallenge(
   db: BotDatabase,
@@ -9,13 +7,15 @@ export function setChallenge(
   code: string,
   expiresAt: number,
 ): void {
-  db.insert(verificationChallenges)
-    .values({ guildId, userId, code, expiresAt })
-    .onConflictDoUpdate({
-      target: [verificationChallenges.guildId, verificationChallenges.userId],
-      set: { code, expiresAt },
-    })
-    .run();
+  run(
+    db,
+    `INSERT INTO verification_challenges (guild_id, user_id, code, expires_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at`,
+    guildId,
+    userId,
+    code,
+    expiresAt,
+  );
 }
 
 export function getChallenge(
@@ -23,19 +23,14 @@ export function getChallenge(
   guildId: string,
   userId: string,
 ): { code: string; expiresAt: number } | undefined {
-  return db
-    .select({ code: verificationChallenges.code, expiresAt: verificationChallenges.expiresAt })
-    .from(verificationChallenges)
-    .where(
-      and(eq(verificationChallenges.guildId, guildId), eq(verificationChallenges.userId, userId)),
-    )
-    .get();
+  return one<{ code: string; expiresAt: number }>(
+    db,
+    "SELECT code, expires_at AS expiresAt FROM verification_challenges WHERE guild_id = ? AND user_id = ?",
+    guildId,
+    userId,
+  );
 }
 
 export function deleteChallenge(db: BotDatabase, guildId: string, userId: string): void {
-  db.delete(verificationChallenges)
-    .where(
-      and(eq(verificationChallenges.guildId, guildId), eq(verificationChallenges.userId, userId)),
-    )
-    .run();
+  run(db, "DELETE FROM verification_challenges WHERE guild_id = ? AND user_id = ?", guildId, userId);
 }
