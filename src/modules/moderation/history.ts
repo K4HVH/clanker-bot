@@ -6,9 +6,9 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { SlashCommand } from "../../core/module";
-import { listCasesByUser } from "../../repositories/cases.repository";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { computeActiveScore } from "../../services/infractions.service";
+import { listCasesByUser } from "../../db/cases";
+import { CONFIG_KEYS } from "../../lib/config";
+import { computeActiveScore } from "../../lib/infractions";
 
 export const historyCommand: SlashCommand = {
   data: new SlashCommandBuilder()

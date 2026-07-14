@@ -5,9 +5,9 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { SlashCommand } from "../../core/module";
-import { scheduleAction } from "../../repositories/scheduled-actions.repository";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../util/duration";
+import { scheduleAction } from "../../db/scheduled";
+import { CONFIG_KEYS } from "../../lib/config";
+import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 export const banCommand: SlashCommand = {

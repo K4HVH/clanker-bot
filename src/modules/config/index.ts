@@ -7,7 +7,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { BotModule, SlashCommand } from "../../core/module";
-import { CONFIG_KEYS } from "../../services/config.service";
+import { CONFIG_KEYS } from "../../lib/config";
 
 const data = new SlashCommandBuilder()
   .setName("config")

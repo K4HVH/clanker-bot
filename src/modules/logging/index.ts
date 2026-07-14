@@ -6,7 +6,7 @@ import {
   buildMessageDeleteEmbed,
   buildMessageUpdateEmbed,
   logMemberEvent,
-} from "../../services/modlog.service";
+} from "../../lib/modlog";
 
 const onDelete: Listener<Events.MessageDelete> = {
   event: Events.MessageDelete,

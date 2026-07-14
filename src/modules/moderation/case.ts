@@ -6,7 +6,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import type { SlashCommand } from "../../core/module";
-import { getCaseByNumber } from "../../repositories/cases.repository";
+import { getCaseByNumber } from "../../db/cases";
 
 export const caseCommand: SlashCommand = {
   data: new SlashCommandBuilder()

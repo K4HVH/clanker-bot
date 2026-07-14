@@ -1,11 +1,11 @@
 import { Events, PermissionFlagsBits } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
-import { createCase } from "../../repositories/cases.repository";
-import { type AutomodConfig, checkContentRules } from "../../services/automod.service";
-import { CONFIG_KEYS } from "../../services/config.service";
-import { applyEscalation } from "../../services/escalation.service";
-import { HeatTracker } from "../../services/heat.service";
-import { logCase } from "../../services/modlog.service";
+import { createCase } from "../../db/cases";
+import { type AutomodConfig, checkContentRules } from "../../lib/automod";
+import { CONFIG_KEYS } from "../../lib/config";
+import { applyEscalation } from "../../lib/escalation";
+import { HeatTracker } from "../../lib/heat";
+import { logCase } from "../../lib/modlog";
 
 const heat = new HeatTracker();
 

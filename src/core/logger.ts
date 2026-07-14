@@ -1,4 +1,4 @@
-import type { LogLevel } from "../config/env";
+import type { LogLevel } from "../core/env";
 
 export interface Logger {
   debug(msg: string, meta?: Record<string, unknown>): void;
