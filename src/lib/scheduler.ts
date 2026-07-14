@@ -7,6 +7,7 @@ import {
   type ScheduledAction,
   type ScheduledActionType,
 } from "../db/scheduled";
+import { pruneExpiredChallenges } from "../db/verification";
 import { logCase } from "./modlog";
 
 export type ActionExecutor = (
@@ -57,7 +58,17 @@ export async function runDueActions(
 
 export function startScheduler(ctx: AppContext, client: Client, intervalMs = 30_000): () => void {
   const timer = setInterval(() => {
-    void runDueActions(ctx, client, Date.now());
+    const now = Date.now();
+    void runDueActions(ctx, client, now);
+    // Piggyback periodic DB hygiene on the same tick: clear expired captcha rows.
+    // Guarded so a DB throw can't escape the timer callback and kill the process.
+    try {
+      pruneExpiredChallenges(ctx.db, now);
+    } catch (error) {
+      ctx.logger.error("prune expired challenges failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, intervalMs);
   return () => clearInterval(timer);
 }
