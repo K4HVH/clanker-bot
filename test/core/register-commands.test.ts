@@ -6,5 +6,5 @@ test("collects one JSON command payload per registered command", () => {
   const data = collectCommandData(modules);
   expect(data.length).toBeGreaterThanOrEqual(1);
   const names = data.map((d) => (d as { name: string }).name);
-  expect(names).toContain("ping");
+  expect(names).toContain("config");
 });

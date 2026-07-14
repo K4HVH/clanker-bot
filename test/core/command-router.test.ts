@@ -11,13 +11,13 @@ test("dispatches to the matching command", async () => {
   let called = false;
   const router = new CommandRouter(
     [
-      cmd("ping", async () => {
+      cmd("example", async () => {
         called = true;
       }),
     ],
     silentContext(),
   );
-  await router.handle(fakeInteraction("ping"));
+  await router.handle(fakeInteraction("example"));
   expect(called).toBe(true);
 });
 
