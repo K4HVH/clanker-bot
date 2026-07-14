@@ -11,31 +11,38 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
   async handle(ctx, member) {
     const guild = member.guild;
 
-    // Account-age gate: flag + auto-kick accounts younger than the threshold.
-    const minDays = ctx.config.get<number>(guild.id, CONFIG_KEYS.minAccountAgeDays) ?? 0;
+    // Account-age gate: flag and/or auto-kick accounts younger than the threshold.
+    const minDays = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.minAccountAgeDays);
     if (minDays > 0) {
       const ageMs = Date.now() - member.user.createdTimestamp;
       if (ageMs < minDays * 86_400_000) {
         const ageDays = Math.floor(ageMs / 86_400_000);
-        await logModAlert(
-          ctx,
-          guild,
-          new EmbedBuilder()
-            .setColor(0xe67e22)
-            .setTitle("New account kicked (age gate)")
-            .addFields(
-              { name: "User", value: `<@${member.id}> (${member.id})` },
-              { name: "Account age", value: `${ageDays}d (min ${minDays}d)` },
-            ),
-        );
-        await member.kick(`Account younger than ${minDays}d`).catch(() => {});
-        return; // kicked; skip raid tracking for this join
+        if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.accountAgeGateFlag)) {
+          await logModAlert(
+            ctx,
+            guild,
+            new EmbedBuilder()
+              .setColor(0xe67e22)
+              .setTitle("New account flagged (age gate)")
+              .addFields(
+                { name: "User", value: `<@${member.id}> (${member.id})` },
+                { name: "Account age", value: `${ageDays}d (min ${minDays}d)` },
+              ),
+          );
+        }
+        if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.accountAgeGateKick)) {
+          await member.kick(`Account younger than ${minDays}d`).catch(() => {});
+        }
+        return; // handled; skip raid tracking for this join
       }
     }
 
     // Raid detection: alert the mod-log on a join spike.
-    if (ctx.config.get<boolean>(guild.id, CONFIG_KEYS.raidDetection) ?? false) {
-      if (raid.record(guild.id, Date.now())) {
+    if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.raidDetection)) {
+      const windowMs = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.raidWindowMs);
+      const threshold = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.raidJoinThreshold);
+      const cooldownMs = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.raidAlertCooldownMs);
+      if (raid.record(guild.id, Date.now(), windowMs, threshold, cooldownMs)) {
         await logModAlert(
           ctx,
           guild,

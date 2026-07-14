@@ -2,7 +2,7 @@ import type { Guild, GuildMember } from "discord.js";
 import type { AppContext } from "../core/context";
 import { createCase, listCasesByUser } from "../db/cases";
 import { CONFIG_KEYS } from "./config";
-import { computeActiveScore } from "./infractions";
+import { computeActiveScore, strikeWeightsFrom } from "./infractions";
 import { logCase } from "./modlog";
 
 export interface EscalationAction {
@@ -10,12 +10,36 @@ export interface EscalationAction {
   durationMs?: number;
 }
 
-export function escalationActionFor(score: number): EscalationAction | null {
-  if (score >= 12) return { type: "ban" };
-  if (score >= 8) return { type: "kick" };
-  if (score >= 5) return { type: "timeout", durationMs: 86_400_000 };
-  if (score >= 3) return { type: "timeout", durationMs: 3_600_000 };
+export interface EscalationThresholds {
+  shortScore: number;
+  longScore: number;
+  kickScore: number;
+  banScore: number;
+  shortMs: number;
+  longMs: number;
+}
+
+export function escalationActionFor(
+  score: number,
+  t: EscalationThresholds,
+): EscalationAction | null {
+  if (score >= t.banScore) return { type: "ban" };
+  if (score >= t.kickScore) return { type: "kick" };
+  if (score >= t.longScore) return { type: "timeout", durationMs: t.longMs };
+  if (score >= t.shortScore) return { type: "timeout", durationMs: t.shortMs };
   return null;
+}
+
+function thresholdsFrom(ctx: AppContext, guildId: string): EscalationThresholds {
+  const g = (key: string) => ctx.config.getEffective<number>(guildId, key);
+  return {
+    shortScore: g(CONFIG_KEYS.escalationTimeoutShortScore),
+    longScore: g(CONFIG_KEYS.escalationTimeoutLongScore),
+    kickScore: g(CONFIG_KEYS.escalationKickScore),
+    banScore: g(CONFIG_KEYS.escalationBanScore),
+    shortMs: g(CONFIG_KEYS.escalationTimeoutShortMs),
+    longMs: g(CONFIG_KEYS.escalationTimeoutLongMs),
+  };
 }
 
 export async function applyEscalation(
@@ -23,12 +47,17 @@ export async function applyEscalation(
   guild: Guild,
   targetUserId: string,
 ): Promise<void> {
-  if (!(ctx.config.get<boolean>(guild.id, CONFIG_KEYS.autoEscalation) ?? false)) return;
+  if (!ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.autoEscalation)) return;
 
-  const decayDays = ctx.config.get<number>(guild.id, CONFIG_KEYS.strikeDecayDays) ?? 90;
+  const decayDays = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.strikeDecayDays);
   const cases = listCasesByUser(ctx.db, guild.id, targetUserId, 100);
-  const score = computeActiveScore(cases, Date.now(), decayDays);
-  const action = escalationActionFor(score);
+  const score = computeActiveScore(
+    cases,
+    Date.now(),
+    decayDays,
+    strikeWeightsFrom(ctx.config, guild.id),
+  );
+  const action = escalationActionFor(score, thresholdsFrom(ctx, guild.id));
   if (!action) return;
 
   const botMember = await guild.members.fetchMe();

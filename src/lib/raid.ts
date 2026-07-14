@@ -1,22 +1,21 @@
 import { HeatTracker } from "./heat";
 
 export class RaidDetector {
-  private readonly tracker: HeatTracker;
+  private readonly tracker = new HeatTracker();
   private readonly lastAlert = new Map<string, number>();
 
-  constructor(
-    windowMs = 10_000,
-    threshold = 8,
-    private readonly cooldownMs = 60_000,
-  ) {
-    this.tracker = new HeatTracker(windowMs, threshold);
-  }
-
-  // Returns true when a raid is detected and an alert should fire (cooldown-gated).
-  record(guildId: string, now: number): boolean {
-    if (!this.tracker.record(guildId, "join", now)) return false;
+  // Returns true when a join spike is detected and an alert should fire.
+  // Window/threshold/cooldown are passed per call so they can be config-driven.
+  record(
+    guildId: string,
+    now: number,
+    windowMs: number,
+    threshold: number,
+    cooldownMs: number,
+  ): boolean {
+    if (!this.tracker.record(guildId, "join", now, windowMs, threshold)) return false;
     const last = this.lastAlert.get(guildId) ?? 0;
-    if (now - last < this.cooldownMs) return false;
+    if (now - last < cooldownMs) return false;
     this.lastAlert.set(guildId, now);
     return true;
   }

@@ -26,8 +26,6 @@ import {
 import { generateCode, renderCaptcha } from "../../lib/captcha";
 import { CONFIG_KEYS } from "../../lib/config";
 
-const CHALLENGE_TTL_MS = 10 * 60_000;
-
 function enterRow(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -38,8 +36,10 @@ function enterRow(): ActionRowBuilder<ButtonBuilder> {
 }
 
 async function issueChallenge(ctx: AppContext, guildId: string, userId: string) {
-  const code = generateCode(6);
-  setChallenge(ctx.db, guildId, userId, code, Date.now() + CHALLENGE_TTL_MS);
+  const codeLength = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationCodeLength);
+  const ttlMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationChallengeTtlMs);
+  const code = generateCode(codeLength);
+  setChallenge(ctx.db, guildId, userId, code, Date.now() + ttlMs);
   const png = await renderCaptcha(code);
   const file = new AttachmentBuilder(Buffer.from(png), { name: "captcha.png" });
   const embed = new EmbedBuilder()
@@ -55,14 +55,16 @@ const verifyPanel: SlashCommand = {
     .setDescription("Post the verification panel in this channel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setContexts(InteractionContextType.Guild),
-  async execute(interaction) {
-    if (!interaction.channel || !("send" in interaction.channel)) {
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild() || !interaction.channel || !("send" in interaction.channel)) {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
     const embed = new EmbedBuilder()
       .setTitle("Server Verification")
-      .setDescription("Click **Verify** to prove you're human and unlock the server.");
+      .setDescription(
+        ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.verificationPanelText),
+      );
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId("verify_start")

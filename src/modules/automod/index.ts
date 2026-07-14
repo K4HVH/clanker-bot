@@ -14,11 +14,12 @@ const onMessage: Listener<Events.MessageCreate> = {
   async handle(ctx, message) {
     if (!message.guild || message.author.bot || !message.content) return;
 
+    const guildId = message.guild.id;
     const cfg: AutomodConfig = {
-      spam: ctx.config.get<boolean>(message.guild.id, CONFIG_KEYS.automodSpam) ?? false,
-      invites: ctx.config.get<boolean>(message.guild.id, CONFIG_KEYS.automodInvites) ?? false,
-      links: ctx.config.get<boolean>(message.guild.id, CONFIG_KEYS.automodLinks) ?? false,
-      mentionLimit: 5,
+      spam: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodSpam),
+      invites: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodInvites),
+      links: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodLinks),
+      mentionLimit: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodMentionLimit),
     };
     if (!cfg.spam && !cfg.invites && !cfg.links) return;
 
@@ -27,8 +28,15 @@ const onMessage: Listener<Events.MessageCreate> = {
 
     const mentionCount = message.mentions.users.size + message.mentions.roles.size;
     let violation = checkContentRules(message.content, mentionCount, cfg);
-    if (!violation && cfg.spam && heat.record(message.guild.id, message.author.id, Date.now())) {
-      violation = "spam (message flood)";
+    if (!violation && cfg.spam) {
+      const windowMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodSpamWindowMs);
+      const maxMessages = ctx.config.getEffective<number>(
+        guildId,
+        CONFIG_KEYS.automodSpamMaxMessages,
+      );
+      if (heat.record(guildId, message.author.id, Date.now(), windowMs, maxMessages)) {
+        violation = "spam (message flood)";
+      }
     }
     if (!violation) return;
 

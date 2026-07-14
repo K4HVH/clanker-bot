@@ -7,8 +7,10 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
   async handle(ctx, member) {
     const channelId = ctx.config.get<string>(member.guild.id, CONFIG_KEYS.welcomeChannelId);
     if (!channelId) return;
-    const template =
-      ctx.config.get<string>(member.guild.id, CONFIG_KEYS.welcomeMessage) ?? "Welcome {user}!";
+    const template = ctx.config.getEffective<string>(
+      member.guild.id,
+      CONFIG_KEYS.welcomeMessage,
+    );
     const channel =
       member.guild.channels.cache.get(channelId) ??
       (await member.guild.channels.fetch(channelId).catch(() => null));
