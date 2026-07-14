@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
+import { CAPTCHA_CHARSET } from "./verification-logic";
 
 // Safe charset: 0/O/1/I/L are already gone, and for each remaining look-alike
 // digit/letter pair (2/Z, 5/S, 6/G, 8/B) we drop the digit and keep the letter,
-// so a rotated glyph can't be misread as the other member of the pair.
-const CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ3479";
+// so a rotated glyph can't be misread as the other member of the pair. Shared with
+// isCodeShaped so "is this a code?" uses the exact same alphabet the renderer draws.
+const CHARSET = CAPTCHA_CHARSET;
 
 // Assets are resolved relative to THIS module, not the process cwd, so the bot
 // renders regardless of the working directory it is launched from (systemd,

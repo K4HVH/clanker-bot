@@ -1,5 +1,6 @@
 import { Events } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
+import { suppressedDeletions } from "../../lib/log-suppress";
 import {
   buildMemberJoinEmbed,
   buildMemberLeaveEmbed,
@@ -11,6 +12,8 @@ import {
 const onDelete: Listener<Events.MessageDelete> = {
   event: Events.MessageDelete,
   async handle(ctx, message) {
+    // Skip deletions the bot performed on purpose (e.g. a typed verification code).
+    if (suppressedDeletions.delete(message.id)) return;
     if (!message.guild || message.author?.bot) return;
     await logMemberEvent(
       ctx,

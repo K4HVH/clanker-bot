@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 import { CommandRouter } from "./command-router";
 import { ComponentRouter } from "./component-router";
 import type { AppContext } from "./context";
@@ -12,7 +12,11 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
       GatewayIntentBits.GuildModeration,
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
+      // Receive DM messages so verification can collect the code a joiner types
+      // back in their DM. DM channels/messages arrive as partials.
+      GatewayIntentBits.DirectMessages,
     ],
+    partials: [Partials.Channel, Partials.Message],
   });
 
   const commands = modules.flatMap((m) => m.commands ?? []);
