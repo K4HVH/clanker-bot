@@ -1,10 +1,4 @@
-import type { BotDatabase } from "../db/index";
-import {
-  deleteConfigRow,
-  getConfigRow,
-  listConfigRows,
-  setConfigRow,
-} from "../db/config";
+import { type BotDatabase, many, one, run } from "../db/index";
 
 export const CONFIG_KEYS = {
   modLogChannelId: "mod_log_channel_id",
@@ -24,37 +18,45 @@ export const CONFIG_KEYS = {
   welcomeMessage: "welcome_message",
 } as const;
 
+// Guild-scoped settings, stored JSON-encoded in the guild_config table.
 export class ConfigService {
-  private readonly cache = new Map<string, unknown>();
-
   constructor(private readonly db: BotDatabase) {}
 
-  private cacheKey(guildId: string, key: string): string {
-    return `${guildId}:${key}`;
-  }
-
   get<T>(guildId: string, key: string): T | undefined {
-    const ck = this.cacheKey(guildId, key);
-    if (this.cache.has(ck)) return this.cache.get(ck) as T | undefined;
-    const raw = getConfigRow(this.db, guildId, key);
-    const value = raw === undefined ? undefined : (JSON.parse(raw) as T);
-    this.cache.set(ck, value);
-    return value;
+    const row = one<{ value: string }>(
+      this.db,
+      "SELECT value FROM guild_config WHERE guild_id = ? AND key = ?",
+      guildId,
+      key,
+    );
+    return row === undefined ? undefined : (JSON.parse(row.value) as T);
   }
 
   set(guildId: string, key: string, value: unknown): void {
-    setConfigRow(this.db, guildId, key, JSON.stringify(value), Date.now());
-    this.cache.set(this.cacheKey(guildId, key), value);
+    run(
+      this.db,
+      `INSERT INTO guild_config (guild_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (guild_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      guildId,
+      key,
+      JSON.stringify(value),
+      Date.now(),
+    );
   }
 
   unset(guildId: string, key: string): void {
-    deleteConfigRow(this.db, guildId, key);
-    this.cache.set(this.cacheKey(guildId, key), undefined);
+    run(this.db, "DELETE FROM guild_config WHERE guild_id = ? AND key = ?", guildId, key);
   }
 
   all(guildId: string): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const row of listConfigRows(this.db, guildId)) out[row.key] = JSON.parse(row.value);
+    for (const row of many<{ key: string; value: string }>(
+      this.db,
+      "SELECT key, value FROM guild_config WHERE guild_id = ?",
+      guildId,
+    )) {
+      out[row.key] = JSON.parse(row.value);
+    }
     return out;
   }
 }
