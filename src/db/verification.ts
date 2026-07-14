@@ -34,3 +34,9 @@ export function getChallenge(
 export function deleteChallenge(db: BotDatabase, guildId: string, userId: string): void {
   run(db, "DELETE FROM verification_challenges WHERE guild_id = ? AND user_id = ?", guildId, userId);
 }
+
+// Drop challenges whose TTL has elapsed. Rows are otherwise deleted only on a
+// successful verify, so abandoned/expired ones would accumulate indefinitely.
+export function pruneExpiredChallenges(db: BotDatabase, now: number): number {
+  return db.query("DELETE FROM verification_challenges WHERE expires_at < ?").run(now).changes;
+}
