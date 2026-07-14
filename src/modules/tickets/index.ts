@@ -44,14 +44,14 @@ const ticketPanel: SlashCommand = {
     .setDescription("Post the ticket panel in this channel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setContexts(InteractionContextType.Guild),
-  async execute(interaction) {
-    if (!interaction.channel || !("send" in interaction.channel)) {
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild() || !interaction.channel || !("send" in interaction.channel)) {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
     const embed = new EmbedBuilder()
       .setTitle("Support")
-      .setDescription("Need help? Click **Open Ticket** to talk to the team privately.");
+      .setDescription(ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText));
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId("ticket_open")
@@ -147,7 +147,8 @@ const closeHandler: ComponentHandler = {
       flags: MessageFlags.Ephemeral,
     });
 
-    const fetched = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    const limit = ctx.config.getEffective<number>(button.guild.id, CONFIG_KEYS.ticketTranscriptLimit);
+    const fetched = await channel.messages.fetch({ limit }).catch(() => null);
     const lines = fetched
       ? [...fetched.values()]
           .reverse()

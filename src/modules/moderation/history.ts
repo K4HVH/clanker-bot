@@ -8,7 +8,7 @@ import {
 import type { SlashCommand } from "../../core/module";
 import { listCasesByUser } from "../../db/cases";
 import { CONFIG_KEYS } from "../../lib/config";
-import { computeActiveScore } from "../../lib/infractions";
+import { computeActiveScore, strikeWeightsFrom } from "../../lib/infractions";
 
 export const historyCommand: SlashCommand = {
   data: new SlashCommandBuilder()
@@ -28,9 +28,16 @@ export const historyCommand: SlashCommand = {
       });
       return;
     }
-    const decayDays =
-      ctx.config.get<number>(interaction.guildId, CONFIG_KEYS.strikeDecayDays) ?? 90;
-    const score = computeActiveScore(records, Date.now(), decayDays);
+    const decayDays = ctx.config.getEffective<number>(
+      interaction.guildId,
+      CONFIG_KEYS.strikeDecayDays,
+    );
+    const score = computeActiveScore(
+      records,
+      Date.now(),
+      decayDays,
+      strikeWeightsFrom(ctx.config, interaction.guildId),
+    );
     const lines = records.map((r) => `**#${r.caseNumber}** \`${r.type}\` — ${r.reason}`);
     const embed = new EmbedBuilder()
       .setTitle(`History for ${user.tag}`)

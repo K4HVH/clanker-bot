@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   logger.info("registered guild commands", { count: registered, guildId: env.guildId });
 
   const client = createClient(modules, ctx);
-  const stopScheduler = startScheduler(ctx, client);
+  const stopScheduler = startScheduler(ctx, client, env.schedulerPollIntervalMs);
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("shutting down", { signal });
