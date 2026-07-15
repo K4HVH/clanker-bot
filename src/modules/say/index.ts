@@ -3,9 +3,11 @@ import {
   ApplicationCommandType,
   ChannelType,
   ContextMenuCommandBuilder,
+  type Guild,
   InteractionContextType,
   type MessageContextMenuCommandInteraction,
   MessageFlags,
+  type MessageMentionOptions,
   ModalBuilder,
   type ModalSubmitInteraction,
   PermissionFlagsBits,
@@ -15,10 +17,20 @@ import {
 } from "discord.js";
 import type { BotModule, ComponentHandler, ContextCommand, SlashCommand } from "../../core/module";
 
-// Allow @everyone/@here only if the INVOKER could normally do it — so /say can't be used to
-// mass-ping through the bot's permissions. User/role mentions are always allowed.
-function mentionParse(canPingEveryone: boolean | undefined): ("users" | "roles" | "everyone")[] {
-  return canPingEveryone ? ["users", "roles", "everyone"] : ["users", "roles"];
+// Build allowedMentions that mirror what the INVOKER could do by hand, so /say can't be used to
+// mass-ping through the bot's elevated permissions. @users is always fine (anyone can ping a user).
+// @everyone/@here and NON-mentionable roles require the invoker's own Mention Everyone permission;
+// without it, only roles that are already mentionable (which anyone can ping) are allowed through.
+function allowedMentionsFor(
+  content: string,
+  canPingEveryone: boolean | undefined,
+  guild: Guild | null,
+): MessageMentionOptions {
+  if (canPingEveryone) return { parse: ["users", "roles", "everyone"] };
+  const roleIds = [...content.matchAll(/<@&(\d+)>/g)]
+    .map((m) => m[1])
+    .filter((id): id is string => !!id && Boolean(guild?.roles.cache.get(id)?.mentionable));
+  return { parse: ["users"], roles: [...new Set(roleIds)] };
 }
 
 const sayCommand: SlashCommand = {
@@ -55,7 +67,11 @@ const sayCommand: SlashCommand = {
     const sent = await channel
       .send({
         content,
-        allowedMentions: { parse: mentionParse(interaction.memberPermissions?.has(PermissionFlagsBits.MentionEveryone)) },
+        allowedMentions: allowedMentionsFor(
+          content,
+          interaction.memberPermissions?.has(PermissionFlagsBits.MentionEveryone),
+          interaction.guild,
+        ),
       })
       .catch(() => null);
     await interaction.reply({
@@ -119,7 +135,7 @@ const replyModalHandler: ComponentHandler = {
         content,
         reply: { messageReference: targetId, failIfNotExists: false },
         allowedMentions: {
-          parse: mentionParse(modal.memberPermissions?.has(PermissionFlagsBits.MentionEveryone)),
+          ...allowedMentionsFor(content, modal.memberPermissions?.has(PermissionFlagsBits.MentionEveryone), modal.guild),
           repliedUser: true,
         },
       })
