@@ -10,13 +10,12 @@ const record: CaseRecord = {
   moderatorId: "m1",
   type: "ban",
   reason: "spam",
-  meta: null,
   createdAt: 1_700_000_000_000,
 };
 
-test("case embed shows number, type, and fields", () => {
+test("action embed shows the action (no case number), type, and fields", () => {
   const data = buildCaseEmbed(record).data;
-  expect(data.title).toBe("Case #7 · BAN");
+  expect(data.title).toBe("🔨 Ban");
   const fieldNames = (data.fields ?? []).map((f) => f.name);
   expect(fieldNames).toEqual(["User", "Moderator", "Reason"]);
   expect((data.fields ?? [])[2]?.value).toBe("spam");

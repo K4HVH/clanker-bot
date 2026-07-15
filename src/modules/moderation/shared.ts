@@ -32,7 +32,7 @@ export async function recordAndAnnounce(
   await logCase(ctx, guild, record);
 
   await interaction.reply({
-    content: `✅ Case #${record.caseNumber}: **${input.type}** applied to ${input.target.tag}.\nReason: ${input.reason}`,
+    content: `✅ **${input.type}** applied to ${input.target.tag}.\nReason: ${input.reason}`,
     flags: MessageFlags.Ephemeral,
   });
 }

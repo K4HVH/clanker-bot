@@ -5,7 +5,6 @@ import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
 import { type AutomodConfig, checkContentRules } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
-import { applyEscalation } from "../../lib/escalation";
 import { HeatTracker } from "../../lib/heat";
 import { logCase } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
@@ -74,7 +73,6 @@ const onMessage: Listener<Events.MessageCreate> = {
       reason: `Automod: ${violation}`,
     });
     await logCase(ctx, message.guild, record);
-    await applyEscalation(ctx, message.guild, message.author.id);
   },
 };
 

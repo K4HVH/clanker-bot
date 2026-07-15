@@ -3,23 +3,26 @@ import type { AppContext } from "../core/context";
 import type { CaseRecord } from "../db/cases";
 import { CONFIG_KEYS } from "./config";
 
-const CASE_COLORS: Record<string, number> = {
-  warn: 0xf1c40f,
-  timeout: 0xe67e22,
-  kick: 0xe74c3c,
-  ban: 0x992d22,
-  unban: 0x2ecc71,
-  note: 0x95a5a6,
+const ACTION_META: Record<string, { emoji: string; label: string; color: number }> = {
+  warn: { emoji: "⚠️", label: "Warn", color: 0xf1c40f },
+  timeout: { emoji: "⏳", label: "Timeout", color: 0xe67e22 },
+  untimeout: { emoji: "✅", label: "Timeout lifted", color: 0x2ecc71 },
+  kick: { emoji: "👢", label: "Kick", color: 0xe74c3c },
+  ban: { emoji: "🔨", label: "Ban", color: 0x992d22 },
+  unban: { emoji: "🕊️", label: "Unban", color: 0x2ecc71 },
+  note: { emoji: "📝", label: "Note", color: 0x95a5a6 },
 };
 
 function truncate(text: string, max = 1024): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+// A single moderation action, for the mod-log. No case number — the action speaks for itself.
 export function buildCaseEmbed(c: CaseRecord): EmbedBuilder {
+  const m = ACTION_META[c.type] ?? { emoji: "•", label: c.type, color: 0x95a5a6 };
   return new EmbedBuilder()
-    .setColor(CASE_COLORS[c.type] ?? 0x95a5a6)
-    .setTitle(`Case #${c.caseNumber} · ${c.type.toUpperCase()}`)
+    .setColor(m.color)
+    .setTitle(`${m.emoji} ${m.label}`)
     .addFields(
       { name: "User", value: `<@${c.userId}> (${c.userId})` },
       { name: "Moderator", value: `<@${c.moderatorId}>` },

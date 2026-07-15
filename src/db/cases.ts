@@ -1,6 +1,6 @@
 import { type BotDatabase, many, one } from "../db/index";
 
-export type CaseType = "warn" | "timeout" | "kick" | "ban" | "unban" | "note";
+export type CaseType = "warn" | "timeout" | "untimeout" | "kick" | "ban" | "unban" | "note";
 
 export interface NewCase {
   guildId: string;
@@ -8,7 +8,6 @@ export interface NewCase {
   moderatorId: string;
   type: CaseType;
   reason: string;
-  meta?: unknown;
 }
 
 export interface CaseRecord {
@@ -19,13 +18,14 @@ export interface CaseRecord {
   moderatorId: string;
   type: string;
   reason: string;
-  meta: string | null;
   createdAt: number;
 }
 
 const COLUMNS = `id, guild_id AS guildId, case_number AS caseNumber, user_id AS userId,
-  moderator_id AS moderatorId, type, reason, meta, created_at AS createdAt`;
+  moderator_id AS moderatorId, type, reason, created_at AS createdAt`;
 
+// Record one moderation action against a user. case_number is an internal per-guild sequence
+// (kept for stable ordering); it isn't surfaced — the user-facing view is just the history.
 export function createCase(db: BotDatabase, input: NewCase): CaseRecord {
   const insert = db.transaction((i: NewCase): CaseRecord => {
     const row = one<{ max: number | null }>(
@@ -36,15 +36,14 @@ export function createCase(db: BotDatabase, input: NewCase): CaseRecord {
     const nextNumber = (row?.max ?? 0) + 1;
     const created = one<CaseRecord>(
       db,
-      `INSERT INTO cases (guild_id, case_number, user_id, moderator_id, type, reason, meta, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
+      `INSERT INTO cases (guild_id, case_number, user_id, moderator_id, type, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${COLUMNS}`,
       i.guildId,
       nextNumber,
       i.userId,
       i.moderatorId,
       i.type,
       i.reason,
-      i.meta === undefined ? null : JSON.stringify(i.meta),
       Date.now(),
     );
     if (!created) throw new Error("failed to insert case");
@@ -53,24 +52,12 @@ export function createCase(db: BotDatabase, input: NewCase): CaseRecord {
   return insert(input);
 }
 
-export function getCaseByNumber(
-  db: BotDatabase,
-  guildId: string,
-  caseNumber: number,
-): CaseRecord | undefined {
-  return one<CaseRecord>(
-    db,
-    `SELECT ${COLUMNS} FROM cases WHERE guild_id = ? AND case_number = ?`,
-    guildId,
-    caseNumber,
-  );
-}
-
+// A user's moderation history, most recent first.
 export function listCasesByUser(
   db: BotDatabase,
   guildId: string,
   userId: string,
-  limit = 10,
+  limit = 15,
 ): CaseRecord[] {
   return many<CaseRecord>(
     db,

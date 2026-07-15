@@ -13,18 +13,6 @@ export const CONFIG_KEYS = {
   automodMentionLimit: "automod_mention_limit",
   automodSpamWindowSeconds: "automod_spam_window_seconds",
   automodSpamMaxMessages: "automod_spam_max_messages",
-  autoEscalation: "auto_escalation",
-  strikeDecayDays: "strike_decay_days",
-  escalationTimeoutShortScore: "escalation_timeout_short_score",
-  escalationTimeoutLongScore: "escalation_timeout_long_score",
-  escalationKickScore: "escalation_kick_score",
-  escalationBanScore: "escalation_ban_score",
-  escalationTimeoutShortMinutes: "escalation_timeout_short_minutes",
-  escalationTimeoutLongMinutes: "escalation_timeout_long_minutes",
-  strikeWeightNote: "strike_weight_note",
-  strikeWeightWarn: "strike_weight_warn",
-  strikeWeightTimeout: "strike_weight_timeout",
-  strikeWeightKick: "strike_weight_kick",
   minAccountAgeDays: "min_account_age_days",
   accountAgeGateAction: "account_age_gate_action",
   nameBlocklist: "name_blocklist",
@@ -82,21 +70,18 @@ export const CATEGORIES: Category[] = [
   { id: "general", label: "General", accentColor: 0x5865f2 },
   { id: "logging", label: "Logging", accentColor: 0x1abc9c },
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
-  { id: "escalation", label: "Escalation", accentColor: 0xe67e22 },
-  { id: "strike-weights", label: "Strike Weights", accentColor: 0xf1c40f },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
 ];
 
 const K = CONFIG_KEYS;
-const MAX_TIMEOUT_MINUTES = 28 * 24 * 60; // Discord's 28-day timeout cap, in minutes
 
 export const REGISTRY: Setting[] = [
   // General
   { key: K.dmOnAction, category: "general", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/kicked/banned." },
   // Logging
-  { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Moderation cases, alerts, and attributed manual bans/kicks/timeouts." },
+  { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
   { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },
   { key: K.logMessageEvents, category: "logging", type: "bool", default: true, label: "Log message edits/deletes", description: "Edited, deleted, and bulk-deleted messages (member log)." },
   { key: K.logMemberEvents, category: "logging", type: "bool", default: true, label: "Log member events", description: "Joins, leaves, nickname changes, and role grants/removes (member log)." },
@@ -109,20 +94,6 @@ export const REGISTRY: Setting[] = [
   { key: K.automodMentionLimit, category: "automod", type: "int", min: 1, max: 50, default: 5, label: "Max mentions per message", description: "Delete a message that mentions more than this many users/roles combined." },
   { key: K.automodSpamWindowSeconds, category: "automod", type: "int", min: 1, max: 60, default: 7, label: "Spam window (seconds)", description: "The sliding time window used to detect a message flood." },
   { key: K.automodSpamMaxMessages, category: "automod", type: "int", min: 2, max: 30, default: 5, label: "Messages before flood", description: "How many messages within the window count as a flood." },
-  // Escalation
-  { key: K.autoEscalation, category: "escalation", type: "bool", default: false, label: "Auto-escalation enabled", description: "Automatically time-out/kick/ban a user once their strike score crosses the thresholds below. Off by default." },
-  { key: K.strikeDecayDays, category: "escalation", type: "int", min: 1, max: 3650, default: 90, label: "Strike decay (days)", description: "How long a case keeps counting toward the strike score before it decays away." },
-  { key: K.escalationTimeoutShortScore, category: "escalation", type: "int", min: 1, max: 1000, default: 3, label: "Score → short timeout", description: "Strike score at which a user gets the short timeout." },
-  { key: K.escalationTimeoutLongScore, category: "escalation", type: "int", min: 1, max: 1000, default: 5, label: "Score → long timeout", description: "Strike score at which a user gets the long timeout." },
-  { key: K.escalationKickScore, category: "escalation", type: "int", min: 1, max: 1000, default: 8, label: "Score → kick", description: "Strike score at which a user is auto-kicked." },
-  { key: K.escalationBanScore, category: "escalation", type: "int", min: 1, max: 1000, default: 12, label: "Score → ban", description: "Strike score at which a user is auto-banned." },
-  { key: K.escalationTimeoutShortMinutes, category: "escalation", type: "int", min: 1, max: MAX_TIMEOUT_MINUTES, default: 60, label: "Short timeout (minutes)", description: "Length of the short auto-timeout." },
-  { key: K.escalationTimeoutLongMinutes, category: "escalation", type: "int", min: 1, max: MAX_TIMEOUT_MINUTES, default: 1440, label: "Long timeout (minutes)", description: "Length of the long auto-timeout (max 28 days)." },
-  // Strike weights
-  { key: K.strikeWeightNote, category: "strike-weights", type: "int", min: 0, max: 100, default: 0, label: "Weight: note", description: "How much a note adds to a user's strike score (0 = notes don't count)." },
-  { key: K.strikeWeightWarn, category: "strike-weights", type: "int", min: 0, max: 100, default: 1, label: "Weight: warn", description: "How much a warn adds to a user's strike score." },
-  { key: K.strikeWeightTimeout, category: "strike-weights", type: "int", min: 0, max: 100, default: 2, label: "Weight: timeout", description: "How much a timeout adds to a user's strike score." },
-  { key: K.strikeWeightKick, category: "strike-weights", type: "int", min: 0, max: 100, default: 3, label: "Weight: kick", description: "How much a kick adds to a user's strike score." },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)", description: "Accounts newer than this trip the age gate. 0 disables it." },
   { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },

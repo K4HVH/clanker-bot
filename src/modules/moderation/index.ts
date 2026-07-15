@@ -1,12 +1,17 @@
-import { EmbedBuilder, MessageFlags, PermissionFlagsBits } from "discord.js";
+import {
+  EmbedBuilder,
+  type GuildTextBasedChannel,
+  type Message,
+  MessageFlags,
+  PermissionFlagsBits,
+} from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
 import type { BotModule } from "../../core/module";
-import { getCaseByNumber, listCasesByUser } from "../../db/cases";
+import { listCasesByUser } from "../../db/cases";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
-import { applyEscalation } from "../../lib/escalation";
-import { computeActiveScore, strikeWeightsFrom } from "../../lib/infractions";
+import { logModAlert } from "../../lib/modlog";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 const warnSub: Subcommand = {
@@ -25,7 +30,6 @@ const warnSub: Subcommand = {
       reason,
       dmText: `You were warned in **${interaction.guild?.name}**. Reason: ${reason}`,
     });
-    if (interaction.guild) await applyEscalation(ctx, interaction.guild, target.id);
   },
 };
 
@@ -76,6 +80,35 @@ const timeoutSub: Subcommand = {
       type: "timeout",
       reason: `${reason} (${formatDuration(ms)})`,
       dmText: `You were timed out in **${interaction.guild?.name}** for ${formatDuration(ms)}. Reason: ${reason}`,
+    });
+  },
+};
+
+const untimeoutSub: Subcommand = {
+  description: "Lift a member's timeout early.",
+  permission: PermissionFlagsBits.ModerateMembers,
+  options: (s) =>
+    s
+      .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+      .addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(true)),
+  async execute(interaction, ctx) {
+    const user = interaction.options.getUser("user", true);
+    const reason = interaction.options.getString("reason", true);
+    const member = await assertActionable(interaction, user.id, { requireMember: true });
+    if (member === null || member === "not-member") return;
+
+    const until = member.communicationDisabledUntil?.getTime() ?? 0;
+    if (until <= Date.now()) {
+      await interaction.reply({ content: `${user.tag} isn't currently timed out.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await member.timeout(null, reason);
+    await recordAndAnnounce(interaction, ctx, {
+      target: user,
+      type: "untimeout",
+      reason,
+      dmText: `Your timeout in **${interaction.guild?.name}** was lifted. Reason: ${reason}`,
     });
   },
 };
@@ -197,33 +230,94 @@ const unbanSub: Subcommand = {
   },
 };
 
-const caseSub: Subcommand = {
-  description: "Look up a moderation case by number.",
-  permission: PermissionFlagsBits.ModerateMembers,
+const purgeSub: Subcommand = {
+  description: "Bulk-delete recent messages here (max 100, under 14 days old).",
+  permission: PermissionFlagsBits.ManageMessages,
   options: (s) =>
-    s.addIntegerOption((o) =>
-      o.setName("number").setDescription("Case number").setRequired(true).setMinValue(1),
-    ),
+    s
+      .addIntegerOption((o) =>
+        o
+          .setName("count")
+          .setDescription("How many recent messages to scan (1-100)")
+          .setRequired(true)
+          .setMinValue(1)
+          .setMaxValue(100),
+      )
+      .addUserOption((o) => o.setName("user").setDescription("Only delete messages from this user"))
+      .addStringOption((o) =>
+        o
+          .setName("filter")
+          .setDescription("Only delete messages matching this")
+          .addChoices(
+            { name: "Bots only", value: "bots" },
+            { name: "Humans only", value: "humans" },
+            { name: "With a link", value: "links" },
+            { name: "With an attachment", value: "attachments" },
+          ),
+      ),
   async execute(interaction, ctx) {
     if (!interaction.inGuild()) return;
-    const number = interaction.options.getInteger("number", true);
-    const record = getCaseByNumber(ctx.db, interaction.guildId, number);
-    if (!record) {
-      await interaction.reply({
-        content: `No case #${number} found.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    const channel = interaction.channel;
+    if (!channel || !channel.isTextBased() || channel.isDMBased() || !("bulkDelete" in channel)) {
+      await interaction.reply({ content: "Run this in a server text channel.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setTitle(`Case #${record.caseNumber} · ${record.type.toUpperCase()}`)
-      .addFields(
-        { name: "User", value: `<@${record.userId}> (${record.userId})` },
-        { name: "Moderator", value: `<@${record.moderatorId}>` },
-        { name: "Reason", value: record.reason },
-      )
-      .setTimestamp(new Date(record.createdAt));
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    const count = interaction.options.getInteger("count", true);
+    const user = interaction.options.getUser("user");
+    const filter = interaction.options.getString("filter");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const fetched = await (channel as GuildTextBasedChannel).messages.fetch({ limit: count }).catch(() => null);
+    if (!fetched) {
+      await interaction.editReply("Couldn't read this channel's messages.");
+      return;
+    }
+    const cutoff = Date.now() - 14 * 86_400_000; // Discord can't bulk-delete older than 14 days
+    const linkRe = /https?:\/\//i;
+    const matches = (m: Message): boolean => {
+      if (m.createdTimestamp < cutoff) return false;
+      if (user && m.author.id !== user.id) return false;
+      if (filter === "bots" && !m.author.bot) return false;
+      if (filter === "humans" && m.author.bot) return false;
+      if (filter === "links" && !linkRe.test(m.content)) return false;
+      if (filter === "attachments" && m.attachments.size === 0) return false;
+      return true;
+    };
+    const toDelete = [...fetched.values()].filter(matches);
+    if (toDelete.length === 0) {
+      await interaction.editReply("Nothing matched (messages must be under 14 days old).");
+      return;
+    }
+
+    let deleted = 0;
+    const bulkChannel = channel as GuildTextBasedChannel;
+    if (toDelete.length === 1) {
+      // Discord's bulk endpoint needs 2+; delete a lone message directly.
+      if (await toDelete[0]!.delete().then(() => true).catch(() => false)) deleted = 1;
+    } else {
+      const removed = await bulkChannel.bulkDelete(toDelete, true).catch(() => null);
+      deleted = removed?.size ?? 0;
+    }
+
+    await interaction.editReply(`🧹 Deleted ${deleted} message${deleted === 1 ? "" : "s"}.`);
+    if (deleted > 0 && interaction.guild) {
+      const scope = [user ? `from <@${user.id}>` : null, filter ? `(${filter})` : null]
+        .filter(Boolean)
+        .join(" ");
+      await logModAlert(
+        ctx,
+        interaction.guild,
+        new EmbedBuilder()
+          .setColor(0x95a5a6)
+          .setTitle("🧹 Messages purged")
+          .addFields(
+            { name: "Channel", value: `<#${channel.id}>` },
+            { name: "By", value: `<@${interaction.user.id}>` },
+            { name: "Deleted", value: `${deleted}${scope ? ` ${scope}` : ""}` },
+          )
+          .setTimestamp(new Date()),
+      );
+    }
   },
 };
 
@@ -238,26 +332,19 @@ const historySub: Subcommand = {
     const records = listCasesByUser(ctx.db, interaction.guildId, user.id);
     if (records.length === 0) {
       await interaction.reply({
-        content: `No cases for ${user.tag}.`,
+        content: `No moderation history for ${user.tag}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
-    const decayDays = ctx.config.getEffective<number>(
-      interaction.guildId,
-      CONFIG_KEYS.strikeDecayDays,
+    const lines = records.map(
+      (r) => `\`${r.type}\` · <t:${Math.floor(r.createdAt / 1000)}:d> — ${r.reason}`,
     );
-    const score = computeActiveScore(
-      records,
-      Date.now(),
-      decayDays,
-      strikeWeightsFrom(ctx.config, interaction.guildId),
-    );
-    const lines = records.map((r) => `**#${r.caseNumber}** \`${r.type}\` — ${r.reason}`);
     const embed = new EmbedBuilder()
-      .setTitle(`History for ${user.tag}`)
-      .setDescription(lines.join("\n"))
-      .setFooter({ text: `Active strike score: ${score} (last ${decayDays}d)` });
+      .setColor(0x5865f2)
+      .setTitle(`Moderation history — ${user.tag}`)
+      .setDescription(lines.join("\n").slice(0, 4000))
+      .setFooter({ text: `${records.length} most recent` });
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
 };
@@ -275,10 +362,11 @@ export const moderationModule: BotModule = {
         warn: warnSub,
         note: noteSub,
         timeout: timeoutSub,
+        untimeout: untimeoutSub,
         kick: kickSub,
         ban: banSub,
         unban: unbanSub,
-        case: caseSub,
+        purge: purgeSub,
         history: historySub,
       },
     }),

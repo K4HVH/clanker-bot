@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  createCase,
-  getCaseByNumber,
-  listCasesByUser,
-} from "../../src/db/cases";
+import { createCase, listCasesByUser } from "../../src/db/cases";
 import { makeTestDb } from "../helpers/db";
 
 test("case numbers increment sequentially per guild", () => {
@@ -39,11 +35,11 @@ test("case numbering is isolated per guild", () => {
   expect(other.caseNumber).toBe(1);
 });
 
-test("fetch by number and list by user (newest first)", () => {
+test("history lists a user's actions newest first", () => {
   const db = makeTestDb();
   createCase(db, { guildId: "g1", userId: "u1", moderatorId: "m", type: "warn", reason: "one" });
   createCase(db, { guildId: "g1", userId: "u1", moderatorId: "m", type: "note", reason: "two" });
-  expect(getCaseByNumber(db, "g1", 1)?.reason).toBe("one");
   const list = listCasesByUser(db, "g1", "u1");
+  expect(list.map((c) => c.reason)).toEqual(["two", "one"]);
   expect(list.map((c) => c.caseNumber)).toEqual([2, 1]);
 });
