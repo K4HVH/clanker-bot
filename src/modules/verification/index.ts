@@ -82,10 +82,11 @@ function surfaceSession(userKey: string, channelId: string): Session | undefined
   return sessions.get(userKey)?.get(channelId);
 }
 
-// Push a payload to EVERY open surface for the user. `make` is called once per surface so
-// each gets its own attachment instance — a Buffer can't be safely streamed to two uploads.
-async function refreshAll(userKey: string, make: () => Payload): Promise<void> {
-  await Promise.all(userSessions(userKey).map((s) => s.refresh(make()).catch(() => {})));
+// Push a payload to EVERY open surface for the user. `make` is called once PER SURFACE (with
+// that surface's Session) so each gets payload text/expiry flavored for it, and its own
+// attachment instance — a Buffer can't be safely streamed to two uploads.
+async function refreshAll(userKey: string, make: (s: Session) => Payload): Promise<void> {
+  await Promise.all(userSessions(userKey).map((s) => s.refresh(make(s)).catch(() => {})));
 }
 
 // Tear down every surface for a user (solved / exhausted / left / expired).
@@ -170,8 +171,8 @@ async function issueCaptcha(
   ctx: AppContext,
   guildId: string,
   userId: string,
-  opts: { forceNew?: boolean; isDm: boolean; status?: string; attempts?: number },
-): Promise<{ build: () => Payload; expiresAt: number; mode: ChallengeMode }> {
+  opts: { forceNew?: boolean; status?: string; attempts?: number },
+): Promise<{ build: (isDm: boolean) => Payload; expiresAt: number; mode: ChallengeMode }> {
   const now = Date.now();
   const existing = getChallenge(ctx.db, guildId, userId);
   const mode = challengeMode(existing, now, opts.forceNew ?? false);
@@ -201,35 +202,37 @@ async function issueCaptcha(
   }
 
   const name = `captcha-${imageSeq++}.png`;
-  // In-channel (ephemeral) sessions are capped at the interaction-token life, so
-  // never promise longer than the session can actually honor.
-  const shownExpiry = opts.isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle("Server Verification")
-    .setDescription(
-      opts.isDm
-        ? "Reply to this message with the code shown in the image."
-        : "Type the code shown in the image as a message in this channel.",
-    )
-    .addFields({ name: "Expires", value: `<t:${Math.floor(shownExpiry / 1000)}:R>` })
-    .setImage(`attachment://${name}`)
-    .setFooter({ text: "Can't read it? Tap New Code, or ask a moderator." });
-  if (opts.status) embed.addFields({ name: "Status", value: opts.status });
-
-  // A fresh payload per call: each surface needs its own AttachmentBuilder (a Buffer can't be
-  // re-streamed to two uploads) and its own component row. The embed is immutable at send.
-  const build = (): Payload => ({
-    embeds: [embed],
-    components: [newCodeRow()],
-    files: [
-      new AttachmentBuilder(Buffer.from(png), {
-        name,
-        description: "Distorted verification code — an image-based challenge", // non-revealing a11y text
-      }),
-    ],
-    attachments: [],
-  });
+  // Build a fresh payload per surface. The instruction text and shown Expires depend on WHICH
+  // surface it renders on — a DM message ("Reply to this message"), or an in-channel ephemeral
+  // ("Type the code…") capped at the interaction-token life — so the same rotated captcha
+  // fanned to both surfaces reads correctly on each. The image/code/status are shared; each
+  // surface still needs its own AttachmentBuilder (a Buffer can't be re-streamed to two uploads).
+  const build = (isDm: boolean): Payload => {
+    const shownExpiry = isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("Server Verification")
+      .setDescription(
+        isDm
+          ? "Reply to this message with the code shown in the image."
+          : "Type the code shown in the image as a message in this channel.",
+      )
+      .addFields({ name: "Expires", value: `<t:${Math.floor(shownExpiry / 1000)}:R>` })
+      .setImage(`attachment://${name}`)
+      .setFooter({ text: "Can't read it? Tap New Code, or ask a moderator." });
+    if (opts.status) embed.addFields({ name: "Status", value: opts.status });
+    return {
+      embeds: [embed],
+      components: [newCodeRow()],
+      files: [
+        new AttachmentBuilder(Buffer.from(png), {
+          name,
+          description: "Distorted verification code — an image-based challenge", // non-revealing a11y text
+        }),
+      ],
+      attachments: [],
+    };
+  };
   return { build, expiresAt, mode };
 }
 
@@ -338,8 +341,14 @@ function registerSession(
     const bucket = sessions.get(userKey);
     const cur = bucket?.get(s.channelId);
     if (!bucket || !cur || cur.timer !== timer) return; // superseded
+    // A code submission is mid-flight — it owns the outcome (verify / rotate / exhaust). Don't
+    // race a contradictory "Timed out" onto a surface it's about to resolve.
+    if (processing.has(userKey)) return;
     bucket.delete(s.channelId);
     if (bucket.size === 0) sessions.delete(userKey);
+    // If the challenge was already resolved (verified / exhausted / left), drop the surface
+    // silently rather than stamp a false "Timed out" over a "Verified".
+    if (!getChallenge(ctx.db, s.guild.id, s.user.id)) return;
     void cur
       .refresh(terminal("Timed out", "Verification timed out. Run `/verify` to try again.", 0x95a5a6))
       .catch(() => {});
@@ -575,13 +584,12 @@ const onMessage: Listener<Events.MessageCreate> = {
       const left = maxAttempts - attempts;
       const { build } = await issueCaptcha(ctx, guildId, userId, {
         forceNew: true,
-        isDm,
         attempts,
         status: `❌ Incorrect — ${left} attempt${left === 1 ? "" : "s"} left. Try this new code.`,
       });
       const rotatedAt = Date.now();
       for (const s of userSessions(k)) s.issuedAt = rotatedAt;
-      await refreshAll(k, build);
+      await refreshAll(k, (s) => build(s.isDm));
     } catch (error) {
       ctx.logger.error("verification message handling failed", {
         guildId,
@@ -624,27 +632,43 @@ async function beginInteractiveVerify(
   interaction: ButtonInteraction | Parameters<SlashCommand["execute"]>[0],
   guildId: string,
 ): Promise<void> {
-  if (!takeRenderSlot(key(guildId, interaction.user.id))) {
+  const k = key(guildId, interaction.user.id);
+  if (!takeRenderSlot(k)) {
     await interaction.reply({
       content: "You're going too fast — wait a moment and try again.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, interaction.user.id, { isDm: false });
-  await interaction.editReply(build());
-  registerSession(ctx, {
-    guild: interaction.guild!,
-    user: interaction.user,
-    isDm: false,
-    channelId: interaction.channelId!,
-    refresh: async (p) => {
-      await interaction.editReply(p);
-    },
-    expiresAt,
-    mode,
-  });
+  // Serialize with an in-flight code submission (onMessage holds the same lock). Otherwise a
+  // "reuse" render here could paint a code that a concurrent wrong-guess rotation has already
+  // replaced in storage, leaving this new surface showing a stale, wrong code.
+  if (processing.has(k)) {
+    await interaction.reply({
+      content: "You're mid-verification — give it a second and try again.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  processing.add(k);
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, interaction.user.id, {});
+    await interaction.editReply(build(false));
+    registerSession(ctx, {
+      guild: interaction.guild!,
+      user: interaction.user,
+      isDm: false,
+      channelId: interaction.channelId!,
+      refresh: async (p) => {
+        await interaction.editReply(p);
+      },
+      expiresAt,
+      mode,
+    });
+  } finally {
+    processing.delete(k);
+  }
 }
 
 const meSub: Subcommand = {
@@ -748,10 +772,10 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
       return;
     }
 
-    const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, member.id, { isDm: true });
+    const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, member.id, {});
     try {
       const dm = await member.createDM();
-      const msg = await dm.send(build());
+      const msg = await dm.send(build(true));
       // Remember which message holds the captcha so a restart can revive this DM in place.
       setChallengeDmMessage(ctx.db, guildId, member.id, msg.id);
       registerSession(ctx, {
@@ -891,12 +915,11 @@ const newCodeHandler: ComponentHandler = {
     try {
       const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, button.user.id, {
         forceNew: true,
-        isDm,
       });
       // In a DM the captcha stays on this same message; keep the revive anchor pointed at it
       // (the row may be freshly created if the previous challenge had expired).
       if (isDm) setChallengeDmMessage(ctx.db, guildId, button.user.id, button.message.id);
-      await button.editReply(build());
+      await button.editReply(build(isDm));
       // (Re)arm the session — this also revives collection after a restart, and edits
       // via the DM message (no token limit) or the ephemeral reply as appropriate.
       const guild = button.guild ?? (await button.client.guilds.fetch(guildId).catch(() => null));
