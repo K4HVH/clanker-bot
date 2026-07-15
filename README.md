@@ -12,7 +12,7 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Audit logging** — message edits/deletes + member joins/leaves to a member-log; all mod actions to a mod-log.
 - **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — account-age gate: flag and/or auto-kick accounts newer than a configurable threshold.
-- **Tickets** — `/ticket panel` → private channel per ticket → transcript saved on close.
+- **Tickets** — `/ticket panel` → button opens a private channel per ticket; claim, add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close; on close a **.zip** (transcript + posted images) is saved to the mod-log and DM'd to the opener.
 - **Support helpers** — `/tag` canned answers for common questions.
 
 All automod / escalation / verification features **default OFF** and are enabled via `/config`.
@@ -49,7 +49,7 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 
 Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
 
-**Categories** (37 settings): General · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup.
+**Categories** (39 settings): General · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup (staff role, category, open limit, inactivity window).
 
 The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 
@@ -57,7 +57,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|kick|ban|unban|case|history` · `/verify me|panel|user` · `/ticket panel` · `/tag get|list|set|delete`
+`/config` (settings panel) · `/mod warn|note|timeout|kick|ban|unban|case|history` · `/verify me|panel|user` · `/ticket panel|close|claim|add|remove` · `/tag get|list|set|delete`
 
 ## Development
 

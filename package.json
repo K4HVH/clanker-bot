@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
-    "discord.js": "^14.26.0"
+    "discord.js": "^14.26.0",
+    "fflate": "^0.8.3"
   },
   "devDependencies": {
     "@types/bun": "latest",

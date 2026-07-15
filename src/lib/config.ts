@@ -40,6 +40,8 @@ export const CONFIG_KEYS = {
   ticketStaffRoleId: "ticket_staff_role_id",
   ticketTranscriptLimit: "ticket_transcript_limit",
   ticketPanelText: "ticket_panel_text",
+  ticketMaxOpenPerUser: "ticket_max_open_per_user",
+  ticketInactivityHours: "ticket_inactivity_hours",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -121,6 +123,8 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketStaffRoleId, category: "tickets", type: "role", default: undefined, label: "Ticket staff role" },
   { key: K.ticketTranscriptLimit, category: "tickets", type: "int", min: 1, max: 100, default: 100, label: "Transcript limit" },
   { key: K.ticketPanelText, category: "tickets", type: "text", default: "Need help? Click **Open Ticket** to talk to the team privately.", label: "Ticket panel text" },
+  { key: K.ticketMaxOpenPerUser, category: "tickets", type: "int", min: 1, max: 10, default: 2, label: "Max open tickets per user" },
+  { key: K.ticketInactivityHours, category: "tickets", type: "int", min: 0, max: 720, default: 0, label: "Auto-close after inactive hours (0=off)" },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));

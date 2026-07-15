@@ -6,8 +6,22 @@ export type BotDatabase = Database;
 
 const SCHEMA_PATH = "./schema.sql";
 
-// Open (or create) the SQLite database, apply pragmas, and ensure the schema
-// exists. There are no migrations — schema.sql uses CREATE TABLE IF NOT EXISTS.
+// Additive schema evolution: SQLite has no `ADD COLUMN IF NOT EXISTS`, so add any
+// declared column an existing table is missing. This is NOT a migration framework —
+// just enough to let a live-data table (e.g. tickets with real records) gain columns
+// without dropping it. schema.sql stays the source of truth for fresh installs.
+function ensureColumns(db: Database, table: string, columns: Record<string, string>): void {
+  const present = new Set(
+    (db.query(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, decl] of Object.entries(columns)) {
+    if (!present.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
+  }
+}
+
+// Open (or create) the SQLite database, apply pragmas, and ensure the schema. Tables
+// use CREATE TABLE IF NOT EXISTS; ensureColumns bridges pre-existing tables up to the
+// current column set (there is still no migration framework).
 export function createDatabase(path: string): BotDatabase {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true });
@@ -16,6 +30,12 @@ export function createDatabase(path: string): BotDatabase {
   db.exec("PRAGMA synchronous = NORMAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
+  ensureColumns(db, "tickets", {
+    claimed_by: "TEXT",
+    last_activity_at: "INTEGER",
+    closed_by: "TEXT",
+    close_reason: "TEXT",
+  });
   return db;
 }
 

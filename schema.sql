@@ -47,17 +47,23 @@ CREATE TABLE IF NOT EXISTS verification_challenges (
 );
 
 -- Support tickets (one private channel each).
+-- New columns added after launch are also handled by ensureColumns() in db/index.ts
+-- so existing databases evolve without dropping ticket history.
 CREATE TABLE IF NOT EXISTS tickets (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id      TEXT    NOT NULL,
-  ticket_number INTEGER NOT NULL,
-  channel_id    TEXT    NOT NULL,
-  opener_id     TEXT    NOT NULL,
-  subject       TEXT    NOT NULL,
-  status        TEXT    NOT NULL,
-  transcript    TEXT,
-  created_at    INTEGER NOT NULL,
-  closed_at     INTEGER
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id         TEXT    NOT NULL,
+  ticket_number    INTEGER NOT NULL,
+  channel_id       TEXT    NOT NULL,
+  opener_id        TEXT    NOT NULL,
+  subject          TEXT    NOT NULL,
+  status           TEXT    NOT NULL,
+  transcript       TEXT,
+  created_at       INTEGER NOT NULL,
+  closed_at        INTEGER,
+  claimed_by       TEXT,
+  last_activity_at INTEGER,
+  closed_by        TEXT,
+  close_reason     TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tickets_channel_idx ON tickets (channel_id);
 

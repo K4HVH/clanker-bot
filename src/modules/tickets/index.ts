@@ -5,37 +5,132 @@ import {
   type ButtonInteraction,
   ButtonStyle,
   ChannelType,
+  type Client,
   EmbedBuilder,
+  Events,
+  type Guild,
+  type GuildTextBasedChannel,
   MessageFlags,
   ModalBuilder,
   type ModalSubmitInteraction,
   type OverwriteResolvable,
   OverwriteType,
   PermissionFlagsBits,
+  type TextChannel,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
-import type { BotModule, ComponentHandler } from "../../core/module";
+import type { AppContext } from "../../core/context";
+import type { BotModule, ComponentHandler, Listener } from "../../core/module";
 import {
+  claimTicket,
   closeTicket,
+  countOpenTicketsByUser,
   createTicket,
+  firstOpenTicketByUser,
   getTicketByChannel,
+  listOpenTickets,
+  type TicketRecord,
+  touchTicketActivity,
 } from "../../db/tickets";
 import { CONFIG_KEYS } from "../../lib/config";
-import { logModAlert } from "../../lib/modlog";
-
-function closeRow(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("ticket_close").setLabel("Close").setStyle(ButtonStyle.Danger),
-  );
-}
+import { buildTicketArchive } from "../../lib/ticket-transcript";
 
 const ACCESS = [
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
   PermissionFlagsBits.ReadMessageHistory,
 ];
+
+// In-memory: open ticket channels (gates the activity listener cheaply) and channels
+// already warned about inactivity (avoids re-warning each scan). Rebuilt on startup.
+const openTicketChannels = new Set<string>();
+const warnedTickets = new Set<string>();
+
+function ticketButtons(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_close").setLabel("Close").setStyle(ButtonStyle.Danger),
+  );
+}
+
+async function isTicketStaff(guild: Guild, userId: string, ctx: AppContext): Promise<boolean> {
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) return false;
+  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
+  const staffRoleId = ctx.config.get<string>(guild.id, CONFIG_KEYS.ticketStaffRoleId);
+  return !!staffRoleId && member.roles.cache.has(staffRoleId);
+}
+
+async function sendToModLog(
+  ctx: AppContext,
+  guild: Guild,
+  payload: { embeds: EmbedBuilder[]; files?: AttachmentBuilder[] },
+): Promise<void> {
+  const id = ctx.config.get<string>(guild.id, CONFIG_KEYS.modLogChannelId);
+  if (!id) return;
+  const channel = await guild.channels.fetch(id).catch(() => null);
+  if (channel?.isTextBased()) await channel.send(payload).catch(() => {});
+}
+
+// Shared close: build the transcript+images zip, persist it, post to mod-log, DM the
+// opener, then delete the channel. Used by the button, /ticket close, and auto-close.
+async function closeTicketFlow(
+  ctx: AppContext,
+  guild: Guild,
+  channel: GuildTextBasedChannel,
+  ticket: TicketRecord,
+  closedBy: string,
+  reason: string | null,
+): Promise<void> {
+  openTicketChannels.delete(channel.id);
+  warnedTickets.delete(channel.id);
+
+  const limit = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.ticketTranscriptLimit);
+  const fetched = await channel.messages.fetch({ limit }).catch(() => null);
+  const messages = fetched ? [...fetched.values()].reverse() : [];
+  const { bytes, text } = await buildTicketArchive(
+    {
+      ticketNumber: ticket.ticketNumber,
+      subject: ticket.subject,
+      openerId: `<@${ticket.openerId}>`,
+      claimedBy: ticket.claimedBy ? `<@${ticket.claimedBy}>` : null,
+      closedBy: `<@${closedBy}>`,
+      reason,
+    },
+    messages,
+  );
+
+  closeTicket(ctx.db, channel.id, { transcript: text, closedBy, reason, closedAt: Date.now() });
+
+  const zip = () =>
+    new AttachmentBuilder(Buffer.from(bytes), { name: `ticket-${ticket.ticketNumber}.zip` });
+  const embed = new EmbedBuilder()
+    .setColor(0x95a5a6)
+    .setTitle(`Ticket #${ticket.ticketNumber} closed`)
+    .addFields(
+      { name: "Opened by", value: `<@${ticket.openerId}>` },
+      { name: "Closed by", value: `<@${closedBy}>` },
+      { name: "Subject", value: ticket.subject },
+    );
+  if (reason) embed.addFields({ name: "Reason", value: reason });
+  await sendToModLog(ctx, guild, { embeds: [embed], files: [zip()] });
+
+  const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
+  if (opener) {
+    await opener
+      .send({
+        content: `Your ticket **#${ticket.ticketNumber}** in **${guild.name}** was closed.`,
+        files: [zip()],
+      })
+      .catch(() => {});
+  }
+
+  await channel.delete(`Ticket #${ticket.ticketNumber} closed`).catch(() => {});
+}
+
+// ── Subcommands ──────────────────────────────────────────────────────────────
 
 const panelSub: Subcommand = {
   description: "Post the ticket panel in this channel.",
@@ -49,20 +144,131 @@ const panelSub: Subcommand = {
       .setTitle("Support")
       .setDescription(ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText));
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("ticket_open")
-        .setLabel("Open Ticket")
-        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("ticket_open").setLabel("Open Ticket").setStyle(ButtonStyle.Success),
     );
     await interaction.channel.send({ embeds: [embed], components: [row] });
     await interaction.reply({ content: "Panel posted.", flags: MessageFlags.Ephemeral });
   },
 };
 
+// Helper for the in-ticket subcommands: resolve this channel's ticket or reply.
+async function requireTicket(
+  interaction: Parameters<Subcommand["execute"]>[0],
+  ctx: AppContext,
+): Promise<{ guild: Guild; channel: TextChannel; ticket: TicketRecord } | null> {
+  const channel = interaction.channel;
+  if (!interaction.guild || !channel || channel.type !== ChannelType.GuildText) {
+    await interaction.reply({ content: "Run this inside a ticket channel.", flags: MessageFlags.Ephemeral });
+    return null;
+  }
+  const ticket = getTicketByChannel(ctx.db, channel.id);
+  if (!ticket || ticket.status === "closed") {
+    await interaction.reply({ content: "This isn't an open ticket.", flags: MessageFlags.Ephemeral });
+    return null;
+  }
+  return { guild: interaction.guild, channel, ticket };
+}
+
+const claimSub: Subcommand = {
+  description: "Claim the current ticket (staff).",
+  async execute(interaction, ctx) {
+    const t = await requireTicket(interaction, ctx);
+    if (!t) return;
+    if (!(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
+      await interaction.reply({ content: "Only staff can claim tickets.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (t.ticket.claimedBy) {
+      await interaction.reply({
+        content: `Already claimed by <@${t.ticket.claimedBy}>.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    claimTicket(ctx.db, t.channel.id, interaction.user.id);
+    await interaction.reply({ content: `🙋 Claimed by <@${interaction.user.id}>.` });
+  },
+};
+
+const closeSub: Subcommand = {
+  description: "Close the current ticket (opener or staff).",
+  options: (s) => s.addStringOption((o) => o.setName("reason").setDescription("Why it's being closed")),
+  async execute(interaction, ctx) {
+    const t = await requireTicket(interaction, ctx);
+    if (!t) return;
+    const isOpener = interaction.user.id === t.ticket.openerId;
+    if (!isOpener && !(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
+      await interaction.reply({ content: "Only the opener or staff can close this.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const reason = interaction.options.getString("reason");
+    await interaction.reply({ content: "Closing and archiving…", flags: MessageFlags.Ephemeral });
+    await closeTicketFlow(ctx, t.guild, t.channel, t.ticket, interaction.user.id, reason);
+  },
+};
+
+const addSub: Subcommand = {
+  description: "Add a member to the current ticket.",
+  options: (s) =>
+    s.addUserOption((o) => o.setName("user").setDescription("Member to add").setRequired(true)),
+  async execute(interaction, ctx) {
+    const t = await requireTicket(interaction, ctx);
+    if (!t) return;
+    const isOpener = interaction.user.id === t.ticket.openerId;
+    if (!isOpener && !(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
+      await interaction.reply({ content: "Only the opener or staff can add people.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const target = interaction.options.getUser("user", true);
+    await t.channel.permissionOverwrites.edit(target.id, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+    });
+    await interaction.reply({ content: `Added <@${target.id}> to the ticket.` });
+  },
+};
+
+const removeSub: Subcommand = {
+  description: "Remove a member from the current ticket (staff).",
+  options: (s) =>
+    s.addUserOption((o) => o.setName("user").setDescription("Member to remove").setRequired(true)),
+  async execute(interaction, ctx) {
+    const t = await requireTicket(interaction, ctx);
+    if (!t) return;
+    if (!(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
+      await interaction.reply({ content: "Only staff can remove people.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const target = interaction.options.getUser("user", true);
+    if (target.id === t.ticket.openerId) {
+      await interaction.reply({ content: "Can't remove the person who opened it.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await t.channel.permissionOverwrites.delete(target.id).catch(() => {});
+    await interaction.reply({ content: `Removed <@${target.id}> from the ticket.` });
+  },
+};
+
+// ── Buttons ──────────────────────────────────────────────────────────────────
+
 const openHandler: ComponentHandler = {
   customId: "ticket_open",
   type: "button",
-  async handle(interaction) {
+  async handle(interaction, ctx) {
+    const button = interaction as ButtonInteraction;
+    if (!button.guild) return;
+    const max = ctx.config.getEffective<number>(button.guild.id, CONFIG_KEYS.ticketMaxOpenPerUser);
+    if (countOpenTicketsByUser(ctx.db, button.guild.id, button.user.id) >= max) {
+      const first = firstOpenTicketByUser(ctx.db, button.guild.id, button.user.id);
+      await button.reply({
+        content: first
+          ? `You already have an open ticket: <#${first.channelId}> (max ${max}).`
+          : `You've reached the max of ${max} open tickets.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     const modal = new ModalBuilder().setCustomId("ticket_modal").setTitle("Open a ticket");
     const subject = new TextInputBuilder()
       .setCustomId("subject")
@@ -71,7 +277,7 @@ const openHandler: ComponentHandler = {
       .setMaxLength(300)
       .setRequired(true);
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(subject));
-    await (interaction as ButtonInteraction).showModal(modal);
+    await button.showModal(modal);
   },
 };
 
@@ -83,16 +289,19 @@ const modalHandler: ComponentHandler = {
     if (!modal.guild) return;
     await modal.deferReply({ flags: MessageFlags.Ephemeral });
 
+    // Re-check the limit at submit (they could have queued two modals).
+    const max = ctx.config.getEffective<number>(modal.guild.id, CONFIG_KEYS.ticketMaxOpenPerUser);
+    if (countOpenTicketsByUser(ctx.db, modal.guild.id, modal.user.id) >= max) {
+      await modal.editReply({ content: `You've reached the max of ${max} open tickets.` });
+      return;
+    }
+
     const subject = modal.fields.getTextInputValue("subject");
     const categoryId = ctx.config.get<string>(modal.guild.id, CONFIG_KEYS.ticketCategoryId);
     const staffRoleId = ctx.config.get<string>(modal.guild.id, CONFIG_KEYS.ticketStaffRoleId);
 
     const overwrites: OverwriteResolvable[] = [
-      {
-        id: modal.guild.roles.everyone.id,
-        deny: [PermissionFlagsBits.ViewChannel],
-        type: OverwriteType.Role,
-      },
+      { id: modal.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel], type: OverwriteType.Role },
       { id: modal.user.id, allow: ACCESS, type: OverwriteType.Member },
     ];
     if (staffRoleId) overwrites.push({ id: staffRoleId, allow: ACCESS, type: OverwriteType.Role });
@@ -110,6 +319,7 @@ const modalHandler: ComponentHandler = {
       openerId: modal.user.id,
       subject,
     });
+    openTicketChannels.add(channel.id);
 
     const embed = new EmbedBuilder()
       .setTitle(`Ticket #${record.ticketNumber}`)
@@ -118,10 +328,30 @@ const modalHandler: ComponentHandler = {
     await channel.send({
       content: staffRoleId ? `<@&${staffRoleId}>` : undefined,
       embeds: [embed],
-      components: [closeRow()],
+      components: [ticketButtons()],
     });
 
     await modal.editReply({ content: `Ticket opened: <#${channel.id}>` });
+  },
+};
+
+const claimHandler: ComponentHandler = {
+  customId: "ticket_claim",
+  type: "button",
+  async handle(interaction, ctx) {
+    const button = interaction as ButtonInteraction;
+    const t = await requireTicketButton(button, ctx);
+    if (!t) return;
+    if (!(await isTicketStaff(t.guild, button.user.id, ctx))) {
+      await button.reply({ content: "Only staff can claim tickets.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (t.ticket.claimedBy) {
+      await button.reply({ content: `Already claimed by <@${t.ticket.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    claimTicket(ctx.db, t.channel.id, button.user.id);
+    await button.reply({ content: `🙋 Claimed by <@${button.user.id}>.` });
   },
 };
 
@@ -130,58 +360,134 @@ const closeHandler: ComponentHandler = {
   type: "button",
   async handle(interaction, ctx) {
     const button = interaction as ButtonInteraction;
-    const channel = button.channel;
-    if (!button.guild || !channel || channel.isDMBased() || !channel.isTextBased()) return;
-
-    const ticket = getTicketByChannel(ctx.db, channel.id);
-    if (!ticket || ticket.status === "closed") {
-      await button.reply({ content: "This isn't an open ticket.", flags: MessageFlags.Ephemeral });
+    const t = await requireTicketButton(button, ctx);
+    if (!t) return;
+    const isOpener = button.user.id === t.ticket.openerId;
+    if (!isOpener && !(await isTicketStaff(t.guild, button.user.id, ctx))) {
+      await button.reply({ content: "Only the opener or staff can close this.", flags: MessageFlags.Ephemeral });
       return;
     }
+    // Confirmation step — closing deletes the channel.
     await button.reply({
-      content: "Closing and saving transcript…",
+      content: "Close this ticket? The channel will be archived and deleted.",
       flags: MessageFlags.Ephemeral,
-    });
-
-    const limit = ctx.config.getEffective<number>(button.guild.id, CONFIG_KEYS.ticketTranscriptLimit);
-    const fetched = await channel.messages.fetch({ limit }).catch(() => null);
-    const lines = fetched
-      ? [...fetched.values()]
-          .reverse()
-          .map(
-            (m) => `[${new Date(m.createdTimestamp).toISOString()}] ${m.author.tag}: ${m.content}`,
-          )
-      : ["(transcript unavailable)"];
-    const transcript = `Ticket #${ticket.ticketNumber} — ${ticket.subject}\n\n${lines.join("\n")}`;
-
-    closeTicket(ctx.db, channel.id, transcript, Date.now());
-
-    await logModAlert(
-      ctx,
-      button.guild,
-      new EmbedBuilder()
-        .setTitle(`Ticket #${ticket.ticketNumber} closed`)
-        .addFields(
-          { name: "Opened by", value: `<@${ticket.openerId}>` },
-          { name: "Closed by", value: `<@${button.user.id}>` },
-          { name: "Subject", value: ticket.subject },
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder().setCustomId("ticket_close_confirm").setLabel("Close").setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId("ticket_close_cancel").setLabel("Cancel").setStyle(ButtonStyle.Secondary),
         ),
-    );
-
-    const modLogId = ctx.config.get<string>(button.guild.id, CONFIG_KEYS.modLogChannelId);
-    if (modLogId) {
-      const modLog = await button.guild.channels.fetch(modLogId).catch(() => null);
-      if (modLog?.isTextBased()) {
-        const file = new AttachmentBuilder(Buffer.from(transcript, "utf8"), {
-          name: `ticket-${ticket.ticketNumber}.txt`,
-        });
-        await modLog.send({ files: [file] }).catch(() => {});
-      }
-    }
-
-    await channel.delete().catch(() => {});
+      ],
+    });
   },
 };
+
+const closeCancelHandler: ComponentHandler = {
+  customId: "ticket_close_cancel",
+  type: "button",
+  async handle(interaction) {
+    const button = interaction as ButtonInteraction;
+    await button.update({ content: "Cancelled.", components: [] });
+  },
+};
+
+const closeConfirmHandler: ComponentHandler = {
+  customId: "ticket_close_confirm",
+  type: "button",
+  async handle(interaction, ctx) {
+    const button = interaction as ButtonInteraction;
+    const t = await requireTicketButton(button, ctx);
+    if (!t) return;
+    await button.update({ content: "Closing and archiving…", components: [] });
+    await closeTicketFlow(ctx, t.guild, t.channel, t.ticket, button.user.id, null);
+  },
+};
+
+async function requireTicketButton(
+  button: ButtonInteraction,
+  ctx: AppContext,
+): Promise<{ guild: Guild; channel: TextChannel; ticket: TicketRecord } | null> {
+  const channel = button.channel;
+  if (!button.guild || !channel || channel.type !== ChannelType.GuildText) return null;
+  const ticket = getTicketByChannel(ctx.db, channel.id);
+  if (!ticket || ticket.status === "closed") {
+    await button.reply({ content: "This isn't an open ticket.", flags: MessageFlags.Ephemeral });
+    return null;
+  }
+  return { guild: button.guild, channel, ticket };
+}
+
+// ── Listeners ────────────────────────────────────────────────────────────────
+
+const onMessage: Listener<Events.MessageCreate> = {
+  event: Events.MessageCreate,
+  async handle(ctx, message) {
+    if (message.author.bot || !openTicketChannels.has(message.channelId)) return;
+    touchTicketActivity(ctx.db, message.channelId, Date.now());
+  },
+};
+
+const onReady: Listener<Events.ClientReady> = {
+  event: Events.ClientReady,
+  once: true,
+  async handle(ctx, client) {
+    for (const t of listOpenTickets(ctx.db)) openTicketChannels.add(t.channelId);
+    const timer = setInterval(() => void scanInactivity(ctx, client, Date.now()), 5 * 60_000);
+    timer.unref?.();
+  },
+};
+
+// Warn once, then auto-close, open tickets idle past the configured window.
+async function scanInactivity(ctx: AppContext, client: Client, now: number): Promise<void> {
+  for (const ticket of listOpenTickets(ctx.db)) {
+    const hours = ctx.config.getEffective<number>(ticket.guildId, CONFIG_KEYS.ticketInactivityHours);
+    if (hours <= 0) {
+      warnedTickets.delete(ticket.channelId);
+      continue;
+    }
+    const idle = now - (ticket.lastActivityAt ?? ticket.createdAt);
+    const warnAfter = hours * 3_600_000;
+    const grace = Math.min(6 * 3_600_000, warnAfter * 0.5);
+    const closeAfter = warnAfter + grace;
+    if (idle < warnAfter) {
+      warnedTickets.delete(ticket.channelId);
+      continue;
+    }
+
+    const guild = await client.guilds.fetch(ticket.guildId).catch(() => null);
+    const channel = guild
+      ? await guild.channels.fetch(ticket.channelId).catch(() => null)
+      : null;
+    if (!guild || !channel || !channel.isTextBased()) {
+      // Channel was deleted out from under us — mark the ticket closed so we stop scanning it.
+      closeTicket(ctx.db, ticket.channelId, {
+        transcript: "(channel deleted)",
+        closedBy: client.user?.id ?? "system",
+        reason: "channel deleted",
+        closedAt: now,
+      });
+      openTicketChannels.delete(ticket.channelId);
+      warnedTickets.delete(ticket.channelId);
+      continue;
+    }
+
+    if (idle >= closeAfter) {
+      await closeTicketFlow(
+        ctx,
+        guild,
+        channel,
+        ticket,
+        client.user?.id ?? "system",
+        `Auto-closed after ${hours}h of inactivity`,
+      );
+    } else if (!warnedTickets.has(ticket.channelId)) {
+      warnedTickets.add(ticket.channelId);
+      const closeAt = Math.floor((now + (closeAfter - idle)) / 1000);
+      await channel
+        .send(`⏳ This ticket has gone quiet — it'll auto-close <t:${closeAt}:R> unless there's a reply.`)
+        .catch(() => {});
+    }
+  }
+}
 
 export const ticketsModule: BotModule = {
   name: "tickets",
@@ -189,11 +495,16 @@ export const ticketsModule: BotModule = {
     featureCommand({
       name: "ticket",
       description: "Support tickets.",
-      // Only the admin `panel` action exists today; the deep-pass will open this up
-      // (e.g. /ticket close) and drop this to per-subcommand gating.
-      defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-      subcommands: { panel: panelSub },
+      subcommands: { panel: panelSub, claim: claimSub, close: closeSub, add: addSub, remove: removeSub },
     }),
   ],
-  components: [openHandler, modalHandler, closeHandler],
+  listeners: [onMessage, onReady] as Listener[],
+  components: [
+    openHandler,
+    modalHandler,
+    claimHandler,
+    closeHandler,
+    closeConfirmHandler,
+    closeCancelHandler,
+  ],
 };
