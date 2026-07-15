@@ -15,6 +15,7 @@ test("dispatches to the matching command", async () => {
         called = true;
       }),
     ],
+    [],
     silentContext(),
   );
   await router.handle(fakeInteraction("example"));
@@ -22,7 +23,7 @@ test("dispatches to the matching command", async () => {
 });
 
 test("ignores unknown commands without throwing", async () => {
-  const router = new CommandRouter([], silentContext());
+  const router = new CommandRouter([], [], silentContext());
   await router.handle(fakeInteraction("nope"));
   // no throw = pass
 });
@@ -34,6 +35,7 @@ test("catches command errors and replies ephemerally", async () => {
         throw new Error("kaboom");
       }),
     ],
+    [],
     silentContext(),
   );
   const interaction = fakeInteraction("boom");

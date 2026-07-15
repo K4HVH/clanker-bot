@@ -3,7 +3,9 @@ import type { Env } from "../core/env";
 import type { BotModule } from "./module";
 
 export function collectCommandData(modules: BotModule[]): unknown[] {
-  return modules.flatMap((m) => m.commands ?? []).map((c) => c.data.toJSON());
+  return modules
+    .flatMap((m) => [...(m.commands ?? []), ...(m.contextCommands ?? [])])
+    .map((c) => c.data.toJSON());
 }
 
 export async function registerGuildCommands(env: Env, modules: BotModule[]): Promise<number> {

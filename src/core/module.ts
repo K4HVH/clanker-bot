@@ -1,7 +1,9 @@
 import type {
   ChatInputCommandInteraction,
   ClientEvents,
+  ContextMenuCommandBuilder,
   MessageComponentInteraction,
+  MessageContextMenuCommandInteraction,
   ModalSubmitInteraction,
   SlashCommandBuilder,
 } from "discord.js";
@@ -13,6 +15,12 @@ export type CommandData = Pick<SlashCommandBuilder, "name" | "toJSON">;
 export interface SlashCommand {
   data: CommandData;
   execute(interaction: ChatInputCommandInteraction, ctx: AppContext): Promise<void>;
+}
+
+// A right-click (message) context-menu command — "Apps → …" on a message.
+export interface ContextCommand {
+  data: Pick<ContextMenuCommandBuilder, "name" | "toJSON">;
+  execute(interaction: MessageContextMenuCommandInteraction, ctx: AppContext): Promise<void>;
 }
 
 export interface Listener<K extends keyof ClientEvents = keyof ClientEvents> {
@@ -35,6 +43,7 @@ export interface ComponentHandler {
 export interface BotModule {
   name: string;
   commands?: SlashCommand[];
+  contextCommands?: ContextCommand[];
   listeners?: Listener[];
   components?: ComponentHandler[];
 }

@@ -20,7 +20,8 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
   });
 
   const commands = modules.flatMap((m) => m.commands ?? []);
-  const router = new CommandRouter(commands, ctx);
+  const contextCommands = modules.flatMap((m) => m.contextCommands ?? []);
+  const router = new CommandRouter(commands, contextCommands, ctx);
   const componentRouter = new ComponentRouter(
     modules.flatMap((m) => m.components ?? []),
     ctx,
@@ -28,6 +29,7 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
 
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) void router.handle(interaction);
+    else if (interaction.isMessageContextMenuCommand()) void router.handleContext(interaction);
     else if (
       interaction.isButton() ||
       interaction.isModalSubmit() ||
