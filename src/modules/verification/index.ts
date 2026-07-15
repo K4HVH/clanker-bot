@@ -569,7 +569,8 @@ const verifyUserCommand: SlashCommand = {
       await interaction.reply({ content: "Run this in the server.", flags: MessageFlags.Ephemeral });
       return;
     }
-    if (!ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId)) {
+    const roleId = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
+    if (!roleId) {
       await interaction.reply({
         content: "Verification isn't configured (no Verified role set).",
         flags: MessageFlags.Ephemeral,
@@ -577,10 +578,18 @@ const verifyUserCommand: SlashCommand = {
       return;
     }
     const target = interaction.options.getUser("member", true);
+    if (target.bot) {
+      await interaction.reply({ content: "Bots don't need verifying.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (memberHasRole(interaction.options.getMember("member")?.roles ?? null, roleId)) {
+      await interaction.reply({ content: `<@${target.id}> is already verified.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const result = await grantVerified(ctx, interaction.guild, target.id);
     if (!result.ok) {
-      await interaction.editReply(result.msg);
+      await interaction.editReply(result.left ? "That user isn't in this server." : result.msg);
       return;
     }
     deleteChallenge(ctx.db, guildId, target.id);
