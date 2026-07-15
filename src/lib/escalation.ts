@@ -37,8 +37,8 @@ function thresholdsFrom(ctx: AppContext, guildId: string): EscalationThresholds 
     longScore: g(CONFIG_KEYS.escalationTimeoutLongScore),
     kickScore: g(CONFIG_KEYS.escalationKickScore),
     banScore: g(CONFIG_KEYS.escalationBanScore),
-    shortMs: g(CONFIG_KEYS.escalationTimeoutShortMs),
-    longMs: g(CONFIG_KEYS.escalationTimeoutLongMs),
+    shortMs: g(CONFIG_KEYS.escalationTimeoutShortMinutes) * 60_000,
+    longMs: g(CONFIG_KEYS.escalationTimeoutLongMinutes) * 60_000,
   };
 }
 

@@ -33,7 +33,7 @@ test("getEffective falls back to default; get stays unset-sensitive", () => {
   const cfg = new ConfigService(makeTestDb());
   expect(cfg.getEffective<boolean>("g", CONFIG_KEYS.dmOnAction)).toBe(false);
   expect(cfg.get<boolean>("g", CONFIG_KEYS.dmOnAction)).toBeUndefined();
-  expect(cfg.getEffective<number>("g", CONFIG_KEYS.automodSpamWindowMs)).toBe(7000);
+  expect(cfg.getEffective<number>("g", CONFIG_KEYS.automodSpamWindowSeconds)).toBe(7);
   cfg.set("g", CONFIG_KEYS.dmOnAction, true);
   expect(cfg.getEffective<boolean>("g", CONFIG_KEYS.dmOnAction)).toBe(true);
 });

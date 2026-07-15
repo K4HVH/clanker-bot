@@ -10,7 +10,7 @@ export const CONFIG_KEYS = {
   automodInvites: "automod_invites",
   automodLinks: "automod_links",
   automodMentionLimit: "automod_mention_limit",
-  automodSpamWindowMs: "automod_spam_window_ms",
+  automodSpamWindowSeconds: "automod_spam_window_seconds",
   automodSpamMaxMessages: "automod_spam_max_messages",
   autoEscalation: "auto_escalation",
   strikeDecayDays: "strike_decay_days",
@@ -18,8 +18,8 @@ export const CONFIG_KEYS = {
   escalationTimeoutLongScore: "escalation_timeout_long_score",
   escalationKickScore: "escalation_kick_score",
   escalationBanScore: "escalation_ban_score",
-  escalationTimeoutShortMs: "escalation_timeout_short_ms",
-  escalationTimeoutLongMs: "escalation_timeout_long_ms",
+  escalationTimeoutShortMinutes: "escalation_timeout_short_minutes",
+  escalationTimeoutLongMinutes: "escalation_timeout_long_minutes",
   strikeWeightNote: "strike_weight_note",
   strikeWeightWarn: "strike_weight_warn",
   strikeWeightTimeout: "strike_weight_timeout",
@@ -78,7 +78,7 @@ export const CATEGORIES: Category[] = [
 ];
 
 const K = CONFIG_KEYS;
-const MAX_TIMEOUT_MS = 28 * 86_400_000;
+const MAX_TIMEOUT_MINUTES = 28 * 24 * 60; // Discord's 28-day timeout cap, in minutes
 
 export const REGISTRY: Setting[] = [
   // General
@@ -90,7 +90,7 @@ export const REGISTRY: Setting[] = [
   { key: K.automodInvites, category: "automod", type: "bool", default: false, label: "Block invite links" },
   { key: K.automodLinks, category: "automod", type: "bool", default: false, label: "Block links" },
   { key: K.automodMentionLimit, category: "automod", type: "int", min: 1, max: 50, default: 5, label: "Max mentions per message" },
-  { key: K.automodSpamWindowMs, category: "automod", type: "int", min: 1000, max: 60_000, default: 7000, label: "Spam window (ms)" },
+  { key: K.automodSpamWindowSeconds, category: "automod", type: "int", min: 1, max: 60, default: 7, label: "Spam window (seconds)" },
   { key: K.automodSpamMaxMessages, category: "automod", type: "int", min: 2, max: 30, default: 5, label: "Messages before flood" },
   // Escalation
   { key: K.autoEscalation, category: "escalation", type: "bool", default: false, label: "Auto-escalation enabled" },
@@ -99,8 +99,8 @@ export const REGISTRY: Setting[] = [
   { key: K.escalationTimeoutLongScore, category: "escalation", type: "int", min: 1, max: 1000, default: 5, label: "Score → long timeout" },
   { key: K.escalationKickScore, category: "escalation", type: "int", min: 1, max: 1000, default: 8, label: "Score → kick" },
   { key: K.escalationBanScore, category: "escalation", type: "int", min: 1, max: 1000, default: 12, label: "Score → ban" },
-  { key: K.escalationTimeoutShortMs, category: "escalation", type: "int", min: 60_000, max: MAX_TIMEOUT_MS, default: 3_600_000, label: "Short timeout (ms)" },
-  { key: K.escalationTimeoutLongMs, category: "escalation", type: "int", min: 60_000, max: MAX_TIMEOUT_MS, default: 86_400_000, label: "Long timeout (ms)" },
+  { key: K.escalationTimeoutShortMinutes, category: "escalation", type: "int", min: 1, max: MAX_TIMEOUT_MINUTES, default: 60, label: "Short timeout (minutes)" },
+  { key: K.escalationTimeoutLongMinutes, category: "escalation", type: "int", min: 1, max: MAX_TIMEOUT_MINUTES, default: 1440, label: "Long timeout (minutes)" },
   // Strike weights
   { key: K.strikeWeightNote, category: "strike-weights", type: "int", min: 0, max: 100, default: 0, label: "Weight: note" },
   { key: K.strikeWeightWarn, category: "strike-weights", type: "int", min: 0, max: 100, default: 1, label: "Weight: warn" },

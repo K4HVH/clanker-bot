@@ -53,7 +53,8 @@ const onMessage: Listener<Events.MessageCreate> = {
     const mentionCount = message.mentions.users.size + message.mentions.roles.size;
     let violation = checkContentRules(message.content, mentionCount, cfg);
     if (!violation && cfg.spam) {
-      const windowMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodSpamWindowMs);
+      const windowMs =
+        ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodSpamWindowSeconds) * 1000;
       const maxMessages = ctx.config.getEffective<number>(
         guildId,
         CONFIG_KEYS.automodSpamMaxMessages,
