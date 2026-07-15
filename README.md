@@ -55,7 +55,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete`
+`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete` · `/say`
 
 ## Development
 

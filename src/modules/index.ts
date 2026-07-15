@@ -4,6 +4,7 @@ import { configModule } from "./config";
 import { guardsModule } from "./guards";
 import { loggingModule } from "./logging";
 import { moderationModule } from "./moderation";
+import { sayModule } from "./say";
 import { tagsModule } from "./tags";
 import { ticketsModule } from "./tickets";
 import { verificationModule } from "./verification";
@@ -19,4 +20,5 @@ export const modules: BotModule[] = [
   guardsModule,
   ticketsModule,
   tagsModule,
+  sayModule,
 ];
