@@ -37,6 +37,7 @@ export function createDatabase(path: string): BotDatabase {
     close_reason: "TEXT",
   });
   ensureColumns(db, "verification_challenges", {
+    attempts: "INTEGER NOT NULL DEFAULT 0",
     dm_message_id: "TEXT",
   });
   return db;

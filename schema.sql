@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS verification_challenges (
   user_id       TEXT    NOT NULL,
   code          TEXT    NOT NULL,
   expires_at    INTEGER NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,  -- wrong guesses so far; SHARED across surfaces
+                                  -- (DM + in-channel) so the attempt budget can't be reset
+                                  -- by switching where you type, and both stay in sync
   dm_message_id TEXT,             -- the on-join DM captcha message, so a code typed in a
                                   -- DM can rotate in place even after a restart drops the
                                   -- in-memory session (source of truth for reviving it)

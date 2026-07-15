@@ -6,21 +6,24 @@ export function setChallenge(
   userId: string,
   code: string,
   expiresAt: number,
+  attempts: number,
 ): void {
   run(
     db,
-    `INSERT INTO verification_challenges (guild_id, user_id, code, expires_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT (guild_id, user_id) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at`,
+    `INSERT INTO verification_challenges (guild_id, user_id, code, expires_at, attempts) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, attempts = excluded.attempts`,
     guildId,
     userId,
     code,
     expiresAt,
+    attempts,
   );
 }
 
 export interface Challenge {
   code: string;
   expiresAt: number;
+  attempts: number;
   dmMessageId?: string;
 }
 
@@ -29,14 +32,19 @@ export function getChallenge(
   guildId: string,
   userId: string,
 ): Challenge | undefined {
-  const row = one<{ code: string; expiresAt: number; dmMessageId: string | null }>(
+  const row = one<{ code: string; expiresAt: number; attempts: number; dmMessageId: string | null }>(
     db,
-    "SELECT code, expires_at AS expiresAt, dm_message_id AS dmMessageId FROM verification_challenges WHERE guild_id = ? AND user_id = ?",
+    "SELECT code, expires_at AS expiresAt, attempts, dm_message_id AS dmMessageId FROM verification_challenges WHERE guild_id = ? AND user_id = ?",
     guildId,
     userId,
   );
   if (!row) return undefined;
-  return { code: row.code, expiresAt: row.expiresAt, dmMessageId: row.dmMessageId ?? undefined };
+  return {
+    code: row.code,
+    expiresAt: row.expiresAt,
+    attempts: row.attempts,
+    dmMessageId: row.dmMessageId ?? undefined,
+  };
 }
 
 // Record which DM message holds the captcha, so a code typed in a DM can rotate that
