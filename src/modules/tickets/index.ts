@@ -97,6 +97,20 @@ async function isTicketStaff(guild: Guild, userId: string, ctx: AppContext): Pro
   return !!staffRoleId && member.roles.cache.has(staffRoleId);
 }
 
+// Decide whether a user may close a ticket. Staff always can; the opener can too, unless the
+// guild has restricted closing to staff only. Returns a denial message, or null if allowed.
+async function closeDenial(
+  guild: Guild,
+  userId: string,
+  ticket: TicketRecord,
+  ctx: AppContext,
+): Promise<string | null> {
+  if (await isTicketStaff(guild, userId, ctx)) return null;
+  const staffOnly = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketStaffOnlyClose);
+  if (!staffOnly && userId === ticket.openerId) return null;
+  return staffOnly ? "Only staff can close tickets here." : "Only the opener or staff can close this.";
+}
+
 async function sendToModLog(
   ctx: AppContext,
   guild: Guild,
@@ -218,9 +232,9 @@ const closeSub: Subcommand = {
   async execute(interaction, ctx) {
     const t = await requireTicket(interaction, ctx);
     if (!t) return;
-    const isOpener = interaction.user.id === t.ticket.openerId;
-    if (!isOpener && !(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
-      await interaction.reply({ content: "Only the opener or staff can close this.", flags: MessageFlags.Ephemeral });
+    const denial = await closeDenial(t.guild, interaction.user.id, t.ticket, ctx);
+    if (denial) {
+      await interaction.reply({ content: denial, flags: MessageFlags.Ephemeral });
       return;
     }
     const reason = interaction.options.getString("reason");
@@ -447,9 +461,9 @@ const closeHandler: ComponentHandler = {
     const button = interaction as ButtonInteraction;
     const t = await requireTicketButton(button, ctx);
     if (!t) return;
-    const isOpener = button.user.id === t.ticket.openerId;
-    if (!isOpener && !(await isTicketStaff(t.guild, button.user.id, ctx))) {
-      await button.reply({ content: "Only the opener or staff can close this.", flags: MessageFlags.Ephemeral });
+    const denial = await closeDenial(t.guild, button.user.id, t.ticket, ctx);
+    if (denial) {
+      await button.reply({ content: denial, flags: MessageFlags.Ephemeral });
       return;
     }
     // Skip the confirmation step if the guild has turned it off.

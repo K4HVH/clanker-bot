@@ -44,6 +44,7 @@ export const CONFIG_KEYS = {
   ticketDmTranscript: "ticket_dm_transcript",
   ticketArchiveImages: "ticket_archive_images",
   ticketCloseConfirm: "ticket_close_confirm",
+  ticketStaffOnlyClose: "ticket_staff_only_close",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -129,6 +130,7 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketDmTranscript, category: "tickets", type: "bool", default: true, label: "DM the transcript to the opener on close" },
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)" },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)" },
+  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)" },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));
