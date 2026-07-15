@@ -74,6 +74,20 @@ test("planAuditEntry: server structure changes → member-log under logServerEve
   expect(chan?.toggle).toBe(CONFIG_KEYS.logServerEvents);
 });
 
+test("planAuditEntry: a deleted channel/role shows its captured name, not a #unknown mention", () => {
+  const del = planAuditEntry(
+    entry({ action: AuditLogEvent.ChannelDelete, targetId: "c1", changes: [{ key: "name", old: "general" }] }),
+    BOT,
+  );
+  const field = del?.embed.data.fields?.find((f) => f.name === "Channel");
+  expect(field?.value).toContain("general");
+  expect(field?.value).not.toContain("<#"); // no dead mention
+
+  // A CREATE still mentions the (existing) channel.
+  const created = planAuditEntry(entry({ action: AuditLogEvent.ChannelCreate, targetId: "c2" }), BOT);
+  expect(created?.embed.data.fields?.find((f) => f.name === "Channel")?.value).toContain("<#c2>");
+});
+
 test("planAuditEntry: unmapped actions are ignored", () => {
   expect(planAuditEntry(entry({ action: AuditLogEvent.MessagePin }), BOT)).toBeNull();
 });

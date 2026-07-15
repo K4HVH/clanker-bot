@@ -15,6 +15,12 @@ import { isCodeShaped } from "../../lib/verification-logic";
 const heat = new HeatTracker();
 const repeats = new RepeatTracker();
 
+// After escalating a user, ignore further escalations for a short window — a rapid burst
+// arrives as several already-sent messages, and each crossing the threshold would otherwise
+// re-timeout/re-ban them (they can't send NEW messages once timed out).
+const escalatedAt = new Map<string, number>();
+const ESCALATION_COOLDOWN_MS = 20_000;
+
 function contentRulesFor(ctx: AppContext, guildId: string): ContentRules {
   return {
     invites: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodInvites),
@@ -66,6 +72,15 @@ async function escalate(
   else if (timeoutAt > 0 && count >= timeoutAt) type = "timeout";
   if (!type) return false;
 
+  // Already escalated this user moments ago (a burst of already-sent messages) — don't re-act,
+  // and return true so the caller suppresses the "message removed" DM too.
+  const key = `${guildId}:${userId}`;
+  const last = escalatedAt.get(key);
+  if (last !== undefined && Date.now() - last < ESCALATION_COOLDOWN_MS) return true;
+  if (escalatedAt.size > 1000) {
+    for (const [k, t] of escalatedAt) if (Date.now() - t >= ESCALATION_COOLDOWN_MS) escalatedAt.delete(k);
+  }
+
   // The target just sent a message, so they're a present member: require the bot to outrank
   // them (and not be the owner) and hold the permission — otherwise skip the escalation
   // silently (the delete + warn still stand). This avoids a doomed API call + a lying DM.
@@ -93,6 +108,7 @@ async function escalate(
   } catch {
     return false;
   }
+  escalatedAt.set(key, Date.now());
   if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
     const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
     await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
@@ -117,7 +133,12 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
   if (member?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
   if (inVerifyChannel(ctx, message)) return;
-  if (getTicketByChannel(ctx.db, message.channelId)) return;
+  if (
+    !ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodModerateTickets) &&
+    getTicketByChannel(ctx.db, message.channelId)
+  ) {
+    return;
+  }
   const challenge = getChallenge(ctx.db, guildId, message.author.id);
   if (
     challenge &&

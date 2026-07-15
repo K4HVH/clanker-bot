@@ -440,7 +440,9 @@ const modalHandler: ComponentHandler = {
             .setTitle(`Ticket #${record.ticketNumber} opened`)
             .addFields(
               { name: "Opened by", value: `<@${modal.user.id}>` },
-              { name: "Channel", value: `<#${channel.id}>` },
+              // Mention (a live link while open) + the name, so the entry still reads after the
+              // channel is deleted on close (the mention would become "#unknown").
+              { name: "Channel", value: `<#${channel.id}> (\`${channel.name}\`)` },
               { name: "Subject", value: subject },
             )
             .setTimestamp(new Date()),

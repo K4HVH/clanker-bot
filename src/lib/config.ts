@@ -7,6 +7,7 @@ export const CONFIG_KEYS = {
   modLogChannelId: "mod_log_channel_id",
   memberLogChannelId: "member_log_channel_id",
   dmOnAction: "dm_on_action",
+  automodModerateTickets: "automod_moderate_tickets",
   automodInvites: "automod_invites",
   automodLinks: "automod_links",
   automodLinkAllowlist: "automod_link_allowlist",
@@ -100,6 +101,7 @@ export const REGISTRY: Setting[] = [
   { key: K.logServerEvents, category: "logging", type: "bool", default: false, label: "Log server structure changes", description: "Channel and role create/delete/edit, with who (member log). Off by default — chatty." },
   // Automod — content filters (each fires a "violation": delete + record; see Automod Actions
   // for what accumulated violations do). All off by default; re-checked on message edits too.
+  { key: K.automodModerateTickets, category: "automod", type: "bool", default: false, label: "Also moderate ticket channels", description: "By default automod ignores ticket channels (private support). Turn on to enforce there too." },
   { key: K.automodInvites, category: "automod", type: "bool", default: false, label: "Block invite links", description: "Delete messages with a Discord invite (discord.gg, discord.com/invite, discord.new, dsc.gg)." },
   { key: K.automodLinks, category: "automod", type: "bool", default: false, label: "Block links", description: "Delete messages with a URL whose domain isn't in the allowlist below." },
   { key: K.automodLinkAllowlist, category: "automod", type: "text", default: "", label: "Link allowlist", description: "Domains that are always allowed, comma/newline separated (e.g. github.com, youtube.com). Subdomains match. Empty = block every link.", placeholder: "github.com, youtube.com\ndocs.espressif.com" },

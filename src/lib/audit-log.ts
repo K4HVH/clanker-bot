@@ -55,11 +55,32 @@ export function removalTargetId(entry: GuildAuditLogsEntry): string | null {
   return null;
 }
 
+// A deleted channel/role can't be resolved by a mention (it renders as "#unknown"), so for a
+// delete show the captured name + id; for create/update the entity still exists, so mention it.
+function capturedName(entry: GuildAuditLogsEntry): string | undefined {
+  const fromTarget = (entry.target as { name?: string } | null)?.name;
+  if (fromTarget) return fromTarget;
+  const change = entry.changes.find((c) => c.key === "name");
+  return (change?.old ?? change?.new) as string | undefined;
+}
+
 function targetField(entry: GuildAuditLogsEntry): { name: string; value: string } | null {
   const id = entry.targetId;
   if (!id) return null;
-  if (CHANNEL_ACTIONS.has(entry.action)) return { name: "Channel", value: `<#${id}>` };
-  if (ROLE_ACTIONS.has(entry.action)) return { name: "Role", value: `<@&${id}>` };
+  if (CHANNEL_ACTIONS.has(entry.action)) {
+    const value =
+      entry.action === AuditLogEvent.ChannelDelete
+        ? `\`#${capturedName(entry) ?? "unknown"}\` (${id})`
+        : `<#${id}>`;
+    return { name: "Channel", value };
+  }
+  if (ROLE_ACTIONS.has(entry.action)) {
+    const value =
+      entry.action === AuditLogEvent.RoleDelete
+        ? `\`@${capturedName(entry) ?? "unknown"}\` (${id})`
+        : `<@&${id}>`;
+    return { name: "Role", value };
+  }
   return { name: "User", value: `<@${id}> (${id})` };
 }
 
