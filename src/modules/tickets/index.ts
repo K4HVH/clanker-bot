@@ -189,6 +189,9 @@ export const ticketsModule: BotModule = {
     featureCommand({
       name: "ticket",
       description: "Support tickets.",
+      // Only the admin `panel` action exists today; the deep-pass will open this up
+      // (e.g. /ticket close) and drop this to per-subcommand gating.
+      defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
       subcommands: { panel: panelSub },
     }),
   ],
