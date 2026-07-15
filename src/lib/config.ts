@@ -67,7 +67,7 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: "general", label: "General", accentColor: 0x5865f2 },
+  { id: "moderation", label: "Moderation", accentColor: 0x5865f2 },
   { id: "logging", label: "Logging", accentColor: 0x1abc9c },
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
@@ -78,8 +78,8 @@ export const CATEGORIES: Category[] = [
 const K = CONFIG_KEYS;
 
 export const REGISTRY: Setting[] = [
-  // General
-  { key: K.dmOnAction, category: "general", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/kicked/banned." },
+  // Moderation
+  { key: K.dmOnAction, category: "moderation", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/timed out/kicked/banned, telling them the reason." },
   // Logging
   { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
   { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },

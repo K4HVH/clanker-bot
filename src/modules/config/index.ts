@@ -20,7 +20,7 @@ import { getSetting, REGISTRY, validateSetting } from "../../lib/config";
 import { buildModal, buildPanel } from "./panel";
 
 const V2 = MessageFlags.IsComponentsV2;
-const DEFAULT_CATEGORY = "general";
+const DEFAULT_CATEGORY = "moderation";
 
 type Interaction = MessageComponentInteraction | ModalSubmitInteraction;
 

@@ -28,7 +28,7 @@ test("every category panel fits Discord's component budget", () => {
 test("panel reflects current values", () => {
   const ctx = silentContext();
   ctx.config.set("g", CONFIG_KEYS.dmOnAction, true);
-  const json = JSON.stringify(buildPanel(ctx, "g", "general").map((b) => b.toJSON()));
+  const json = JSON.stringify(buildPanel(ctx, "g", "moderation").map((b) => b.toJSON()));
   expect(json).toContain("cfg:toggle:dm_on_action");
   // the toggle button label reflects the "on" state
   expect(json).toContain('"label":"On"');
