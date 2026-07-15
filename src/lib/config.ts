@@ -29,7 +29,7 @@ export const CONFIG_KEYS = {
   accountAgeGateKick: "account_age_gate_kick",
   verifiedRoleId: "verified_role_id",
   verificationChannelId: "verification_channel_id",
-  verificationChallengeTtlMs: "verification_challenge_ttl_ms",
+  verificationChallengeMinutes: "verification_challenge_minutes",
   verificationCodeLength: "verification_code_length",
   verificationPanelText: "verification_panel_text",
   verificationDmOnJoin: "verification_dm_on_join",
@@ -113,7 +113,7 @@ export const REGISTRY: Setting[] = [
   // Verification
   { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role" },
   { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Verify channel (kept clear)" },
-  { key: K.verificationChallengeTtlMs, category: "verification", type: "int", min: 60_000, max: 3_600_000, default: 600_000, label: "Captcha TTL (ms)" },
+  { key: K.verificationChallengeMinutes, category: "verification", type: "int", min: 1, max: 60, default: 10, label: "Captcha TTL (minutes)" },
   { key: K.verificationCodeLength, category: "verification", type: "int", min: 4, max: 8, default: 6, label: "Captcha length" },
   { key: K.verificationPanelText, category: "verification", type: "text", default: "Click **Verify** to prove you're human and unlock the server.", label: "Verify panel text" },
   { key: K.verificationDmOnJoin, category: "verification", type: "bool", default: true, label: "DM captcha on join" },

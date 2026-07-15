@@ -149,7 +149,7 @@ async function issueCaptcha(
     expiresAt =
       mode === "rotate"
         ? existing!.expiresAt // keep the deadline stable across rotations
-        : now + ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationChallengeTtlMs);
+        : now + ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationChallengeMinutes) * 60_000;
   }
 
   const png = await renderCaptcha(code, difficultyOf(ctx, guildId));
