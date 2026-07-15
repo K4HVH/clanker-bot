@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { HeatTracker } from "../../src/lib/heat";
+import { HeatTracker, RepeatTracker } from "../../src/lib/heat";
 
 test("flags a burst over the threshold within the window", () => {
   const h = new HeatTracker();
@@ -19,4 +19,13 @@ test("tracks users independently", () => {
   const h = new HeatTracker();
   h.record("g", "u1", 100, 1000, 1);
   expect(h.record("g", "u2", 100, 1000, 1)).toBe(false);
+});
+
+test("RepeatTracker flags a duplicate within the window, not outside it", () => {
+  const r = new RepeatTracker();
+  expect(r.record("k", "hello", 0, 1000)).toBe(false); // first time
+  expect(r.record("k", "HELLO ", 100, 1000)).toBe(true); // same (normalized) within window
+  expect(r.record("k", "different", 200, 1000)).toBe(false); // not a repeat
+  expect(r.record("k", "hello", 5000, 1000)).toBe(false); // old copy fell out of the window
+  expect(r.record("k", "", 300, 1000)).toBe(false); // empty never counts
 });

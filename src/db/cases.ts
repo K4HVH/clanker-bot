@@ -1,5 +1,27 @@
 import { type BotDatabase, many, one } from "../db/index";
 
+// Count a user's automod violations (bot-authored warns — the only bot-created warns) since a
+// cutoff, for automod's escalation ladder.
+export function countAutomodViolations(
+  db: BotDatabase,
+  guildId: string,
+  userId: string,
+  botId: string,
+  sinceMs: number,
+): number {
+  return (
+    one<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM cases
+       WHERE guild_id = ? AND user_id = ? AND moderator_id = ? AND type = 'warn' AND created_at >= ?`,
+      guildId,
+      userId,
+      botId,
+      sinceMs,
+    )?.n ?? 0
+  );
+}
+
 export type CaseType = "warn" | "timeout" | "untimeout" | "kick" | "ban" | "unban" | "note";
 
 export interface NewCase {

@@ -40,7 +40,7 @@ test("getEffective falls back to default; get stays unset-sensitive", () => {
   const cfg = new ConfigService(makeTestDb());
   expect(cfg.getEffective<boolean>("g", CONFIG_KEYS.dmOnAction)).toBe(false);
   expect(cfg.get<boolean>("g", CONFIG_KEYS.dmOnAction)).toBeUndefined();
-  expect(cfg.getEffective<number>("g", CONFIG_KEYS.automodSpamWindowSeconds)).toBe(7);
+  expect(cfg.getEffective<number>("g", CONFIG_KEYS.automodFloodSeconds)).toBe(7);
   cfg.set("g", CONFIG_KEYS.dmOnAction, true);
   expect(cfg.getEffective<boolean>("g", CONFIG_KEYS.dmOnAction)).toBe(true);
 });
@@ -48,14 +48,14 @@ test("getEffective falls back to default; get stays unset-sensitive", () => {
 test("reset clears all rows for the guild", () => {
   const cfg = new ConfigService(makeTestDb());
   cfg.set("g", CONFIG_KEYS.dmOnAction, true);
-  cfg.set("g", CONFIG_KEYS.automodSpam, true);
+  cfg.set("g", CONFIG_KEYS.automodFlood, true);
   expect(cfg.reset("g")).toBe(2);
   expect(cfg.get("g", CONFIG_KEYS.dmOnAction)).toBeUndefined();
 });
 
 test("validateSetting enforces type and bounds", () => {
   const boolS = REGISTRY_BY_KEY.get(CONFIG_KEYS.dmOnAction);
-  const intS = REGISTRY_BY_KEY.get(CONFIG_KEYS.automodMentionLimit); // min 1 max 50
+  const intS = REGISTRY_BY_KEY.get(CONFIG_KEYS.automodFloodMessages); // min 2 max 30
   const chanS = REGISTRY_BY_KEY.get(CONFIG_KEYS.modLogChannelId);
   if (!boolS || !intS || !chanS) throw new Error("registry missing keys");
   expect(validateSetting(boolS, true)).toBe(true);

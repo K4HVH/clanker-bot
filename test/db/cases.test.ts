@@ -1,6 +1,22 @@
 import { expect, test } from "bun:test";
-import { createCase, listCasesByUser } from "../../src/db/cases";
+import { countAutomodViolations, createCase, listCasesByUser } from "../../src/db/cases";
 import { makeTestDb } from "../helpers/db";
+
+test("countAutomodViolations counts only bot-authored warns for the user", () => {
+  const db = makeTestDb();
+  const BOT = "bot";
+  // Two automod warns (bot-authored) + a manual warn (human) + a bot ban (not a warn).
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "warn", reason: "Automod: x" });
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "warn", reason: "Automod: y" });
+  createCase(db, { guildId: "g", userId: "u", moderatorId: "human", type: "warn", reason: "manual" });
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "ban", reason: "auto ban" });
+  // A different user's automod warn must not count.
+  createCase(db, { guildId: "g", userId: "other", moderatorId: BOT, type: "warn", reason: "Automod: z" });
+
+  expect(countAutomodViolations(db, "g", "u", BOT, 0)).toBe(2);
+  // A cutoff in the future excludes everything.
+  expect(countAutomodViolations(db, "g", "u", BOT, Date.now() + 60_000)).toBe(0);
+});
 
 test("case numbers increment sequentially per guild", () => {
   const db = makeTestDb();
