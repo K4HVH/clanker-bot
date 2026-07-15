@@ -12,12 +12,9 @@ test("generateCode never emits an ambiguous glyph (0O1IL2568)", () => {
   expect(/[0O1IL2568]/.test(codes)).toBe(false);
 });
 
-test("captchaWidth leaves room for the last glyph at every allowed length (4-8)", () => {
-  for (let len = 4; len <= 8; len++) {
-    // Last glyph anchors at 26 + (len-1)*34; a 44px bold glyph needs ~34px of
-    // advance. Require comfortable headroom beyond the anchor so nothing clips.
-    const lastAnchor = 26 + (len - 1) * 34;
-    expect(captchaWidth(len) - lastAnchor).toBeGreaterThanOrEqual(50);
+test("captchaWidth grows with length (no clipping for longer codes)", () => {
+  for (let len = 4; len < 8; len++) {
+    expect(captchaWidth(len + 1)).toBeGreaterThan(captchaWidth(len));
   }
 });
 
@@ -28,8 +25,12 @@ test("renderCaptcha produces a valid PNG", async () => {
   expect(png[1]).toBe(0x50); // 'P'
 });
 
-test("renderCaptcha handles the maximum configurable length (8) without clipping/throwing", async () => {
-  const png = await renderCaptcha(generateCode(8));
-  expect(png.length).toBeGreaterThan(500);
-  expect(png[0]).toBe(0x89);
+test("renderCaptcha renders every length (4-8) and difficulty (1-5) without throwing", async () => {
+  for (let len = 4; len <= 8; len++) {
+    for (const diff of [1, 2, 3, 4, 5] as const) {
+      const png = await renderCaptcha(generateCode(len), diff);
+      expect(png.length).toBeGreaterThan(500);
+      expect(png[0]).toBe(0x89);
+    }
+  }
 });

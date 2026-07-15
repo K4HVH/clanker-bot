@@ -41,61 +41,95 @@ export function generateCode(length = 6): string {
   return out;
 }
 
-// Difficulty scales glyph rotation and interference-line counts (1 easiest …
-// 3 hardest). Kept mild by default so legitimate humans on mobile can still read it.
-export type CaptchaDifficulty = 1 | 2 | 3;
-const PROFILES: Record<CaptchaDifficulty, { rot: number; backLines: number; frontLines: number }> = {
-  1: { rot: 12, backLines: 4, frontLines: 1 },
-  2: { rot: 16, backLines: 7, frontLines: 2 },
-  3: { rot: 24, backLines: 10, frontLines: 3 },
+// Difficulty 1 (easiest) … 5 (brutal). Higher levels overlap the glyphs more,
+// warp them harder (rotation/skew/scale), ride a taller sine baseline, and lay
+// more same-colour strokes through the text — all aimed at breaking the free
+// per-glyph segmentation that makes clean captchas trivial to OCR.
+export type CaptchaDifficulty = 1 | 2 | 3 | 4 | 5;
+interface Profile {
+  rot: number; // ± per-glyph rotation (deg)
+  skew: number; // ± per-glyph horizontal skew (deg)
+  overlap: number; // fraction of a glyph's advance that neighbours overlap
+  wave: number; // sine-baseline amplitude (px)
+  scaleVar: number; // ± non-uniform per-glyph scale
+  occlude: number; // thick same-colour strokes drawn through the text
+  back: number; // faint background scribbles
+}
+const PROFILES: Record<CaptchaDifficulty, Profile> = {
+  1: { rot: 8, skew: 4, overlap: 0.02, wave: 4, scaleVar: 0.08, occlude: 1, back: 4 },
+  2: { rot: 12, skew: 9, overlap: 0.09, wave: 6, scaleVar: 0.12, occlude: 1, back: 6 },
+  3: { rot: 17, skew: 13, overlap: 0.16, wave: 8, scaleVar: 0.17, occlude: 2, back: 8 },
+  4: { rot: 22, skew: 18, overlap: 0.22, wave: 10, scaleVar: 0.22, occlude: 2, back: 9 },
+  5: { rot: 27, skew: 23, overlap: 0.28, wave: 12, scaleVar: 0.27, occlude: 3, back: 10 },
 };
 
-const LEFT = 26;
-const STEP = 34;
-const RIGHT_PAD = 20;
-const HEIGHT = 90;
+const LEFT = 30;
+const STEP_MAX = 36; // upper-bound advance used for the canvas width
+const RIGHT_PAD = 30;
+const HEIGHT = 100;
+const FONT_SIZE = 46;
 
-// Canvas width grows with the code length so glyphs never clip off the right
-// edge — the code length is configurable up to 8 and a fixed width silently
-// cropped (and thus locked out) longer codes.
+// Canvas width grows with the code length (configurable up to 8) so glyphs never
+// clip off the right edge. It's an UPPER bound — glyphs are overlapped and centred
+// inside it, so extra room is just margin that absorbs rotation/skew overflow.
 export function captchaWidth(length: number): number {
-  return LEFT + length * STEP + RIGHT_PAD;
+  return LEFT + length * STEP_MAX + RIGHT_PAD;
 }
 
 function buildSvg(code: string, difficulty: CaptchaDifficulty): string {
+  const p = PROFILES[difficulty];
   const w = captchaWidth(code.length);
   const h = HEIGHT;
-  const p = PROFILES[difficulty];
   const rand = () => Math.random();
+  const jit = (amp: number) => rand() * 2 * amp - amp;
+  // A light grey with per-element lightness jitter; glyphs AND the occlusion strokes
+  // draw from the same range so a solver can't key on colour to separate them.
+  const grey = () => {
+    const v = (200 + Math.floor(rand() * 48)).toString(16);
+    return `#${v}${v}${v}`;
+  };
 
-  const line = (opacity: number, stroke: string) =>
-    `<line x1="${(rand() * w).toFixed(0)}" y1="${(rand() * h).toFixed(0)}" x2="${(rand() * w).toFixed(0)}" y2="${(rand() * h).toFixed(0)}" stroke="${stroke}" stroke-width="1" opacity="${opacity}"/>`;
+  const advance = FONT_SIZE * 0.6;
+  const step = advance * (1 - p.overlap);
+  const contentW = (code.length - 1) * step + advance;
+  const startX = (w - contentW) / 2;
+  const midY = h * 0.6;
+  const phase = rand() * Math.PI * 2;
 
-  // Faint background texture (behind the glyphs).
   let back = "";
-  for (let i = 0; i < p.backLines; i++) back += line(0.5, "#7a7a7a");
+  for (let i = 0; i < p.back; i++) {
+    back += `<line x1="${(rand() * w).toFixed(0)}" y1="${(rand() * h).toFixed(0)}" x2="${(rand() * w).toFixed(0)}" y2="${(rand() * h).toFixed(0)}" stroke="#6b6b6b" stroke-width="1" opacity="0.5"/>`;
+  }
 
   let chars = "";
   for (let i = 0; i < code.length; i++) {
-    const x = LEFT + i * STEP;
-    const y = 58 + (rand() * 16 - 8);
-    const rot = rand() * 2 * p.rot - p.rot;
-    // Jitter each glyph's lightness so a solver can't key on one fill value.
-    const shade = (200 + Math.floor(rand() * 48)).toString(16).padStart(2, "0");
-    chars += `<text x="${x}" y="${y}" font-family="CaptchaFont" font-size="44" font-weight="bold" fill="#${shade}${shade}${shade}" transform="rotate(${rot.toFixed(1)} ${x} ${y})">${code[i]}</text>`;
+    const x = startX + i * step + jit(2);
+    const y = midY + Math.sin(phase + i * 0.9) * p.wave + jit(2);
+    const rot = jit(p.rot);
+    const skew = jit(p.skew);
+    const sx = (1 + jit(p.scaleVar)).toFixed(2);
+    const sy = (1 + jit(p.scaleVar)).toFixed(2);
+    chars += `<text x="0" y="0" font-family="CaptchaFont" font-size="${FONT_SIZE}" font-weight="bold" fill="${grey()}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rot.toFixed(1)}) skewX(${skew.toFixed(1)}) scale(${sx} ${sy})">${code[i]}</text>`;
   }
 
-  // Interference drawn ON TOP of the glyphs so it actually crosses them. The old
-  // noise sat entirely behind the text and obscured nothing.
+  // Occlusion: medium strokes in the glyph colour that snake across the text band,
+  // so they touch/cross the letters and merge with them — this is what actually
+  // defeats naive segmentation, far more than the old faint lines behind the text.
   let front = "";
-  for (let i = 0; i < p.frontLines; i++) front += line(0.28, "#c8c8c8");
+  for (let i = 0; i < p.occlude; i++) {
+    const y0 = midY - 22 + jit(12);
+    const y1 = midY + jit(26);
+    const y2 = midY + jit(26);
+    const y3 = midY - 22 + jit(26);
+    front += `<path d="M ${jit(6).toFixed(0)} ${y0.toFixed(0)} C ${(w * 0.33).toFixed(0)} ${y1.toFixed(0)}, ${(w * 0.66).toFixed(0)} ${y2.toFixed(0)}, ${(w + jit(6)).toFixed(0)} ${y3.toFixed(0)}" stroke="${grey()}" stroke-width="${(2 + rand() * 1.6).toFixed(1)}" fill="none" opacity="0.55"/>`;
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#2b2d31"/>${back}${chars}${front}</svg>`;
 }
 
 export async function renderCaptcha(
   code: string,
-  difficulty: CaptchaDifficulty = 2,
+  difficulty: CaptchaDifficulty = 3,
 ): Promise<Uint8Array> {
   await ensureWasm();
   const resvg = new Resvg(buildSvg(code, difficulty), {

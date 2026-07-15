@@ -124,7 +124,7 @@ export const REGISTRY: Setting[] = [
   { key: K.verificationPanelText, category: "verification", type: "text", default: "Click **Verify** to prove you're human and unlock the server.", label: "Verify panel text" },
   { key: K.verificationDmOnJoin, category: "verification", type: "bool", default: true, label: "DM captcha on join" },
   { key: K.verificationMaxAttempts, category: "verification", type: "int", min: 1, max: 10, default: 4, label: "Max captcha attempts" },
-  { key: K.verificationDifficulty, category: "verification", type: "int", min: 1, max: 3, default: 2, label: "Captcha difficulty (1-3)" },
+  { key: K.verificationDifficulty, category: "verification", type: "int", min: 1, max: 5, default: 3, label: "Captcha difficulty (1-5)" },
   { key: K.verificationFlagYoungDays, category: "verification", type: "int", min: 0, max: 3650, default: 7, label: "Flag verifiers younger than (days, 0=off)" },
   // Tickets
   { key: K.ticketCategoryId, category: "tickets", type: "channel", channelTypes: [ChannelType.GuildCategory], default: undefined, label: "Ticket category" },

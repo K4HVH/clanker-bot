@@ -109,7 +109,7 @@ async function maybeAlert(
 
 function difficultyOf(ctx: AppContext, guildId: string): CaptchaDifficulty {
   const d = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationDifficulty);
-  return (d === 1 || d === 3 ? d : 2) as CaptchaDifficulty;
+  return (Math.min(5, Math.max(1, Math.round(d))) || 3) as CaptchaDifficulty;
 }
 
 function newCodeRow(): ActionRowBuilder<ButtonBuilder> {
