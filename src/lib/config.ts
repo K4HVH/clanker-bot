@@ -124,7 +124,7 @@ export const REGISTRY: Setting[] = [
   { key: K.strikeWeightKick, category: "strike-weights", type: "int", min: 0, max: 100, default: 3, label: "Weight: kick" },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)" },
-  { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "kick", label: "Age gate: action", description: "What to do with an account younger than the minimum." },
+  { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },
   { key: K.nameBlocklist, category: "guards", type: "text", default: "", label: "Name blocklist", description: "Comma/newline-separated banned name patterns. Wrap in /slashes/ for regex; otherwise a case-insensitive substring." },
   { key: K.nameGuardAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Name guard: action", description: "What to do when a username/nickname matches the blocklist." },
   { key: K.flagNoAvatar, category: "guards", type: "bool", default: false, label: "Flag no-avatar joins", description: "Alert the mod-log when a joiner has the default avatar (a common bot tell)." },

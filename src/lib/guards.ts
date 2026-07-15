@@ -23,27 +23,47 @@ export interface NamePattern {
   test(name: string): boolean;
 }
 
-// Parse a blocklist: comma/newline separated. An entry wrapped in /slashes/ is a regex
-// (forced case-insensitive); anything else is a case-insensitive substring. Blank entries and
-// invalid regexes are skipped rather than breaking the whole guard.
+// Substrings shorter than this are too broad (e.g. "a" matches almost every name), so they're
+// dropped. Use a /regex/ for a precise short match.
+const MIN_SUBSTRING = 3;
+
+function compileRegex(entry: string): NamePattern | null {
+  // Lowercase flags only, so a stray uppercase letter can't build an invalid flag string.
+  const m = entry.match(/^\/(.+)\/([a-z]*)$/);
+  if (m?.[1] === undefined) return null;
+  try {
+    const flags = m[2]?.includes("i") ? m[2] : `${m[2] ?? ""}i`; // force case-insensitive
+    const re = new RegExp(m[1], flags);
+    return { source: entry, test: (name) => re.test(name) };
+  } catch {
+    return null; // invalid regex — skip it rather than break the whole guard
+  }
+}
+
+function substringPattern(entry: string): NamePattern | null {
+  if (entry.length < MIN_SUBSTRING) return null;
+  const needle = entry.toLowerCase();
+  return { source: entry, test: (name) => name.toLowerCase().includes(needle) };
+}
+
+// Parse a blocklist. Each LINE is one entry; a line wrapped in /slashes/ is a regex (forced
+// case-insensitive) and is kept whole — so it may contain commas (e.g. /ab{1,3}/). A non-regex
+// line is split on commas into case-insensitive substrings. Blanks, too-short substrings, and
+// invalid regexes are skipped.
 export function parseBlocklist(raw: string): NamePattern[] {
   const out: NamePattern[] = [];
-  for (const part of raw.split(/[\n,]/)) {
-    const entry = part.trim();
-    if (!entry) continue;
-    const rx = entry.match(/^\/(.+)\/([a-z]*)$/i);
-    if (rx?.[1] !== undefined) {
-      try {
-        const flags = rx[2]?.includes("i") ? rx[2] : `${rx[2] ?? ""}i`;
-        const re = new RegExp(rx[1], flags);
-        out.push({ source: entry, test: (name) => re.test(name) });
-        continue;
-      } catch {
-        continue;
-      }
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^\/.+\/[a-z]*$/.test(trimmed)) {
+      const p = compileRegex(trimmed);
+      if (p) out.push(p);
+      continue;
     }
-    const needle = entry.toLowerCase();
-    out.push({ source: entry, test: (name) => name.toLowerCase().includes(needle) });
+    for (const part of trimmed.split(",")) {
+      const p = substringPattern(part.trim());
+      if (p) out.push(p);
+    }
   }
   return out;
 }

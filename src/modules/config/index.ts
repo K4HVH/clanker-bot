@@ -238,7 +238,7 @@ const buttonHandler: ComponentHandler = {
   },
 };
 
-// ── Select handler (category nav / channel / role) ──────────────────────────
+// ── Select handler (category nav / channel / role / choice) ─────────────────
 const selectHandler: ComponentHandler = {
   customId: "cfg",
   type: "select",

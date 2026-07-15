@@ -43,6 +43,23 @@ async function enforce(
   }
 
   const summary = reasons.join("; ");
+
+  // Carry out a removal FIRST — DMing beforehand, since afterwards we no longer share a guild
+  // to DM through — so the alert reports what actually happened, not just what we intended.
+  if (effective === "kick" || effective === "ban") {
+    if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.guardDmOnRemoval)) {
+      await member
+        .send(`You were ${effective === "ban" ? "banned from" : "removed from"} **${guild.name}**: ${summary}.`)
+        .catch(() => {});
+    }
+    const reason = `Guard: ${summary}`.slice(0, 500);
+    const ok =
+      effective === "ban"
+        ? await member.ban({ reason }).then(() => true).catch(() => false)
+        : await member.kick(reason).then(() => true).catch(() => false);
+    if (!ok) effective = "flag"; // couldn't carry it out — report honestly as a flag
+  }
+
   await logModAlert(
     ctx,
     guild,
@@ -57,26 +74,20 @@ async function enforce(
       )
       .setTimestamp(new Date()),
   );
-
-  if (effective === "flag") return;
-
-  // DM before removal — afterwards we no longer share a guild to DM through.
-  if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.guardDmOnRemoval)) {
-    await member
-      .send(`You were ${effective === "ban" ? "banned from" : "removed from"} **${guild.name}**: ${summary}.`)
-      .catch(() => {});
-  }
-  const reason = `Guard: ${summary}`.slice(0, 500);
-  if (effective === "ban") await member.ban({ reason }).catch(() => {});
-  else await member.kick(reason).catch(() => {});
 }
 
 // One assessment per join: gather every tripped signal (age / no-avatar / bad name), then take
 // the single strongest action with a consolidated alert.
+// Staff and bots are never guarded — a moderator named "Mod" must not be auto-removed by the
+// name guard, and bots are added deliberately by an admin.
+function exempt(member: GuildMember): boolean {
+  return member.user.bot || member.permissions.has(PermissionFlagsBits.ManageGuild);
+}
+
 const onJoin: Listener<Events.GuildMemberAdd> = {
   event: Events.GuildMemberAdd,
   async handle(ctx, member) {
-    if (member.user.bot) return; // bots are added deliberately by an admin
+    if (exempt(member)) return;
     const gid = member.guild.id;
     const signals: Signal[] = [];
 
@@ -109,7 +120,7 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
 const onNickChange: Listener<Events.GuildMemberUpdate> = {
   event: Events.GuildMemberUpdate,
   async handle(ctx, oldMember, newMember) {
-    if (newMember.user.bot) return;
+    if (exempt(newMember)) return;
     if (oldMember.nickname === newMember.nickname) return; // only nickname edits
     const gid = newMember.guild.id;
     const nameAction = actionOf(ctx, gid, CONFIG_KEYS.nameGuardAction);
