@@ -17,6 +17,13 @@ test("registry covers every CONFIG_KEYS value and vice versa, with no duplicates
   for (const k of registryKeys) expect(keyValues.has(k)).toBe(true);
 });
 
+test("every setting has a non-empty description", () => {
+  for (const s of REGISTRY) {
+    expect(typeof s.description).toBe("string");
+    expect((s.description ?? "").length).toBeGreaterThan(0);
+  }
+});
+
 test("every setting has a known category and JSON-safe defaults", () => {
   const catIds = new Set(CATEGORIES.map((c) => c.id));
   for (const s of REGISTRY) {

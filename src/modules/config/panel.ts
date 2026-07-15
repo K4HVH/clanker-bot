@@ -20,10 +20,11 @@ function truncate(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-// A setting's description rendered as Discord "subtext" (small, muted) under its label, or
-// null when it has none.
-function subtext(s: Setting): TextDisplayBuilder | null {
-  return s.description ? new TextDisplayBuilder().setContent(`-# ${s.description}`) : null;
+// A setting's description as a Discord "subtext" line (small, muted) appended to the SAME
+// text block as its label — folding it in rather than adding a component keeps a big category
+// under the 40-component message cap.
+function descLine(s: Setting): string {
+  return s.description ? `\n-# ${s.description}` : "";
 }
 
 // Text shown for a scalar (int/text) setting's current value.
@@ -66,36 +67,30 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
   for (const s of settingsByCategory(categoryId)) {
     if (s.type === "bool") {
       const on = ctx.config.getEffective<boolean>(guildId, s.key);
-      const section = new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}**`),
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${s.label}**${descLine(s)}`))
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId(`cfg:toggle:${s.key}`)
+              .setStyle(on ? ButtonStyle.Success : ButtonStyle.Secondary)
+              .setLabel(on ? "On" : "Off"),
+          ),
       );
-      const sub = subtext(s);
-      if (sub) section.addTextDisplayComponents(sub);
-      section.setButtonAccessory(
-        new ButtonBuilder()
-          .setCustomId(`cfg:toggle:${s.key}`)
-          .setStyle(on ? ButtonStyle.Success : ButtonStyle.Secondary)
-          .setLabel(on ? "On" : "Off"),
-      );
-      container.addSectionComponents(section);
     } else if (s.type === "int" || s.type === "text") {
       const value = scalarText(s, ctx.config.getEffective(guildId, s.key));
-      const section = new SectionBuilder().addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** ${value}`),
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${s.label}:** ${value}${descLine(s)}`))
+          .setButtonAccessory(
+            new ButtonBuilder().setCustomId(`cfg:edit:${s.key}`).setStyle(ButtonStyle.Secondary).setLabel("Edit"),
+          ),
       );
-      const sub = subtext(s);
-      if (sub) section.addTextDisplayComponents(sub);
-      section.setButtonAccessory(
-        new ButtonBuilder().setCustomId(`cfg:edit:${s.key}`).setStyle(ButtonStyle.Secondary).setLabel("Edit"),
-      );
-      container.addSectionComponents(section);
     } else if (s.type === "channel") {
       const id = ctx.config.get<string>(guildId, s.key);
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<#${id}>` : "*(not set)*"}`),
+        new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<#${id}>` : "*(not set)*"}${descLine(s)}`),
       );
-      const sub = subtext(s);
-      if (sub) container.addTextDisplayComponents(sub);
       const select = new ChannelSelectMenuBuilder()
         .setCustomId(`cfg:chan:${s.key}`)
         .setPlaceholder("Select a channel…")
@@ -110,10 +105,8 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       const current = String(ctx.config.getEffective(guildId, s.key) ?? "");
       const chosen = s.choices?.find((c) => c.value === current);
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\``),
+        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\`${descLine(s)}`),
       );
-      const sub = subtext(s);
-      if (sub) container.addTextDisplayComponents(sub);
       const select = new StringSelectMenuBuilder()
         .setCustomId(`cfg:choice:${s.key}`)
         .setPlaceholder("Select…")
@@ -133,10 +126,8 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
     } else if (s.type === "role") {
       const id = ctx.config.get<string>(guildId, s.key);
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<@&${id}>` : "*(not set)*"}`),
+        new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<@&${id}>` : "*(not set)*"}${descLine(s)}`),
       );
-      const sub = subtext(s);
-      if (sub) container.addTextDisplayComponents(sub);
       const select = new RoleSelectMenuBuilder()
         .setCustomId(`cfg:role:${s.key}`)
         .setPlaceholder("Select a role…")
