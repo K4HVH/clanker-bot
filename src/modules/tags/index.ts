@@ -32,7 +32,7 @@ const listSub: Subcommand = {
 };
 
 const setSub: Subcommand = {
-  description: "Create or update a tag.",
+  description: "Create or update a tag (Manage Messages).",
   permission: PermissionFlagsBits.ManageMessages,
   options: (s) =>
     s
@@ -48,7 +48,7 @@ const setSub: Subcommand = {
 };
 
 const deleteSub: Subcommand = {
-  description: "Delete a tag.",
+  description: "Delete a tag (Manage Messages).",
   permission: PermissionFlagsBits.ManageMessages,
   options: (s) =>
     s.addStringOption((o) => o.setName("name").setDescription("Tag name").setRequired(true)),
