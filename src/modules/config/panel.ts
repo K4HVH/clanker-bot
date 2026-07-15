@@ -20,6 +20,12 @@ function truncate(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+// A setting's description rendered as Discord "subtext" (small, muted) under its label, or
+// null when it has none.
+function subtext(s: Setting): TextDisplayBuilder | null {
+  return s.description ? new TextDisplayBuilder().setContent(`-# ${s.description}`) : null;
+}
+
 // Text shown for a scalar (int/text) setting's current value.
 function scalarText(setting: Setting, value: unknown): string {
   if (setting.type === "int") return `\`${String(value)}\``;
@@ -60,33 +66,36 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
   for (const s of settingsByCategory(categoryId)) {
     if (s.type === "bool") {
       const on = ctx.config.getEffective<boolean>(guildId, s.key);
-      container.addSectionComponents(
-        new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${s.label}**`))
-          .setButtonAccessory(
-            new ButtonBuilder()
-              .setCustomId(`cfg:toggle:${s.key}`)
-              .setStyle(on ? ButtonStyle.Success : ButtonStyle.Secondary)
-              .setLabel(on ? "On" : "Off"),
-          ),
+      const section = new SectionBuilder().addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**${s.label}**`),
       );
+      const sub = subtext(s);
+      if (sub) section.addTextDisplayComponents(sub);
+      section.setButtonAccessory(
+        new ButtonBuilder()
+          .setCustomId(`cfg:toggle:${s.key}`)
+          .setStyle(on ? ButtonStyle.Success : ButtonStyle.Secondary)
+          .setLabel(on ? "On" : "Off"),
+      );
+      container.addSectionComponents(section);
     } else if (s.type === "int" || s.type === "text") {
       const value = scalarText(s, ctx.config.getEffective(guildId, s.key));
-      container.addSectionComponents(
-        new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**${s.label}:** ${value}`))
-          .setButtonAccessory(
-            new ButtonBuilder()
-              .setCustomId(`cfg:edit:${s.key}`)
-              .setStyle(ButtonStyle.Secondary)
-              .setLabel("Edit"),
-          ),
+      const section = new SectionBuilder().addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**${s.label}:** ${value}`),
       );
+      const sub = subtext(s);
+      if (sub) section.addTextDisplayComponents(sub);
+      section.setButtonAccessory(
+        new ButtonBuilder().setCustomId(`cfg:edit:${s.key}`).setStyle(ButtonStyle.Secondary).setLabel("Edit"),
+      );
+      container.addSectionComponents(section);
     } else if (s.type === "channel") {
       const id = ctx.config.get<string>(guildId, s.key);
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<#${id}>` : "*(not set)*"}`),
       );
+      const sub = subtext(s);
+      if (sub) container.addTextDisplayComponents(sub);
       const select = new ChannelSelectMenuBuilder()
         .setCustomId(`cfg:chan:${s.key}`)
         .setPlaceholder("Select a channel…")
@@ -103,6 +112,8 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\``),
       );
+      const sub = subtext(s);
+      if (sub) container.addTextDisplayComponents(sub);
       const select = new StringSelectMenuBuilder()
         .setCustomId(`cfg:choice:${s.key}`)
         .setPlaceholder("Select…")
@@ -124,6 +135,8 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**${s.label}:** ${id ? `<@&${id}>` : "*(not set)*"}`),
       );
+      const sub = subtext(s);
+      if (sub) container.addTextDisplayComponents(sub);
       const select = new RoleSelectMenuBuilder()
         .setCustomId(`cfg:role:${s.key}`)
         .setPlaceholder("Select a role…")
@@ -152,6 +165,7 @@ export function buildModal(setting: Setting, current: string): ModalBuilder {
     .setValue(current)
     .setRequired(setting.type === "int")
     .setMaxLength(setting.type === "int" ? 19 : 4000);
+  if (setting.placeholder) input.setPlaceholder(truncate(setting.placeholder, 100));
   return new ModalBuilder()
     .setCustomId(`cfg:modal:${setting.key}`)
     .setTitle(truncate(setting.label, 45))

@@ -69,6 +69,7 @@ export interface Setting {
   max?: number;
   channelTypes?: ChannelType[];
   choices?: { value: string; label: string }[]; // for type "choice"
+  placeholder?: string; // example text shown in the edit modal for int/text
 }
 
 export interface Category {
@@ -125,7 +126,7 @@ export const REGISTRY: Setting[] = [
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)" },
   { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },
-  { key: K.nameBlocklist, category: "guards", type: "text", default: "", label: "Name blocklist", description: "Comma/newline-separated banned name patterns. Wrap in /slashes/ for regex; otherwise a case-insensitive substring." },
+  { key: K.nameBlocklist, category: "guards", type: "text", default: "", label: "Name blocklist", description: "Banned name patterns, ONE PER LINE. A line is either a word (matched anywhere in the name, case-insensitive, 3+ chars) or a /regex/. Commas also separate words on a line. Only acts when 'Name guard: action' is above Off.", placeholder: "scam, free nitro\n/^(mod|admin|staff)$/" },
   { key: K.nameGuardAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Name guard: action", description: "What to do when a username/nickname matches the blocklist." },
   { key: K.flagNoAvatar, category: "guards", type: "bool", default: false, label: "Flag no-avatar joins", description: "Alert the mod-log when a joiner has the default avatar (a common bot tell)." },
   { key: K.guardDmOnRemoval, category: "guards", type: "bool", default: false, label: "DM removed users why", description: "Tell a kicked/banned joiner why (e.g. account too new), so a legit one can come back." },
