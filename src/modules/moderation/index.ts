@@ -11,6 +11,7 @@ import { listCasesByUser } from "../../db/cases";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
+import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logModAlert } from "../../lib/modlog";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
@@ -292,8 +293,13 @@ const purgeSub: Subcommand = {
     let deleted = 0;
     const bulkChannel = channel as GuildTextBasedChannel;
     if (toDelete.length === 1) {
-      // Discord's bulk endpoint needs 2+; delete a lone message directly.
-      if (await toDelete[0]!.delete().then(() => true).catch(() => false)) deleted = 1;
+      // Discord's bulk endpoint needs 2+; delete a lone message directly. Suppress its
+      // member-log echo so it matches the bulk path (which only logs a count) — the mod-log
+      // purge alert below is the record, and we don't re-surface the content we just removed.
+      const one = toDelete[0]!;
+      suppressDeletion(one.id);
+      if (await one.delete().then(() => true).catch(() => false)) deleted = 1;
+      else suppressedDeletions.delete(one.id);
     } else {
       const removed = await bulkChannel.bulkDelete(toDelete, true).catch(() => null);
       deleted = removed?.size ?? 0;
@@ -337,13 +343,24 @@ const historySub: Subcommand = {
       });
       return;
     }
-    const lines = records.map(
-      (r) => `\`${r.type}\` · <t:${Math.floor(r.createdAt / 1000)}:d> — ${r.reason}`,
-    );
+    // Build whole lines up to a safe budget (never slice mid-tag, which would render as
+    // literal text), truncating long reasons; note if any didn't fit.
+    const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+    const lines: string[] = [];
+    let used = 0;
+    for (const r of records) {
+      const line = `\`${r.type}\` · <t:${Math.floor(r.createdAt / 1000)}:d> — ${trunc(r.reason, 180)}`;
+      if (used + line.length + 1 > 3900) {
+        lines.push(`…and ${records.length - lines.length} more`);
+        break;
+      }
+      lines.push(line);
+      used += line.length + 1;
+    }
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setTitle(`Moderation history — ${user.tag}`)
-      .setDescription(lines.join("\n").slice(0, 4000))
+      .setDescription(lines.join("\n"))
       .setFooter({ text: `${records.length} most recent` });
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
