@@ -7,6 +7,7 @@ import { getChallenge } from "../../db/verification";
 import { checkContent, type ContentRules } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
+import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logCase } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
 import { isCodeShaped } from "../../lib/verification-logic";
@@ -65,6 +66,9 @@ async function escalate(
   else if (timeoutAt > 0 && count >= timeoutAt) type = "timeout";
   if (!type) return false;
 
+  // The target just sent a message, so they're a present member: require the bot to outrank
+  // them (and not be the owner) and hold the permission — otherwise skip the escalation
+  // silently (the delete + warn still stand). This avoids a doomed API call + a lying DM.
   const me = guild.members.me;
   const outranks =
     !!me && !!member && userId !== guild.ownerId && member.roles.highest.position < me.roles.highest.position;
@@ -74,16 +78,11 @@ async function escalate(
       : type === "kick"
         ? PermissionFlagsBits.KickMembers
         : PermissionFlagsBits.ModerateMembers;
-  // A ban can target a non-member; kick/timeout need a present member the bot outranks.
-  if (type !== "ban" && !outranks) return false;
-  if (type === "ban" && userId === guild.ownerId) return false;
-  if (!me?.permissions.has(perm)) return false;
+  if (!outranks || !me?.permissions.has(perm)) return false;
 
+  // Act FIRST, then only DM/record on success — so a failed action never tells the user they
+  // were punished. (A DM after a ban/kick silently no-ops since we no longer share a guild.)
   const reason = `Automod: ${count} violations in ${ttlMin}m`;
-  if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
-    const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
-    await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
-  }
   try {
     if (type === "ban") await guild.members.ban(userId, { reason });
     else if (type === "kick") await member!.kick(reason);
@@ -93,6 +92,10 @@ async function escalate(
     }
   } catch {
     return false;
+  }
+  if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
+    const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
+    await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
   }
   await logCase(ctx, guild, createCase(ctx.db, { guildId, userId, moderatorId: botId, type, reason }));
   return true;
@@ -124,9 +127,16 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     return;
   }
 
-  // Content rules run on new AND edited messages (kills the edit-bypass).
-  const mentionCount = message.mentions.users.size + message.mentions.roles.size;
-  let violation = checkContent(message.content, { mentionCount }, rules);
+  // Content rules run on new AND edited messages (kills the edit-bypass). Don't count the
+  // reply-ping toward the mention limit — it's implicit, not spam.
+  const repliedTo = message.mentions.repliedUser;
+  const replyPing = repliedTo && message.mentions.users.has(repliedTo.id) ? 1 : 0;
+  const mentionCount = message.mentions.users.size + message.mentions.roles.size - replyPing;
+  let violation = checkContent(
+    message.content,
+    { mentionCount, massMention: message.mentions.everyone },
+    rules,
+  );
 
   // Stateful rules only on new messages — an edit doesn't add to flood/duplicate history.
   if (!violation && !isEdit) {
@@ -143,8 +153,11 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   }
   if (!violation) return;
 
-  // Delete + record the violation, then escalate on accumulation.
-  await message.delete().catch(() => {});
+  // Delete + record the violation, then escalate on accumulation. Suppress the member-log echo
+  // (the mod-log automod entry is the record; don't reprint the removed content).
+  suppressDeletion(message.id);
+  const deleted = await message.delete().then(() => true).catch(() => false);
+  if (!deleted) suppressedDeletions.delete(message.id);
   const botId = message.client.user.id;
   const warn = createCase(ctx.db, {
     guildId,
@@ -172,7 +185,10 @@ const onCreate: Listener<Events.MessageCreate> = {
 
 const onEdit: Listener<Events.MessageUpdate> = {
   event: Events.MessageUpdate,
-  async handle(ctx, _oldMessage, newMessage) {
+  async handle(ctx, oldMessage, newMessage) {
+    // MessageUpdate also fires for embed loads, pins, etc. — only re-scan when the CONTENT
+    // actually changed, or we'd re-punish (and race the create-scan's delete) on every embed.
+    if (!oldMessage.partial && oldMessage.content === newMessage.content) return;
     const msg = newMessage.partial ? await newMessage.fetch().catch(() => null) : newMessage;
     if (msg) await scan(ctx, msg, true);
   },

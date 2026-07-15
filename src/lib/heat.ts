@@ -14,6 +14,9 @@ export class HeatTracker {
     const recent = (this.events.get(key) ?? []).filter((t) => t > now - windowMs);
     recent.push(now);
     this.events.set(key, recent);
+    if (this.events.size > 1000) {
+      for (const [k, ts] of this.events) if (ts.every((t) => t <= now - windowMs)) this.events.delete(k);
+    }
     return recent.length > maxMessages;
   }
 }
@@ -30,6 +33,9 @@ export class RepeatTracker {
     const dup = recent.some((e) => e.content === norm);
     recent.push({ content: norm, ts: now });
     this.seen.set(key, recent);
+    if (this.seen.size > 1000) {
+      for (const [k, es] of this.seen) if (es.every((e) => e.ts <= now - windowMs)) this.seen.delete(k);
+    }
     return dup;
   }
 }

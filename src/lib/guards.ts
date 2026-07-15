@@ -40,17 +40,23 @@ function compileRegex(entry: string): NamePattern | null {
   }
 }
 
-function substringPattern(entry: string): NamePattern | null {
+function substringPattern(entry: string, wholeWord: boolean): NamePattern | null {
   if (entry.length < MIN_SUBSTRING) return null;
+  if (wholeWord) {
+    // Match only as a whole word, so a message filter doesn't flag "class" for "ass".
+    const re = new RegExp(`\\b${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    return { source: entry, test: (name) => re.test(name) };
+  }
   const needle = entry.toLowerCase();
   return { source: entry, test: (name) => name.toLowerCase().includes(needle) };
 }
 
 // Parse a blocklist. Each LINE is one entry; a line wrapped in /slashes/ is a regex (forced
 // case-insensitive) and is kept whole — so it may contain commas (e.g. /ab{1,3}/). A non-regex
-// line is split on commas into case-insensitive substrings. Blanks, too-short substrings, and
-// invalid regexes are skipped.
-export function parseBlocklist(raw: string): NamePattern[] {
+// line is split on commas into case-insensitive terms. Blanks, too-short terms, and invalid
+// regexes are skipped. `wholeWord` matches plain terms on word boundaries (for message
+// filtering) instead of anywhere in the string (names).
+export function parseBlocklist(raw: string, opts: { wholeWord?: boolean } = {}): NamePattern[] {
   const out: NamePattern[] = [];
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -61,7 +67,7 @@ export function parseBlocklist(raw: string): NamePattern[] {
       continue;
     }
     for (const part of trimmed.split(",")) {
-      const p = substringPattern(part.trim());
+      const p = substringPattern(part.trim(), opts.wholeWord ?? false);
       if (p) out.push(p);
     }
   }
