@@ -49,7 +49,7 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 
 Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
 
-**Categories** (39 settings): General · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup (staff role, category, open limit, inactivity window).
+**Categories** (41 settings): General · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup (staff role, category, open limit, inactivity window, DM/zip/confirm toggles).
 
 The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 

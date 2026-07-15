@@ -1,4 +1,4 @@
-import { type BotDatabase, many, one, run } from "../db/index";
+import { type BotDatabase, many, one, run, runChanges } from "../db/index";
 
 export interface TicketRecord {
   id: number;
@@ -103,19 +103,30 @@ export function claimTicket(db: BotDatabase, channelId: string, staffId: string)
   run(db, "UPDATE tickets SET claimed_by = ? WHERE channel_id = ?", staffId, channelId);
 }
 
-export function closeTicket(
+// Atomically claim the close: flips status to 'closed' only if it's still 'open',
+// returning true for the caller that won. This serializes concurrent close triggers
+// (button / command / auto-close) so only one archives + deletes. The transcript is
+// filled in afterwards via setTicketTranscript once it's built.
+export function beginClose(
   db: BotDatabase,
   channelId: string,
-  opts: { transcript: string; closedBy: string; reason: string | null; closedAt: number },
-): void {
-  run(
-    db,
-    `UPDATE tickets SET status = 'closed', transcript = ?, closed_by = ?, close_reason = ?, closed_at = ?
-     WHERE channel_id = ?`,
-    opts.transcript,
-    opts.closedBy,
-    opts.reason,
-    opts.closedAt,
-    channelId,
+  closedBy: string,
+  reason: string | null,
+  closedAt: number,
+): boolean {
+  return (
+    runChanges(
+      db,
+      `UPDATE tickets SET status = 'closed', closed_by = ?, close_reason = ?, closed_at = ?
+       WHERE channel_id = ? AND status = 'open'`,
+      closedBy,
+      reason,
+      closedAt,
+      channelId,
+    ) > 0
   );
+}
+
+export function setTicketTranscript(db: BotDatabase, channelId: string, transcript: string): void {
+  run(db, "UPDATE tickets SET transcript = ? WHERE channel_id = ?", transcript, channelId);
 }

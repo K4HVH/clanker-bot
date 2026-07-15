@@ -1,23 +1,29 @@
 import { expect, test } from "bun:test";
 import {
+  beginClose,
   claimTicket,
-  closeTicket,
   countOpenTicketsByUser,
   createTicket,
   firstOpenTicketByUser,
   getTicketByChannel,
   listOpenTickets,
+  setTicketTranscript,
 } from "../../src/db/tickets";
 import { makeTestDb } from "../helpers/db";
 
-test("ticket numbers increment per guild and close persists a transcript", () => {
+test("ticket numbers increment per guild; close is atomic and persists a transcript", () => {
   const db = makeTestDb();
   const a = createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "help" });
   const b = createTicket(db, { guildId: "g", channelId: "c2", openerId: "u", subject: "more" });
   expect(a.ticketNumber).toBe(1);
   expect(b.ticketNumber).toBe(2);
   expect(getTicketByChannel(db, "c1")?.status).toBe("open");
-  closeTicket(db, "c1", { transcript: "hello world", closedBy: "mod", reason: "done", closedAt: 999 });
+
+  // beginClose claims the close exactly once — a concurrent second trigger loses.
+  expect(beginClose(db, "c1", "mod", "done", 999)).toBe(true);
+  expect(beginClose(db, "c1", "mod2", "again", 1000)).toBe(false);
+  setTicketTranscript(db, "c1", "hello world");
+
   const closed = getTicketByChannel(db, "c1");
   expect(closed?.status).toBe("closed");
   expect(closed?.transcript).toBe("hello world");
@@ -38,8 +44,7 @@ test("open-ticket queries: count, first, list, and claim", () => {
   claimTicket(db, "c1", "staff");
   expect(getTicketByChannel(db, "c1")?.claimedBy).toBe("staff");
 
-  // A closed ticket drops out of the open-count.
-  closeTicket(db, "c1", { transcript: "t", closedBy: "u", reason: null, closedAt: 1 });
+  beginClose(db, "c1", "u", null, 1);
   expect(countOpenTicketsByUser(db, "g", "u")).toBe(1);
   expect(firstOpenTicketByUser(db, "g", "u")?.channelId).toBe("c2");
 });

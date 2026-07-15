@@ -1,6 +1,7 @@
 import { Events, PermissionFlagsBits } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
 import { createCase } from "../../db/cases";
+import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
 import { type AutomodConfig, checkContentRules } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
@@ -32,6 +33,10 @@ const onMessage: Listener<Events.MessageCreate> = {
     // The verify channel (and threads under it) is owned by the verification flow, which
     // scrubs it; don't double-moderate it or count it toward flood heat.
     if (inVerifyChannel(ctx, message)) return;
+
+    // Ticket channels are private support channels — never moderate them (a user pasting
+    // a repro link or invite while asking for help shouldn't get warned/escalated).
+    if (getTicketByChannel(ctx.db, message.channelId)) return;
 
     // Exempt an in-progress verification attempt elsewhere: a code the user types in a
     // channel must not count toward spam heat or trip the content filters (it's about to

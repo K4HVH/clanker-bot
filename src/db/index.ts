@@ -51,3 +51,8 @@ export function many<T>(db: BotDatabase, sql: string, ...params: SQLQueryBinding
 export function run(db: BotDatabase, sql: string, ...params: SQLQueryBindings[]): void {
   db.query<unknown, SQLQueryBindings[]>(sql).run(...params);
 }
+
+// Like run(), but returns the number of rows affected (for conditional UPDATEs).
+export function runChanges(db: BotDatabase, sql: string, ...params: SQLQueryBindings[]): number {
+  return db.query<unknown, SQLQueryBindings[]>(sql).run(...params).changes;
+}

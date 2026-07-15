@@ -10,6 +10,7 @@ import {
   Events,
   type Guild,
   type GuildTextBasedChannel,
+  type Message,
   MessageFlags,
   ModalBuilder,
   type ModalSubmitInteraction,
@@ -24,13 +25,14 @@ import { featureCommand, type Subcommand } from "../../core/command";
 import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, Listener } from "../../core/module";
 import {
+  beginClose,
   claimTicket,
-  closeTicket,
   countOpenTicketsByUser,
   createTicket,
   firstOpenTicketByUser,
   getTicketByChannel,
   listOpenTickets,
+  setTicketTranscript,
   type TicketRecord,
   touchTicketActivity,
 } from "../../db/tickets";
@@ -45,8 +47,29 @@ const ACCESS = [
 
 // In-memory: open ticket channels (gates the activity listener cheaply) and channels
 // already warned about inactivity (avoids re-warning each scan). Rebuilt on startup.
-const openTicketChannels = new Set<string>();
+export const openTicketChannels = new Set<string>();
 const warnedTickets = new Set<string>();
+// Users currently in the middle of opening a ticket, to serialize creation so the
+// per-user open limit can't be beaten by submitting many modals at once.
+const opening = new Set<string>();
+
+const MAX_TRANSCRIPT_MESSAGES = 2000;
+
+// Fetch the WHOLE ticket conversation (paginated past Discord's 100/fetch cap),
+// oldest-first, bounded by a sane safety ceiling.
+async function fetchAllMessages(channel: GuildTextBasedChannel): Promise<Message[]> {
+  const out: Message[] = [];
+  let before: string | undefined;
+  while (out.length < MAX_TRANSCRIPT_MESSAGES) {
+    const batch = await channel.messages.fetch({ limit: 100, before }).catch(() => null);
+    if (!batch || batch.size === 0) break;
+    const arr = [...batch.values()]; // newest-first within the batch
+    out.push(...arr);
+    before = arr[arr.length - 1]?.id;
+    if (batch.size < 100) break;
+  }
+  return out.reverse();
+}
 
 function ticketButtons(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -84,13 +107,14 @@ async function closeTicketFlow(
   closedBy: string,
   reason: string | null,
 ): Promise<void> {
+  // Claim the close atomically; if another trigger already won, do nothing.
+  if (!beginClose(ctx.db, channel.id, closedBy, reason, Date.now())) return;
   openTicketChannels.delete(channel.id);
   warnedTickets.delete(channel.id);
 
-  const limit = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.ticketTranscriptLimit);
-  const fetched = await channel.messages.fetch({ limit }).catch(() => null);
-  const messages = fetched ? [...fetched.values()].reverse() : [];
-  const { bytes, text } = await buildTicketArchive(
+  const withImages = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketArchiveImages);
+  const messages = await fetchAllMessages(channel);
+  const { text, zipBytes } = await buildTicketArchive(
     {
       ticketNumber: ticket.ticketNumber,
       subject: ticket.subject,
@@ -100,34 +124,39 @@ async function closeTicketFlow(
       reason,
     },
     messages,
+    { withImages },
   );
+  setTicketTranscript(ctx.db, channel.id, text);
 
-  closeTicket(ctx.db, channel.id, { transcript: text, closedBy, reason, closedAt: Date.now() });
-
-  const zip = () =>
-    new AttachmentBuilder(Buffer.from(bytes), { name: `ticket-${ticket.ticketNumber}.zip` });
+  const num = ticket.ticketNumber;
+  const file = () =>
+    zipBytes
+      ? new AttachmentBuilder(Buffer.from(zipBytes), { name: `ticket-${num}.zip` })
+      : new AttachmentBuilder(Buffer.from(text, "utf8"), { name: `ticket-${num}.txt` });
   const embed = new EmbedBuilder()
     .setColor(0x95a5a6)
-    .setTitle(`Ticket #${ticket.ticketNumber} closed`)
+    .setTitle(`Ticket #${num} closed`)
     .addFields(
       { name: "Opened by", value: `<@${ticket.openerId}>` },
       { name: "Closed by", value: `<@${closedBy}>` },
       { name: "Subject", value: ticket.subject },
     );
   if (reason) embed.addFields({ name: "Reason", value: reason });
-  await sendToModLog(ctx, guild, { embeds: [embed], files: [zip()] });
+  await sendToModLog(ctx, guild, { embeds: [embed], files: [file()] });
 
-  const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
-  if (opener) {
-    await opener
-      .send({
-        content: `Your ticket **#${ticket.ticketNumber}** in **${guild.name}** was closed.`,
-        files: [zip()],
-      })
-      .catch(() => {});
+  if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketDmTranscript)) {
+    const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
+    if (opener) {
+      await opener
+        .send({
+          content: `Your ticket **#${num}** in **${guild.name}** was closed.`,
+          files: [file()],
+        })
+        .catch(() => {});
+    }
   }
 
-  await channel.delete(`Ticket #${ticket.ticketNumber} closed`).catch(() => {});
+  await channel.delete(`Ticket #${num} closed`).catch(() => {});
 }
 
 // ── Subcommands ──────────────────────────────────────────────────────────────
@@ -289,49 +318,61 @@ const modalHandler: ComponentHandler = {
     if (!modal.guild) return;
     await modal.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // Re-check the limit at submit (they could have queued two modals).
-    const max = ctx.config.getEffective<number>(modal.guild.id, CONFIG_KEYS.ticketMaxOpenPerUser);
-    if (countOpenTicketsByUser(ctx.db, modal.guild.id, modal.user.id) >= max) {
-      await modal.editReply({ content: `You've reached the max of ${max} open tickets.` });
+    // Serialize per-user so concurrent modal submits can't each pass the limit check
+    // and mass-create channels before any row commits.
+    const guildId = modal.guild.id;
+    const lock = `${guildId}:${modal.user.id}`;
+    if (opening.has(lock)) {
+      await modal.editReply({ content: "You're already opening a ticket — hang on." });
       return;
     }
+    opening.add(lock);
+    try {
+      const max = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.ticketMaxOpenPerUser);
+      if (countOpenTicketsByUser(ctx.db, guildId, modal.user.id) >= max) {
+        await modal.editReply({ content: `You've reached the max of ${max} open tickets.` });
+        return;
+      }
 
-    const subject = modal.fields.getTextInputValue("subject");
-    const categoryId = ctx.config.get<string>(modal.guild.id, CONFIG_KEYS.ticketCategoryId);
-    const staffRoleId = ctx.config.get<string>(modal.guild.id, CONFIG_KEYS.ticketStaffRoleId);
+      const subject = modal.fields.getTextInputValue("subject");
+      const categoryId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketCategoryId);
+      const staffRoleId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketStaffRoleId);
 
-    const overwrites: OverwriteResolvable[] = [
-      { id: modal.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel], type: OverwriteType.Role },
-      { id: modal.user.id, allow: ACCESS, type: OverwriteType.Member },
-    ];
-    if (staffRoleId) overwrites.push({ id: staffRoleId, allow: ACCESS, type: OverwriteType.Role });
+      const overwrites: OverwriteResolvable[] = [
+        { id: modal.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel], type: OverwriteType.Role },
+        { id: modal.user.id, allow: ACCESS, type: OverwriteType.Member },
+      ];
+      if (staffRoleId) overwrites.push({ id: staffRoleId, allow: ACCESS, type: OverwriteType.Role });
 
-    const channel = await modal.guild.channels.create({
-      name: `ticket-${modal.user.username}`.slice(0, 90),
-      type: ChannelType.GuildText,
-      parent: categoryId ?? undefined,
-      permissionOverwrites: overwrites,
-    });
+      const channel = await modal.guild.channels.create({
+        name: `ticket-${modal.user.username}`.slice(0, 90),
+        type: ChannelType.GuildText,
+        parent: categoryId ?? undefined,
+        permissionOverwrites: overwrites,
+      });
 
-    const record = createTicket(ctx.db, {
-      guildId: modal.guild.id,
-      channelId: channel.id,
-      openerId: modal.user.id,
-      subject,
-    });
-    openTicketChannels.add(channel.id);
+      const record = createTicket(ctx.db, {
+        guildId,
+        channelId: channel.id,
+        openerId: modal.user.id,
+        subject,
+      });
+      openTicketChannels.add(channel.id);
 
-    const embed = new EmbedBuilder()
-      .setTitle(`Ticket #${record.ticketNumber}`)
-      .setDescription(subject)
-      .addFields({ name: "Opened by", value: `<@${modal.user.id}>` });
-    await channel.send({
-      content: staffRoleId ? `<@&${staffRoleId}>` : undefined,
-      embeds: [embed],
-      components: [ticketButtons()],
-    });
+      const embed = new EmbedBuilder()
+        .setTitle(`Ticket #${record.ticketNumber}`)
+        .setDescription(subject)
+        .addFields({ name: "Opened by", value: `<@${modal.user.id}>` });
+      await channel.send({
+        content: staffRoleId ? `<@&${staffRoleId}>` : undefined,
+        embeds: [embed],
+        components: [ticketButtons()],
+      });
 
-    await modal.editReply({ content: `Ticket opened: <#${channel.id}>` });
+      await modal.editReply({ content: `Ticket opened: <#${channel.id}>` });
+    } finally {
+      opening.delete(lock);
+    }
   },
 };
 
@@ -367,7 +408,12 @@ const closeHandler: ComponentHandler = {
       await button.reply({ content: "Only the opener or staff can close this.", flags: MessageFlags.Ephemeral });
       return;
     }
-    // Confirmation step — closing deletes the channel.
+    // Skip the confirmation step if the guild has turned it off.
+    if (!ctx.config.getEffective<boolean>(t.guild.id, CONFIG_KEYS.ticketCloseConfirm)) {
+      await button.reply({ content: "Closing and archiving…", flags: MessageFlags.Ephemeral });
+      await closeTicketFlow(ctx, t.guild, t.channel, t.ticket, button.user.id, null);
+      return;
+    }
     await button.reply({
       content: "Close this ticket? The channel will be archived and deleted.",
       flags: MessageFlags.Ephemeral,
@@ -418,6 +464,16 @@ async function requireTicketButton(
 
 // ── Listeners ────────────────────────────────────────────────────────────────
 
+// A ticket channel is gone (deleted directly, or missing on startup) — close the row
+// so it stops consuming the opener's open-quota and dangling as a dead link.
+function reconcileGone(ctx: AppContext, channelId: string, botId: string, now: number): void {
+  if (beginClose(ctx.db, channelId, botId, "channel deleted", now)) {
+    setTicketTranscript(ctx.db, channelId, "(channel deleted)");
+  }
+  openTicketChannels.delete(channelId);
+  warnedTickets.delete(channelId);
+}
+
 const onMessage: Listener<Events.MessageCreate> = {
   event: Events.MessageCreate,
   async handle(ctx, message) {
@@ -426,11 +482,30 @@ const onMessage: Listener<Events.MessageCreate> = {
   },
 };
 
+// Deleting a ticket channel directly (instead of Close) must not orphan its row.
+const onChannelDelete: Listener<Events.ChannelDelete> = {
+  event: Events.ChannelDelete,
+  async handle(ctx, channel) {
+    const ticket = getTicketByChannel(ctx.db, channel.id);
+    if (ticket && ticket.status !== "closed") {
+      reconcileGone(ctx, channel.id, channel.client.user?.id ?? "system", Date.now());
+    }
+  },
+};
+
 const onReady: Listener<Events.ClientReady> = {
   event: Events.ClientReady,
   once: true,
   async handle(ctx, client) {
-    for (const t of listOpenTickets(ctx.db)) openTicketChannels.add(t.channelId);
+    // Rebuild the open-channel set, reconciling any ticket whose channel vanished
+    // while we were offline.
+    for (const t of listOpenTickets(ctx.db)) {
+      const guild =
+        client.guilds.cache.get(t.guildId) ?? (await client.guilds.fetch(t.guildId).catch(() => null));
+      const exists = guild ? await guild.channels.fetch(t.channelId).catch(() => null) : null;
+      if (exists) openTicketChannels.add(t.channelId);
+      else reconcileGone(ctx, t.channelId, client.user?.id ?? "system", Date.now());
+    }
     const timer = setInterval(() => void scanInactivity(ctx, client, Date.now()), 5 * 60_000);
     timer.unref?.();
   },
@@ -458,15 +533,7 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
       ? await guild.channels.fetch(ticket.channelId).catch(() => null)
       : null;
     if (!guild || !channel || !channel.isTextBased()) {
-      // Channel was deleted out from under us — mark the ticket closed so we stop scanning it.
-      closeTicket(ctx.db, ticket.channelId, {
-        transcript: "(channel deleted)",
-        closedBy: client.user?.id ?? "system",
-        reason: "channel deleted",
-        closedAt: now,
-      });
-      openTicketChannels.delete(ticket.channelId);
-      warnedTickets.delete(ticket.channelId);
+      reconcileGone(ctx, ticket.channelId, client.user?.id ?? "system", now);
       continue;
     }
 
@@ -498,7 +565,7 @@ export const ticketsModule: BotModule = {
       subcommands: { panel: panelSub, claim: claimSub, close: closeSub, add: addSub, remove: removeSub },
     }),
   ],
-  listeners: [onMessage, onReady] as Listener[],
+  listeners: [onMessage, onChannelDelete, onReady] as Listener[],
   components: [
     openHandler,
     modalHandler,
