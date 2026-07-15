@@ -7,6 +7,7 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { applyEscalation } from "../../lib/escalation";
 import { HeatTracker } from "../../lib/heat";
 import { logCase } from "../../lib/modlog";
+import { inVerifyChannel } from "../../lib/verify-channel";
 import { isCodeShaped } from "../../lib/verification-logic";
 
 const heat = new HeatTracker();
@@ -28,9 +29,13 @@ const onMessage: Listener<Events.MessageCreate> = {
     // Exempt staff.
     if (message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
 
-    // Exempt an in-progress verification attempt: a code the user types in a channel
-    // must not count toward spam heat or trip the content filters (it's about to be
-    // deleted by the verification flow anyway).
+    // The verify channel (and threads under it) is owned by the verification flow, which
+    // scrubs it; don't double-moderate it or count it toward flood heat.
+    if (inVerifyChannel(ctx, message)) return;
+
+    // Exempt an in-progress verification attempt elsewhere: a code the user types in a
+    // channel must not count toward spam heat or trip the content filters (it's about to
+    // be deleted by the verification flow anyway).
     const challenge = getChallenge(ctx.db, guildId, message.author.id);
     if (
       challenge &&

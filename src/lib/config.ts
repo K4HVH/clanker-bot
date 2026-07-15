@@ -32,6 +32,7 @@ export const CONFIG_KEYS = {
   accountAgeGateFlag: "account_age_gate_flag",
   accountAgeGateKick: "account_age_gate_kick",
   verifiedRoleId: "verified_role_id",
+  verificationChannelId: "verification_channel_id",
   verificationChallengeTtlMs: "verification_challenge_ttl_ms",
   verificationCodeLength: "verification_code_length",
   verificationPanelText: "verification_panel_text",
@@ -117,6 +118,7 @@ export const REGISTRY: Setting[] = [
   { key: K.accountAgeGateKick, category: "guards", type: "bool", default: true, label: "Age gate: kick" },
   // Verification
   { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role" },
+  { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Verify channel (kept clear)" },
   { key: K.verificationChallengeTtlMs, category: "verification", type: "int", min: 60_000, max: 3_600_000, default: 600_000, label: "Captcha TTL (ms)" },
   { key: K.verificationCodeLength, category: "verification", type: "int", min: 4, max: 8, default: 6, label: "Captcha length" },
   { key: K.verificationPanelText, category: "verification", type: "text", default: "Click **Verify** to prove you're human and unlock the server.", label: "Verify panel text" },

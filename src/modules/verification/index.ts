@@ -19,6 +19,7 @@ import { type CaptchaDifficulty, ensureWasm, generateCode, renderCaptcha } from 
 import { CONFIG_KEYS } from "../../lib/config";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logMemberEvent, logModAlert } from "../../lib/modlog";
+import { inVerifyChannel } from "../../lib/verify-channel";
 import {
   type ChallengeMode,
   challengeMode,
@@ -61,6 +62,50 @@ const processing = new Set<string>();
 const key = (guildId: string, userId: string) => `${guildId}:${userId}`;
 
 let imageSeq = 0; // unique attachment filename per render (Discord caches by name)
+
+// Per-user cooldown on user-triggered captcha renders (/verify, Verify, New Code) so
+// nobody can spam synchronous wasm renders; on-join renders are exempt (system-driven).
+const RENDER_COOLDOWN_MS = 3000;
+const renderCooldown = new Map<string, number>();
+// Per-user cooldown on verification mod-log alerts so a loop can't flood the mod-log.
+const MOD_ALERT_COOLDOWN_MS = 30_000;
+const modAlertCooldown = new Map<string, number>();
+
+// Drop timestamp entries older than their window once a map gets large, so the
+// cooldown maps stay bounded over long uptimes without a scheduled sweep.
+function sweep(map: Map<string, number>, maxAgeMs: number): void {
+  if (map.size < 500) return;
+  const cutoff = Date.now() - maxAgeMs;
+  for (const [entry, ts] of map) if (ts < cutoff) map.delete(entry);
+}
+
+// True (and stamps) if a render is allowed for this user now, false if too soon.
+function takeRenderSlot(k: string): boolean {
+  sweep(renderCooldown, RENDER_COOLDOWN_MS);
+  const now = Date.now();
+  const last = renderCooldown.get(k);
+  if (last !== undefined && now - last < RENDER_COOLDOWN_MS) return false;
+  renderCooldown.set(k, now);
+  return true;
+}
+
+// Fire a verification mod-alert at most once per cooldown key, so a departed or
+// looping user can't manufacture a flood that buries real ones. The key includes
+// the alert KIND so two distinct reasons for the same user throttle independently.
+async function maybeAlert(
+  ctx: AppContext,
+  guild: Guild,
+  cooldownKey: string,
+  build: () => EmbedBuilder,
+): Promise<void> {
+  sweep(modAlertCooldown, MOD_ALERT_COOLDOWN_MS);
+  const k = `${guild.id}:${cooldownKey}`;
+  const now = Date.now();
+  const last = modAlertCooldown.get(k);
+  if (last !== undefined && now - last < MOD_ALERT_COOLDOWN_MS) return;
+  modAlertCooldown.set(k, now);
+  await logModAlert(ctx, guild, build());
+}
 
 function difficultyOf(ctx: AppContext, guildId: string): CaptchaDifficulty {
   const d = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationDifficulty);
@@ -142,21 +187,28 @@ async function grantVerified(
   ctx: AppContext,
   guild: Guild,
   userId: string,
-): Promise<{ ok: true } | { ok: false; msg: string }> {
+): Promise<{ ok: true } | { ok: false; left: boolean; msg: string }> {
   const roleId = ctx.config.get<string>(guild.id, CONFIG_KEYS.verifiedRoleId);
-  if (!roleId) return { ok: false, msg: "Verification isn't fully configured. Contact a moderator." };
+  if (!roleId) {
+    return { ok: false, left: false, msg: "Verification isn't fully configured. Contact a moderator." };
+  }
   try {
     const member = await guild.members.fetch(userId);
     await member.roles.add(roleId, "Passed verification");
     return { ok: true };
   } catch (error) {
-    ctx.logger.error("verification: role grant failed", {
-      guildId: guild.id,
-      userId,
-      roleId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { ok: false, msg: "Couldn't grant your role (my role may be too low). Contact a moderator." };
+    // The user solved a DM captcha but has since LEFT the guild — not a misconfig.
+    const code = (error as { code?: number }).code;
+    const left = code === 10007 || code === 10013; // Unknown Member / Unknown User
+    if (!left) {
+      ctx.logger.error("verification: role grant failed", {
+        guildId: guild.id,
+        userId,
+        roleId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return { ok: false, left, msg: "Couldn't grant your role (my role may be too low). Contact a moderator." };
   }
 }
 
@@ -267,31 +319,53 @@ const onMessage: Listener<Events.MessageCreate> = {
     const k = key(guildId, userId);
     const session = sessions.get(k);
 
-    // In-channel input counts only when a live session expects it in THIS channel.
-    // DM input is always eligible, so a DM verify survives a restart that lost the session.
-    if (!isDm && (!session || session.channelId !== message.channelId)) return;
+    // Channel context. A configured verify channel (and threads under it) is bot-owned:
+    // every non-staff, non-verified message there is scrubbed to keep it clear (validated
+    // as a code first if it is one).
+    const inVerify = !isDm && inVerifyChannel(ctx, message);
+    const staff = !isDm && (message.member?.permissions.has(PermissionFlagsBits.ManageMessages) ?? false);
+    const verifiedRoleId = isDm ? undefined : ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
+    const verified = !!verifiedRoleId && memberHasRole(message.member?.roles ?? null, verifiedRoleId);
+    const inSessionChannel = !!session && session.channelId === message.channelId;
+
+    // Only a DM, the verify channel, or a live session's channel is ours to touch.
+    if (!isDm && !inVerify && !inSessionChannel) return;
 
     const challenge = getChallenge(ctx.db, guildId, userId);
-    if (!challenge || challenge.expiresAt < Date.now()) {
-      if (session) endSession(k);
-      return;
-    }
-
+    const live = challenge !== undefined && challenge.expiresAt >= Date.now();
     const entered = message.content.trim().toUpperCase();
-    if (!isCodeShaped(entered, challenge.code.length)) return; // ordinary chat — leave it alone
+    const isGuess = live && isCodeShaped(entered, challenge!.code.length);
 
-    // Remove the typed code from the channel (and keep it out of the audit log) for
-    // EVERY code-shaped attempt — including a duplicate we won't re-process below.
-    if (!isDm) {
+    // Keep the verify channel clear: delete EVERY message from an unverified non-staff
+    // user there, whatever it contains (text, links, images, stickers, embeds, mentions).
+    // Elsewhere, only delete the code the user typed in a live session's channel.
+    if (!isDm && ((inVerify && !staff && !verified) || (isGuess && inSessionChannel))) {
       suppressDeletion(message.id);
-      await message.delete().catch((error) => {
+      await message.delete().catch(async (error) => {
         suppressedDeletions.delete(message.id);
-        ctx.logger.warn("verification: couldn't delete typed code", {
+        ctx.logger.warn("verification: couldn't delete message", {
           guildId,
           userId,
           error: error instanceof Error ? error.message : String(error),
         });
+        // If we lack Manage Messages, the "kept clear" guarantee is silently failing —
+        // surface it (rate-limited per channel) so an operator can fix the permission.
+        if ((error as { code?: number }).code === 50013 && message.guild) {
+          await maybeAlert(ctx, message.guild, `scrub-perms:${message.channelId}`, () =>
+            new EmbedBuilder()
+              .setColor(0xe74c3c)
+              .setTitle("⚠️ Can't keep the verify channel clear")
+              .setDescription(
+                "I lack **Manage Messages** in the verify channel, so messages there aren't being deleted. Please grant it.",
+              ),
+          );
+        }
       });
+    }
+
+    if (!isGuess) {
+      if (session && !live) endSession(k);
+      return; // scrubbed (if applicable) but not a live code — don't count as an attempt
     }
 
     if (processing.has(k)) return; // a prior submission is still resolving
@@ -301,22 +375,33 @@ const onMessage: Listener<Events.MessageCreate> = {
         session?.guild ?? message.guild ?? (await message.client.guilds.fetch(guildId).catch(() => null));
       if (!guild) return;
       const user = session?.user ?? message.author;
+      // Show progress on the live surface, or — after a restart, when there is no
+      // session — a channel reply that auto-cleans itself in the policed verify channel.
       const present = async (payload: Payload): Promise<void> => {
-        if (session) await session.refresh(payload).catch(() => {});
-        else
-          await message.channel
-            .send({ embeds: payload.embeds, components: payload.components })
-            .catch(() => {});
+        if (session) {
+          await session.refresh(payload).catch(() => {});
+          return;
+        }
+        const sent = await message.channel.send({ embeds: payload.embeds }).catch(() => null);
+        if (sent && inVerify) {
+          suppressDeletion(sent.id);
+          setTimeout(() => void sent.delete().catch(() => suppressedDeletions.delete(sent.id)), 6000).unref?.();
+        }
       };
 
-      if (entered === challenge.code) {
+      if (entered === challenge!.code) {
         const result = await grantVerified(ctx, guild, userId);
         if (!result.ok) {
+          if (result.left) {
+            // The user solved but has since LEFT — clean up so it can't re-fire; no alert.
+            endSession(k);
+            deleteChallenge(ctx.db, guildId, userId);
+            return;
+          }
+          // Misconfig or a transient error: keep the challenge + session so a retry (or a
+          // fixed role) can still succeed; the alert is rate-limited so it can't flood.
           await present(terminal("Verification failed", result.msg, 0xe74c3c));
-          // Surface the one server-wide-breaking misconfig (role too high / perms) to mods.
-          await logModAlert(
-            ctx,
-            guild,
+          await maybeAlert(ctx, guild, `grant-failed:${userId}`, () =>
             new EmbedBuilder()
               .setColor(0xe74c3c)
               .setTitle("⚠️ Verification grant failed")
@@ -332,30 +417,31 @@ const onMessage: Listener<Events.MessageCreate> = {
         return;
       }
 
-      // Wrong guess. Without a live session (post-restart DM), just guide them.
+      // Wrong guess without a live session (post-restart). In a guild channel the message
+      // was already scrubbed — stay silent so a stream of wrong codes can't amplify into
+      // a bot reply per message. Only guide in a DM (nothing was deleted there).
       if (!session) {
-        await message.channel
-          .send({ content: "❌ Incorrect. Tap **New Code** on the captcha above, or run `/verify`." })
-          .catch(() => {});
+        if (isDm) {
+          await present(terminal("Incorrect", "That code is wrong. Run `/verify` to get a fresh code.", 0x95a5a6));
+        }
         return;
       }
       const maxAttempts = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationMaxAttempts);
       session.attempts += 1;
       if (session.attempts >= maxAttempts) {
+        const attempts = session.attempts;
         endSession(k);
         deleteChallenge(ctx.db, guildId, userId);
         await present(
           terminal("Too many attempts", "You've used all your attempts. Run `/verify` to start over.", 0xe74c3c),
         );
-        await logModAlert(
-          ctx,
-          guild,
+        await maybeAlert(ctx, guild, `exhausted:${userId}`, () =>
           new EmbedBuilder()
             .setColor(0xe74c3c)
             .setTitle("🚩 Captcha attempts exhausted")
             .addFields(
               { name: "User", value: `<@${userId}> (${userId})` },
-              { name: "Attempts", value: `${session.attempts}` },
+              { name: "Attempts", value: `${attempts}` },
             ),
         );
         return;
@@ -414,6 +500,13 @@ async function beginInteractiveVerify(
   interaction: ButtonInteraction | Parameters<SlashCommand["execute"]>[0],
   guildId: string,
 ): Promise<void> {
+  if (!takeRenderSlot(key(guildId, interaction.user.id))) {
+    await interaction.reply({
+      content: "You're going too fast — wait a moment and try again.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, interaction.user.id, { isDm: false });
   await interaction.editReply(payload);
@@ -517,6 +610,30 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
   },
 };
 
+// A thread created under the verify channel is itself persistent content (its name
+// shows in the channel) and a scrub bypass — delete non-staff threads there.
+const onThreadCreate: Listener<Events.ThreadCreate> = {
+  event: Events.ThreadCreate,
+  async handle(ctx, thread) {
+    const guildId = thread.guildId;
+    if (!guildId) return;
+    const verifyChannelId = ctx.config.get<string>(guildId, CONFIG_KEYS.verificationChannelId);
+    if (!verifyChannelId || thread.parentId !== verifyChannelId) return;
+    // Allow staff-created threads (pins/instructions); remove everyone else's.
+    if (thread.ownerId) {
+      const owner = await thread.guild.members.fetch(thread.ownerId).catch(() => null);
+      if (owner?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
+    }
+    await thread.delete("Verify channel is kept clear").catch((error) => {
+      ctx.logger.warn("verification: couldn't delete thread in verify channel", {
+        guildId,
+        threadId: thread.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  },
+};
+
 // Warm the captcha wasm on startup so the first interaction never pays the compile
 // cost inside the 3-second ack window.
 const onReady: Listener<Events.ClientReady> = {
@@ -565,6 +682,10 @@ const newCodeHandler: ComponentHandler = {
       return;
     }
     const isDm = button.guildId === null;
+    if (!takeRenderSlot(key(guildId, button.user.id))) {
+      await button.reply({ content: "You're going too fast — wait a moment.", flags: MessageFlags.Ephemeral });
+      return;
+    }
     await button.deferUpdate();
     const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, button.user.id, {
       forceNew: true,
@@ -597,6 +718,6 @@ const newCodeHandler: ComponentHandler = {
 export const verificationModule: BotModule = {
   name: "verification",
   commands: [verifyPanel, verifyCommand],
-  listeners: [onJoin, onMessage, onReady] as Listener[],
+  listeners: [onJoin, onMessage, onThreadCreate, onReady] as Listener[],
   components: [startHandler, newCodeHandler],
 };
