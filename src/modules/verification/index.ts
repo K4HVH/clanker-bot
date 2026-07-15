@@ -317,7 +317,13 @@ const onMessage: Listener<Events.MessageCreate> = {
     const guildId = message.guildId ?? ctx.env.guildId;
     const userId = message.author.id;
     const k = key(guildId, userId);
-    const session = sessions.get(k);
+    // Only act on a session that belongs to THIS surface. There's one session per user,
+    // and it lives on whichever surface they last started on — so without this check a
+    // DM message would drive the server's ephemeral captcha (and vice-versa), sending the
+    // wrong-code feedback to the wrong place entirely.
+    const raw = sessions.get(k);
+    const session =
+      raw && (isDm ? raw.isDm : !raw.isDm && raw.channelId === message.channelId) ? raw : undefined;
 
     // Channel context. A configured verify channel (and threads under it) is bot-owned:
     // every non-staff, non-verified message there is scrubbed to keep it clear (validated
@@ -326,7 +332,7 @@ const onMessage: Listener<Events.MessageCreate> = {
     const staff = !isDm && (message.member?.permissions.has(PermissionFlagsBits.ManageMessages) ?? false);
     const verifiedRoleId = isDm ? undefined : ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
     const verified = !!verifiedRoleId && memberHasRole(message.member?.roles ?? null, verifiedRoleId);
-    const inSessionChannel = !!session && session.channelId === message.channelId;
+    const inSessionChannel = !!session;
 
     // Only a DM, the verify channel, or a live session's channel is ours to touch.
     if (!isDm && !inVerify && !inSessionChannel) return;
