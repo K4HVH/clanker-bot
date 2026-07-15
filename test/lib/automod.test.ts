@@ -73,11 +73,11 @@ const TIMEOUT: Tier = { type: "timeout", at: 3, rank: 1 };
 const KICK: Tier = { type: "kick", at: 5, rank: 2 };
 const BAN: Tier = { type: "ban", at: 8, rank: 3 };
 const LADDER: Tier[] = [TIMEOUT, KICK, BAN];
-const NOW = 1_000_000;
-const COOLDOWN = 30_000;
+const NOW = 1_000_000; // stands in for the offending message's send time
+const COOLDOWN = 5_000;
 
 function decide(count: number, appliedRank: number, lastActionAt: number, tiers = LADDER) {
-  return decideEscalation({ count, tiers, appliedRank, lastActionAt, now: NOW, cooldownMs: COOLDOWN });
+  return decideEscalation({ count, tiers, appliedRank, lastActionAt, messageSentAt: NOW, cooldownMs: COOLDOWN });
 }
 
 test("escalation: below the lowest threshold is warn-only and shows the removal DM", () => {
@@ -102,6 +102,15 @@ test("escalation: only one action per burst — within cooldown it stays quiet",
   const d = decide(9, 1 /* already timed out */, NOW - 1_000 /* 1s ago */);
   expect(d.action).toBeNull();
   expect(d.suppressWarnDm).toBe(true); // suppress the removal DM too, so a burst isn't noisy
+});
+
+test("escalation: a straggler sent BEFORE the action (processed late) takes no new action", () => {
+  // messageSentAt (NOW) is earlier than lastActionAt — i.e. this queued message predates the
+  // action that already fired. It must not push the ladder further, no matter how late we drain it.
+  const actionAfterThisMessage = NOW + 10_000;
+  const d = decide(9, 1, actionAfterThisMessage);
+  expect(d.action).toBeNull();
+  expect(d.suppressWarnDm).toBe(true);
 });
 
 test("escalation: climbs one tier per burst once the cooldown passes", () => {

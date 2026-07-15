@@ -15,10 +15,11 @@ import { isCodeShaped } from "../../lib/verification-logic";
 const heat = new HeatTracker();
 const repeats = new RepeatTracker();
 
-// After an escalation action, ignore further escalations of the SAME user for this window so a
-// burst of already-sent messages collapses into a single action (not a stack of them). New
-// violations after the window climb the ladder normally.
-const ESCALATION_COOLDOWN_MS = 30_000;
+// A message SENT within this window of a user's last action takes no new action, so a burst
+// collapses into one action instead of a stack. It's measured against the message's send time
+// (not our processing time), so it can be short without a slow backlog leaking a second action —
+// just long enough to absorb a burst + minor clock skew. New violations sent later climb normally.
+const ESCALATION_COOLDOWN_MS = 5_000;
 
 const RANK: Record<string, number> = { timeout: 1, kick: 2, ban: 3 };
 
@@ -107,7 +108,7 @@ async function escalate(
     tiers,
     appliedRank,
     lastActionAt,
-    now,
+    messageSentAt: message.createdTimestamp,
     cooldownMs: ESCALATION_COOLDOWN_MS,
   });
   if (!decision.action) return decision.suppressWarnDm;

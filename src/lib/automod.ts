@@ -101,22 +101,23 @@ export interface EscalationDecision {
 //   1. One tier at a time — a hard burst that jumps the count can never skip a tier (e.g. go
 //      straight to kick from zero). We climb at most one enabled tier above what's already been
 //      applied, and re-apply the top tier for repeat offenders.
-//   2. One action per burst — after acting we ignore further violations for `cooldownMs`, so a
-//      handful of already-sent messages don't each fire another action.
+//   2. One action per burst — a message SENT within cooldownMs of the last action (or before it,
+//      a straggler from the same burst) takes no new action. Keying off the message's send time,
+//      not our processing time, means a slow-to-drain backlog can't leak a second action.
 export function decideEscalation(opts: {
   count: number; // violations in the memory window, INCLUDING the one being handled
   tiers: Tier[]; // enabled tiers, in ascending severity (rank) order
   appliedRank: number; // highest tier rank already applied in the window (0 = none)
   lastActionAt: number; // ms timestamp of the most recent action in the window (0 = none)
-  now: number;
+  messageSentAt: number; // when the offending message was SENT (message.createdTimestamp)
   cooldownMs: number;
 }): EscalationDecision {
-  const { count, tiers, appliedRank, lastActionAt, now, cooldownMs } = opts;
+  const { count, tiers, appliedRank, lastActionAt, messageSentAt, cooldownMs } = opts;
   if (tiers.length === 0) return { action: null, suppressWarnDm: false };
 
-  // One action per burst: within the cooldown of the last action, take no new action and stay
-  // quiet (the user was just told they were punished).
-  if (lastActionAt > 0 && now - lastActionAt < cooldownMs) return { action: null, suppressWarnDm: true };
+  // One action per burst, measured by SEND time: a message sent within cooldownMs after the last
+  // action — or before it (a straggler) — takes no new action and stays quiet (already punished).
+  if (lastActionAt > 0 && messageSentAt - lastActionAt < cooldownMs) return { action: null, suppressWarnDm: true };
 
   // Highest enabled tier the count qualifies for; -1 if still below the lowest threshold.
   let targetPos = -1;
