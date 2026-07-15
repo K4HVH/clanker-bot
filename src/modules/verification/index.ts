@@ -7,6 +7,7 @@ import {
   EmbedBuilder,
   Events,
   type Guild,
+  type Message,
   MessageFlags,
   PermissionFlagsBits,
   type User,
@@ -26,7 +27,13 @@ import {
   memberHasRole,
   verifyFlags,
 } from "../../lib/verification-logic";
-import { deleteChallenge, getChallenge, setChallenge } from "../../db/verification";
+import {
+  type Challenge,
+  deleteChallenge,
+  getChallenge,
+  setChallenge,
+  setChallengeDmMessage,
+} from "../../db/verification";
 
 const DAY_MS = 86_400_000;
 // Ephemeral replies edit via an interaction token that dies at 15 min; cap under it.
@@ -308,6 +315,50 @@ function endSession(k: string): void {
   }
 }
 
+// Rebuild a DM session whose in-memory state was lost (a restart) while the DB challenge
+// is still live, so a code typed in a DM rotates and counts down exactly as if the session
+// had never dropped — no dead-end "run /verify". Anchors on the original on-join captcha
+// message (edited in place) when it still exists, else posts a fresh one to anchor on.
+// Returns undefined only if the DM channel is somehow unreachable (then the caller bails).
+async function reviveDmSession(
+  ctx: AppContext,
+  message: Message,
+  guild: Guild,
+  user: User,
+  guildId: string,
+  challenge: Challenge,
+): Promise<Session | undefined> {
+  const channel = message.channel;
+  if (!("send" in channel) || !("messages" in channel)) return undefined;
+
+  let anchor: Message | null = null;
+  if (challenge.dmMessageId) {
+    anchor = await channel.messages.fetch(challenge.dmMessageId).catch(() => null);
+  }
+  if (!anchor) {
+    // Original captcha message is gone — post a fresh one (reuses the live code) to anchor
+    // on, and remember it so future restarts edit this one in place.
+    const { payload } = await issueCaptcha(ctx, guildId, user.id, { isDm: true });
+    anchor = await channel.send(payload).catch(() => null);
+    if (anchor) setChallengeDmMessage(ctx.db, guildId, user.id, anchor.id);
+  }
+  if (!anchor) return undefined;
+
+  const msg = anchor;
+  registerSession(ctx, {
+    guild,
+    user,
+    isDm: true,
+    channelId: message.channelId,
+    refresh: async (p) => {
+      await msg.edit(p);
+    },
+    expiresAt: challenge.expiresAt,
+    mode: "reuse",
+  });
+  return sessions.get(key(guildId, user.id));
+}
+
 // ── The one validator: a typed code, in a DM or a session's channel ──────────
 const onMessage: Listener<Events.MessageCreate> = {
   event: Events.MessageCreate,
@@ -425,24 +476,31 @@ const onMessage: Listener<Events.MessageCreate> = {
         return;
       }
 
-      // Wrong guess without a live session (post-restart). In a guild channel the message
-      // was already scrubbed — stay silent so a stream of wrong codes can't amplify into
-      // a bot reply per message. Only guide in a DM (nothing was deleted there).
-      if (!session) {
-        if (isDm) {
-          await present(terminal("Incorrect", "That code is wrong. Run `/verify` to get a fresh code.", 0x95a5a6));
-        }
-        return;
+      // ── Wrong guess ──
+      // The rotated captcha + "N left" feedback must land on the SAME surface the code was
+      // typed on. With a live session we edit it in place. Without one — a DM whose on-join
+      // session was dropped by a restart — we re-establish it against the DM message, so the
+      // DM rotates and counts down IDENTICALLY to the in-channel flow instead of dead-ending.
+      // A guild channel can't re-show an ephemeral captcha without an interaction, so a
+      // session-less wrong guess there was already scrubbed above — nothing private to show.
+      let sess = session;
+      if (!sess) {
+        if (!isDm) return;
+        sess = await reviveDmSession(ctx, message, guild, user, guildId, challenge!);
+        if (!sess) return;
       }
+
       const maxAttempts = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationMaxAttempts);
-      session.attempts += 1;
-      if (session.attempts >= maxAttempts) {
-        const attempts = session.attempts;
+      sess.attempts += 1;
+      if (sess.attempts >= maxAttempts) {
+        const attempts = sess.attempts;
         endSession(k);
         deleteChallenge(ctx.db, guildId, userId);
-        await present(
-          terminal("Too many attempts", "You've used all your attempts. Run `/verify` to start over.", 0xe74c3c),
-        );
+        await sess
+          .refresh(
+            terminal("Too many attempts", "You've used all your attempts. Run `/verify` to start over.", 0xe74c3c),
+          )
+          .catch(() => {});
         await maybeAlert(ctx, guild, `exhausted:${userId}`, () =>
           new EmbedBuilder()
             .setColor(0xe74c3c)
@@ -455,14 +513,14 @@ const onMessage: Listener<Events.MessageCreate> = {
         return;
       }
       // Rotate the code (fresh image, same deadline) and reset the read timer.
-      const left = maxAttempts - session.attempts;
+      const left = maxAttempts - sess.attempts;
       const { payload } = await issueCaptcha(ctx, guildId, userId, {
         forceNew: true,
         isDm,
         status: `❌ Incorrect — ${left} attempt${left === 1 ? "" : "s"} left. Try this new code.`,
       });
-      session.issuedAt = Date.now();
-      await present(payload);
+      sess.issuedAt = Date.now();
+      await sess.refresh(payload).catch(() => {});
     } catch (error) {
       ctx.logger.error("verification message handling failed", {
         guildId,
@@ -633,6 +691,8 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
     try {
       const dm = await member.createDM();
       const msg = await dm.send(payload);
+      // Remember which message holds the captcha so a restart can revive this DM in place.
+      setChallengeDmMessage(ctx.db, guildId, member.id, msg.id);
       registerSession(ctx, {
         guild: member.guild,
         user: member.user,
@@ -764,6 +824,9 @@ const newCodeHandler: ComponentHandler = {
       forceNew: true,
       isDm,
     });
+    // In a DM the captcha stays on this same message; keep the revive anchor pointed at it
+    // (the row may be freshly created if the previous challenge had expired).
+    if (isDm) setChallengeDmMessage(ctx.db, guildId, button.user.id, button.message.id);
     await button.editReply(payload);
     // (Re)arm the session — this also revives collection after a restart, and edits
     // via the DM message (no token limit) or the ephemeral reply as appropriate.

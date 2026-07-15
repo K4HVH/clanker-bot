@@ -39,10 +39,13 @@ CREATE INDEX IF NOT EXISTS scheduled_actions_run_at_idx ON scheduled_actions (ru
 
 -- Pending captcha challenges (one active per user per guild).
 CREATE TABLE IF NOT EXISTS verification_challenges (
-  guild_id   TEXT    NOT NULL,
-  user_id    TEXT    NOT NULL,
-  code       TEXT    NOT NULL,
-  expires_at INTEGER NOT NULL,
+  guild_id      TEXT    NOT NULL,
+  user_id       TEXT    NOT NULL,
+  code          TEXT    NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  dm_message_id TEXT,             -- the on-join DM captcha message, so a code typed in a
+                                  -- DM can rotate in place even after a restart drops the
+                                  -- in-memory session (source of truth for reviving it)
   PRIMARY KEY (guild_id, user_id)
 );
 

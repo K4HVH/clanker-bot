@@ -18,14 +18,40 @@ export function setChallenge(
   );
 }
 
+export interface Challenge {
+  code: string;
+  expiresAt: number;
+  dmMessageId?: string;
+}
+
 export function getChallenge(
   db: BotDatabase,
   guildId: string,
   userId: string,
-): { code: string; expiresAt: number } | undefined {
-  return one<{ code: string; expiresAt: number }>(
+): Challenge | undefined {
+  const row = one<{ code: string; expiresAt: number; dmMessageId: string | null }>(
     db,
-    "SELECT code, expires_at AS expiresAt FROM verification_challenges WHERE guild_id = ? AND user_id = ?",
+    "SELECT code, expires_at AS expiresAt, dm_message_id AS dmMessageId FROM verification_challenges WHERE guild_id = ? AND user_id = ?",
+    guildId,
+    userId,
+  );
+  if (!row) return undefined;
+  return { code: row.code, expiresAt: row.expiresAt, dmMessageId: row.dmMessageId ?? undefined };
+}
+
+// Record which DM message holds the captcha, so a code typed in a DM can rotate that
+// message in place after a restart has dropped the in-memory session. Left untouched by
+// setChallenge (code rotations keep editing the same message), so it persists across them.
+export function setChallengeDmMessage(
+  db: BotDatabase,
+  guildId: string,
+  userId: string,
+  messageId: string,
+): void {
+  run(
+    db,
+    "UPDATE verification_challenges SET dm_message_id = ? WHERE guild_id = ? AND user_id = ?",
+    messageId,
     guildId,
     userId,
   );
