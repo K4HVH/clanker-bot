@@ -1,7 +1,7 @@
 import { Events, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
-import { planAuditEntry } from "../../lib/audit-log";
+import { planAuditEntry, removalTargetId } from "../../lib/audit-log";
 import { CONFIG_KEYS } from "../../lib/config";
 import { suppressedDeletions } from "../../lib/log-suppress";
 import {
@@ -14,7 +14,7 @@ import {
   logMemberEvent,
   logModAlert,
 } from "../../lib/modlog";
-import { inVerifyChannel } from "../../lib/verify-channel";
+import { channelIsVerify, inVerifyChannel } from "../../lib/verify-channel";
 
 function logEnabled(ctx: AppContext, guildId: string, key: string): boolean {
   return ctx.config.getEffective<boolean>(guildId, key);
@@ -91,8 +91,7 @@ const onBulkDelete: Listener<Events.MessageBulkDelete> = {
     const guild = "guild" in channel ? channel.guild : null;
     if (!guild) return;
     if (!logEnabled(ctx, guild.id, CONFIG_KEYS.logMessageEvents)) return;
-    const verifyId = ctx.config.get<string>(guild.id, CONFIG_KEYS.verificationChannelId);
-    if (verifyId && channel.id === verifyId) return;
+    if (channelIsVerify(ctx, guild.id, channel)) return;
     await logMemberEvent(ctx, guild, buildBulkDeleteEmbed({ channelId: channel.id, count: messages.size }));
   },
 };
@@ -116,10 +115,12 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
     const { guild } = member;
     const userId = member.id;
     // Wait for a possible kick/ban audit entry to arrive, then only log a plain "left" if
-    // this wasn't a mod removal (those are logged, attributed, to the mod-log).
+    // this wasn't a mod/bot removal (those are logged elsewhere: an attributed mod-log line
+    // for a human, or a case for the bot's own). Runs outside the listener error boundary,
+    // so guard the promise itself.
     setTimeout(() => {
       if (wasModRemoved(userId)) return;
-      void logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId }));
+      void logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId })).catch(() => {});
     }, LEAVE_DEFER_MS).unref?.();
   },
 };
@@ -141,10 +142,22 @@ const onMemberUpdate: Listener<Events.GuildMemberUpdate> = {
 const onAudit: Listener<Events.GuildAuditLogEntryCreate> = {
   event: Events.GuildAuditLogEntryCreate,
   async handle(ctx, entry, guild) {
-    const plan = planAuditEntry(entry, guild.client.user.id);
+    const botId = guild.client.user.id;
+
+    // The bot's OWN ban/kick is already logged as a case — don't re-log it, but DO suppress
+    // the duplicate "Member left" it would otherwise produce in the member-log.
+    if (entry.executorId === botId) {
+      const removed = removalTargetId(entry);
+      if (removed) markModRemoved(removed);
+      return;
+    }
+
+    const plan = planAuditEntry(entry, botId);
     if (!plan) return;
+    // Opted out of this event group — don't log it. For a removal, we also leave the plain
+    // "left" line to stand (unmarked) so the departure isn't invisible.
     if (!logEnabled(ctx, guild.id, plan.toggle)) return;
-    // Only suppress the plain "left" line once we've actually logged the attributed removal.
+    // We're logging the attributed removal, so suppress the plain "left" for it.
     if (plan.removedMemberId) markModRemoved(plan.removedMemberId);
     if (plan.destination === "mod") await logModAlert(ctx, guild, plan.embed);
     else await logMemberEvent(ctx, guild, plan.embed);

@@ -1,6 +1,6 @@
 import { AuditLogEvent, type GuildAuditLogsEntry } from "discord.js";
 import { expect, test } from "bun:test";
-import { planAuditEntry } from "../../src/lib/audit-log";
+import { planAuditEntry, removalTargetId } from "../../src/lib/audit-log";
 import { CONFIG_KEYS } from "../../src/lib/config";
 
 const BOT = "bot-1";
@@ -76,4 +76,21 @@ test("planAuditEntry: server structure changes → member-log under logServerEve
 
 test("planAuditEntry: unmapped actions are ignored", () => {
   expect(planAuditEntry(entry({ action: AuditLogEvent.MessagePin }), BOT)).toBeNull();
+});
+
+test("removalTargetId identifies ban/kick targets (regardless of executor) for leave-dedup", () => {
+  // Set even for the bot's own removal, so its spurious "left" gets suppressed too.
+  expect(removalTargetId(entry({ action: AuditLogEvent.MemberBanAdd, executorId: BOT }))).toBe("user-9");
+  expect(removalTargetId(entry({ action: AuditLogEvent.MemberKick }))).toBe("user-9");
+  expect(removalTargetId(entry({ action: AuditLogEvent.MemberBanRemove }))).toBeNull();
+  expect(removalTargetId(entry({ action: AuditLogEvent.ChannelDelete }))).toBeNull();
+});
+
+test("planAuditEntry: a cleared timeout (null or past) still routes to mod-log", () => {
+  const cleared = planAuditEntry(
+    entry({ action: AuditLogEvent.MemberUpdate, changes: [{ key: "communication_disabled_until", new: null }] }),
+    BOT,
+  );
+  expect(cleared?.destination).toBe("mod");
+  expect(cleared?.toggle).toBe(CONFIG_KEYS.logModActions);
 });

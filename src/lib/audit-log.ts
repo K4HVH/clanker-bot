@@ -46,6 +46,15 @@ const ACTIONS: Partial<Record<AuditLogEvent, Info>> = {
   [AuditLogEvent.RoleUpdate]: { title: "Role updated", color: 0xf1c40f, destination: "member", toggle: CONFIG_KEYS.logServerEvents },
 };
 
+// The user id removed by a ban/kick (regardless of who did it), else null — used to suppress
+// the duplicate "Member left" line for a member the bot or a mod just removed.
+export function removalTargetId(entry: GuildAuditLogsEntry): string | null {
+  if (entry.action === AuditLogEvent.MemberKick || entry.action === AuditLogEvent.MemberBanAdd) {
+    return entry.targetId ?? null;
+  }
+  return null;
+}
+
 function targetField(entry: GuildAuditLogsEntry): { name: string; value: string } | null {
   const id = entry.targetId;
   if (!id) return null;
@@ -75,13 +84,16 @@ function roleMentions(entry: GuildAuditLogsEntry, key: "$add" | "$remove"): stri
 export function planAuditEntry(entry: GuildAuditLogsEntry, botId: string): AuditLogPlan | null {
   if (entry.executorId === botId) return null;
 
-  // Timeouts arrive as a MemberUpdate touching communication_disabled_until.
+  // Timeouts arrive as a MemberUpdate touching communication_disabled_until. Treat a null OR
+  // already-past timestamp as "removed" (some clients clear a timeout by writing the past).
   if (entry.action === AuditLogEvent.MemberUpdate) {
     const change = entry.changes.find((c) => c.key === "communication_disabled_until");
     if (!change) return null; // some other member edit (e.g. deafen) — not ours to log
-    const until = (change.new as string | undefined) ?? null;
-    const embed = baseEmbed(until ? "Member timed out" : "Timeout removed", until ? 0xe67e22 : 0x2ecc71, entry);
-    if (until) embed.addFields({ name: "Until", value: `<t:${Math.floor(new Date(until).getTime() / 1000)}:R>` });
+    const untilRaw = (change.new as string | undefined) ?? null;
+    const untilMs = untilRaw ? new Date(untilRaw).getTime() : 0;
+    const active = untilMs > Date.now();
+    const embed = baseEmbed(active ? "Member timed out" : "Timeout removed", active ? 0xe67e22 : 0x2ecc71, entry);
+    if (active) embed.addFields({ name: "Until", value: `<t:${Math.floor(untilMs / 1000)}:R>` });
     return { destination: "mod", toggle: CONFIG_KEYS.logModActions, embed };
   }
 
