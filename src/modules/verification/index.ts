@@ -173,7 +173,8 @@ async function issueCaptcha(
         : "Type the code shown in the image as a message in this channel.",
     )
     .addFields({ name: "Expires", value: `<t:${Math.floor(shownExpiry / 1000)}:R>` })
-    .setImage(`attachment://${name}`);
+    .setImage(`attachment://${name}`)
+    .setFooter({ text: "Can't read it? Tap New Code, or ask a moderator." });
   if (opts.status) embed.addFields({ name: "Status", value: opts.status });
 
   return {
@@ -553,6 +554,53 @@ const verifyCommand: SlashCommand = {
   },
 };
 
+// Manual override: a mod grants the Verified role directly (accessibility fallback
+// for someone who genuinely can't read the image, or a trusted-user shortcut).
+const verifyUserCommand: SlashCommand = {
+  data: new SlashCommandBuilder()
+    .setName("verify-user")
+    .setDescription("Manually verify a member (grants the Verified role).")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild)
+    .addUserOption((o) => o.setName("member").setDescription("The member to verify").setRequired(true)),
+  async execute(interaction, ctx) {
+    const guildId = interaction.guildId ?? ctx.env.guildId;
+    if (!interaction.guild) {
+      await interaction.reply({ content: "Run this in the server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId)) {
+      await interaction.reply({
+        content: "Verification isn't configured (no Verified role set).",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const target = interaction.options.getUser("member", true);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const result = await grantVerified(ctx, interaction.guild, target.id);
+    if (!result.ok) {
+      await interaction.editReply(result.msg);
+      return;
+    }
+    deleteChallenge(ctx.db, guildId, target.id);
+    endSession(key(guildId, target.id));
+    await interaction.editReply(`✅ Verified <@${target.id}>.`);
+    await logMemberEvent(
+      ctx,
+      interaction.guild,
+      new EmbedBuilder()
+        .setColor(0x2ecc71)
+        .setTitle("Member manually verified")
+        .addFields(
+          { name: "User", value: `<@${target.id}> (${target.id})` },
+          { name: "By", value: `<@${interaction.user.id}>` },
+        )
+        .setTimestamp(new Date()),
+    );
+  },
+};
+
 const onJoin: Listener<Events.GuildMemberAdd> = {
   event: Events.GuildMemberAdd,
   async handle(ctx, member) {
@@ -631,6 +679,17 @@ const onThreadCreate: Listener<Events.ThreadCreate> = {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+  },
+};
+
+// Clear a departing member's pending challenge/session so nothing lingers (and a
+// kicked raider leaves no orphaned row).
+const onLeave: Listener<Events.GuildMemberRemove> = {
+  event: Events.GuildMemberRemove,
+  async handle(ctx, member) {
+    const guildId = member.guild.id;
+    deleteChallenge(ctx.db, guildId, member.id);
+    endSession(key(guildId, member.id));
   },
 };
 
@@ -717,7 +776,7 @@ const newCodeHandler: ComponentHandler = {
 
 export const verificationModule: BotModule = {
   name: "verification",
-  commands: [verifyPanel, verifyCommand],
-  listeners: [onJoin, onMessage, onThreadCreate, onReady] as Listener[],
+  commands: [verifyPanel, verifyCommand, verifyUserCommand],
+  listeners: [onJoin, onLeave, onMessage, onThreadCreate, onReady] as Listener[],
   components: [startHandler, newCodeHandler],
 };
