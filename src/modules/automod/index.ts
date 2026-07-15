@@ -69,11 +69,19 @@ function anyRuleEnabled(rules: ContentRules, flood: boolean, duplicates: boolean
 
 // The enabled escalation tiers, in ascending severity. A threshold of 0 means that tier is off.
 function enabledTiers(ctx: AppContext, guildId: string): Tier[] {
-  return [
+  const tiers = [
     { type: "timeout" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutAt), rank: 1 },
     { type: "kick" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodKickAt), rank: 2 },
     { type: "ban" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanAt), rank: 3 },
   ].filter((t) => t.at > 0);
+  // Keep thresholds non-decreasing with severity, so a misconfigured ladder (e.g. kickAt below
+  // timeoutAt) can't make a harsher tier become eligible before a milder one.
+  for (let i = 1; i < tiers.length; i++) {
+    const prev = tiers[i - 1];
+    const cur = tiers[i];
+    if (prev && cur && cur.at < prev.at) cur.at = prev.at;
+  }
+  return tiers;
 }
 
 // Apply at most ONE escalation for this violation, chosen by decideEscalation (one tier at a time,
@@ -108,7 +116,9 @@ async function escalate(
     tiers,
     appliedRank,
     lastActionAt,
-    messageSentAt: message.createdTimestamp,
+    // On an edit use the edit time, not the original send time — otherwise editing an old
+    // (pre-action) message into a fresh violation looks like a straggler and never escalates.
+    messageSentAt: message.editedTimestamp ?? message.createdTimestamp,
     cooldownMs: ESCALATION_COOLDOWN_MS,
   });
   if (!decision.action) return decision.suppressWarnDm;
@@ -151,7 +161,19 @@ async function escalate(
   } catch {
     return false; // action failed; the delete + warn still stand, so allow the warn DM
   }
-  await logCase(ctx, guild, createCase(ctx.db, { guildId, userId, moderatorId: botId, type, reason }));
+  // Record the action so the ladder advances. Guard the write: the action already happened, so a
+  // failed insert should be logged, not thrown — a throw here would skip recording AND could let
+  // the next burst message re-act (it derives the cooldown from this row).
+  try {
+    await logCase(ctx, guild, createCase(ctx.db, { guildId, userId, moderatorId: botId, type, reason }));
+  } catch (error) {
+    ctx.logger.error("automod: escalated but failed to record the action", {
+      guildId,
+      userId,
+      type,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return true;
 }
 
@@ -217,7 +239,12 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   // (the mod-log automod entry is the record; don't reprint the removed content).
   suppressDeletion(message.id);
   const deleted = await message.delete().then(() => true).catch(() => false);
-  if (!deleted) suppressedDeletions.delete(message.id);
+  if (!deleted) {
+    // Couldn't remove it (no ManageMessages here, or it's already gone) — don't record a warn,
+    // escalate, or tell the user it was "removed" while it's still sitting in the channel.
+    suppressedDeletions.delete(message.id);
+    return;
+  }
   const botId = message.client.user.id;
   const label = violation;
 

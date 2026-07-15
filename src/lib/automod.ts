@@ -128,9 +128,11 @@ export function decideEscalation(opts: {
   let appliedPos = -1;
   for (let i = 0; i < tiers.length; i++) if ((tiers[i]?.rank ?? Infinity) <= appliedRank) appliedPos = i;
 
-  // Step up at most one enabled tier past what's applied (never skip); when already at the top
-  // eligible tier, min() lands back on it — a repeat offender is re-punished at that tier.
-  const applyPos = Math.min(targetPos, appliedPos + 1);
+  // Ratchet: climb at most one enabled tier past what's applied (never skip UP), but never drop
+  // below it either. If older warns aged out so the count only qualifies for a milder tier
+  // (targetPos < appliedPos), re-apply the top tier already reached rather than downgrading — a
+  // repeat offender within the window is re-punished at their highest tier, not let off lighter.
+  const applyPos = Math.min(appliedPos + 1, Math.max(targetPos, appliedPos));
   const action = tiers[applyPos] ?? null;
   return { action, suppressWarnDm: action !== null };
 }

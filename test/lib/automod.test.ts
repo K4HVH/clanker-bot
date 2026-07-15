@@ -119,6 +119,13 @@ test("escalation: climbs one tier per burst once the cooldown passes", () => {
   expect(decide(8, 2, afterCooldown).action?.type).toBe("ban"); // kick→ban at the ban threshold
 });
 
+test("escalation: the ladder never drops a tier — a kicked user re-offending is re-kicked, not timed out", () => {
+  // Older warns aged out so the count only qualifies for the timeout tier, but a kick was already
+  // applied (appliedRank=2). It must re-apply the kick, not downgrade to a timeout.
+  const d = decide(3, 2, NOW - COOLDOWN - 1);
+  expect(d.action?.type).toBe("kick");
+});
+
 test("escalation: a repeat offender at the top enabled tier is re-punished, not left alone", () => {
   // Only timeout configured: after it expires and they spam again, they get timed out again.
   const onlyTimeout = [TIMEOUT];
