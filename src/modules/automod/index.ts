@@ -1,10 +1,10 @@
 import { Events, type GuildMember, type Message, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
-import { type CaseType, countAutomodViolations, createCase } from "../../db/cases";
+import { countAutomodViolations, createCase, listAutomodActions } from "../../db/cases";
 import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
-import { checkContent, type ContentRules } from "../../lib/automod";
+import { checkContent, type ContentRules, decideEscalation, type Tier } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
@@ -15,13 +15,31 @@ import { isCodeShaped } from "../../lib/verification-logic";
 const heat = new HeatTracker();
 const repeats = new RepeatTracker();
 
-// After escalating a user, ignore further escalations of the SAME-or-weaker tier for a short
-// window — a rapid burst arrives as several already-sent messages, and each crossing the
-// threshold would otherwise re-timeout/re-ban them (they can't send NEW messages once timed
-// out). A harsher tier within the window IS still applied (an upgrade). Records the applied
-// tier so the check→claim is atomic against concurrent burst handlers.
-const escalatedAt = new Map<string, { at: number; rank: number }>();
-const ESCALATION_COOLDOWN_MS = 20_000;
+// After an escalation action, ignore further escalations of the SAME user for this window so a
+// burst of already-sent messages collapses into a single action (not a stack of them). New
+// violations after the window climb the ladder normally.
+const ESCALATION_COOLDOWN_MS = 30_000;
+
+const RANK: Record<string, number> = { timeout: 1, kick: 2, ban: 3 };
+
+// Serialize each user's violation handling so a burst is processed one message at a time — the
+// warn is written and counted before the next message's escalation reads the count. Without this,
+// discord.js dispatches burst handlers concurrently and their interleaved counts can jump a user
+// past a tier (straight to kick from zero). Different users still run concurrently.
+const userLocks = new Map<string, Promise<unknown>>();
+function runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = userLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(
+    () => {},
+    () => {},
+  );
+  userLocks.set(key, tail);
+  tail.finally(() => {
+    if (userLocks.get(key) === tail) userLocks.delete(key);
+  });
+  return run;
+}
 
 function contentRulesFor(ctx: AppContext, guildId: string): ContentRules {
   return {
@@ -48,9 +66,20 @@ function anyRuleEnabled(rules: ContentRules, flood: boolean, duplicates: boolean
   );
 }
 
-// Escalate on accumulated violations within the memory window — applies the harshest crossed
-// tier (ban > kick > timeout) and records it. Returns true if it acted. Won't touch the owner,
-// a member above the bot, or act without the permission (the delete + warn still stand).
+// The enabled escalation tiers, in ascending severity. A threshold of 0 means that tier is off.
+function enabledTiers(ctx: AppContext, guildId: string): Tier[] {
+  return [
+    { type: "timeout" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutAt), rank: 1 },
+    { type: "kick" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodKickAt), rank: 2 },
+    { type: "ban" as const, at: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanAt), rank: 3 },
+  ].filter((t) => t.at > 0);
+}
+
+// Apply at most ONE escalation for this violation, chosen by decideEscalation (one tier at a time,
+// one action per burst). Ladder state (how far the user has climbed, when they were last actioned)
+// is derived from the DB so it survives restarts + history clears. Returns true when the caller
+// should suppress the "message removed" DM (we acted, or we're mid-burst after an action). Won't
+// touch the owner, a member above the bot, or act without the permission — the delete + warn stand.
 async function escalate(
   ctx: AppContext,
   message: Message,
@@ -61,34 +90,31 @@ async function escalate(
   if (!guild) return false;
   const guildId = guild.id;
   const userId = message.author.id;
+  const now = Date.now();
+
+  const tiers = enabledTiers(ctx, guildId);
+  if (tiers.length === 0) return false;
 
   const ttlMin = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodViolationTtlMinutes);
-  const count = countAutomodViolations(ctx.db, guildId, userId, botId, Date.now() - ttlMin * 60_000);
-  const banAt = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanAt);
-  const kickAt = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodKickAt);
-  const timeoutAt = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutAt);
+  const sinceMs = now - ttlMin * 60_000;
+  const count = countAutomodViolations(ctx.db, guildId, userId, botId, sinceMs);
+  const actions = listAutomodActions(ctx.db, guildId, userId, botId, sinceMs);
+  const appliedRank = actions.reduce((m, a) => Math.max(m, RANK[a.type] ?? 0), 0);
+  const lastActionAt = actions.reduce((m, a) => Math.max(m, a.createdAt), 0);
 
-  let type: CaseType | null = null;
-  if (banAt > 0 && count >= banAt) type = "ban";
-  else if (kickAt > 0 && count >= kickAt) type = "kick";
-  else if (timeoutAt > 0 && count >= timeoutAt) type = "timeout";
-  if (!type) return false;
-  const rank = type === "ban" ? 3 : type === "kick" ? 2 : 1;
+  const decision = decideEscalation({
+    count,
+    tiers,
+    appliedRank,
+    lastActionAt,
+    now,
+    cooldownMs: ESCALATION_COOLDOWN_MS,
+  });
+  if (!decision.action) return decision.suppressWarnDm;
+  const type = decision.action.type;
 
-  // Burst dedup: a rapid burst arrives as several already-sent messages that each cross a
-  // threshold. Within the window, only re-act if this is a HARSHER tier than we already applied
-  // (an upgrade) — so we don't re-issue the same action, but a burst can still climb the ladder.
-  // Return true so the caller also suppresses the "message removed" DM.
-  const key = `${guildId}:${userId}`;
-  const prev = escalatedAt.get(key);
-  if (prev && Date.now() - prev.at < ESCALATION_COOLDOWN_MS && rank <= prev.rank) return true;
-  if (escalatedAt.size > 1000) {
-    for (const [k, v] of escalatedAt) if (Date.now() - v.at >= ESCALATION_COOLDOWN_MS) escalatedAt.delete(k);
-  }
-
-  // The target just sent a message, so they're a present member: require the bot to outrank
-  // them (and not be the owner) and hold the permission — otherwise skip the escalation
-  // silently (the delete + warn still stand). This avoids a doomed API call + a lying DM.
+  // The user just sent a message, so they're present: require the bot to outrank them (and not be
+  // the owner) and hold the permission, or skip silently — avoids a doomed API call + a lying DM.
   const me = guild.members.me;
   const outranks =
     !!me && !!member && userId !== guild.ownerId && member.roles.highest.position < me.roles.highest.position;
@@ -100,37 +126,38 @@ async function escalate(
         : PermissionFlagsBits.ModerateMembers;
   if (!outranks || !me?.permissions.has(perm)) return false;
 
-  // Claim the slot SYNCHRONOUSLY (no await between the cooldown check above and here), so
-  // concurrently-dispatched burst handlers can't all pass the check before any of them acts.
-  escalatedAt.set(key, { at: Date.now(), rank });
-
-  // Act FIRST, then only DM/record on success — so a failed action never tells the user they
-  // were punished. (A DM after a ban/kick silently no-ops since we no longer share a guild.)
   const reason = `Automod: ${count} violations in ${ttlMin}m`;
-  try {
-    if (type === "ban") await guild.members.ban(userId, { reason });
-    else if (type === "kick") await member!.kick(reason);
-    else {
-      const mins = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes);
-      await member!.timeout(mins * 60_000, reason);
-    }
-  } catch {
-    // Failed — restore the prior claim (if any) so a later attempt isn't wrongly suppressed.
-    if (prev) escalatedAt.set(key, prev);
-    else escalatedAt.delete(key);
-    return false;
-  }
-  if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
+  const dmEnabled = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction);
+  const notify = async () => {
+    if (!dmEnabled) return;
     const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
     await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
+  };
+
+  try {
+    if (type === "ban") {
+      // DM BEFORE removal — once kicked/banned we no longer share a guild, so the DM would fail.
+      await notify();
+      await guild.members.ban(userId, { reason });
+    } else if (type === "kick") {
+      await notify();
+      await member?.kick(reason);
+    } else {
+      const mins = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes);
+      await member?.timeout(mins * 60_000, reason);
+      await notify(); // still in the guild — DM after so it only sends on success
+    }
+  } catch {
+    return false; // action failed; the delete + warn still stand, so allow the warn DM
   }
   await logCase(ctx, guild, createCase(ctx.db, { guildId, userId, moderatorId: botId, type, reason }));
   return true;
 }
 
 async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise<void> {
-  if (!message.guild || message.author.bot || !message.content) return;
-  const guildId = message.guild.id;
+  const guild = message.guild;
+  if (!guild || message.author.bot || !message.content) return;
+  const guildId = guild.id;
 
   const rules = contentRulesFor(ctx, guildId);
   const flood = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodFlood);
@@ -141,7 +168,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   // code typed elsewhere. Resolve the member so the staff check holds even on an edit where
   // message.member wasn't cached.
   const member =
-    message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
+    message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
   if (member?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
   if (inVerifyChannel(ctx, message)) return;
   if (
@@ -191,21 +218,25 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   const deleted = await message.delete().then(() => true).catch(() => false);
   if (!deleted) suppressedDeletions.delete(message.id);
   const botId = message.client.user.id;
-  const warn = createCase(ctx.db, {
-    guildId,
-    userId: message.author.id,
-    moderatorId: botId,
-    type: "warn",
-    reason: `Automod: ${violation}`,
-  });
-  await logCase(ctx, message.guild, warn);
+  const label = violation;
 
-  const escalated = await escalate(ctx, message, member, botId);
-  if (!escalated && ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
-    await message.author
-      .send(`Your message in **${message.guild.name}** was removed by automod — ${violation}.`)
-      .catch(() => {});
-  }
+  // Serialize per user so the warn is counted before the next burst message escalates.
+  await runExclusive(`${guildId}:${message.author.id}`, async () => {
+    const warn = createCase(ctx.db, {
+      guildId,
+      userId: message.author.id,
+      moderatorId: botId,
+      type: "warn",
+      reason: `Automod: ${label}`,
+    });
+    await logCase(ctx, guild, warn);
+    const suppressWarnDm = await escalate(ctx, message, member, botId);
+    if (!suppressWarnDm && ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
+      await message.author
+        .send(`Your message in **${guild.name}** was removed by automod — ${label}.`)
+        .catch(() => {});
+    }
+  });
 }
 
 const onCreate: Listener<Events.MessageCreate> = {

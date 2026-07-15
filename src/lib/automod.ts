@@ -77,3 +77,59 @@ export function checkContent(
   if (rules.caps && isCapsSpam(content)) return "excessive caps";
   return null;
 }
+
+// ── Escalation ladder ───────────────────────────────────────────────────────
+// A punishment tier: apply `type` once a user reaches `at` violations. `rank` is fixed by
+// severity (timeout < kick < ban) so the ladder is ordered independently of the thresholds.
+export interface Tier {
+  type: "timeout" | "kick" | "ban";
+  at: number;
+  rank: number;
+}
+
+export interface EscalationDecision {
+  action: Tier | null; // the single tier to apply now, or null for warn-only
+  // Suppress the "your message was removed" DM: true whenever we act OR we're inside the
+  // post-action cooldown (so a burst doesn't spam the user after they've already been punished).
+  suppressWarnDm: boolean;
+}
+
+// Decide the SINGLE escalation action for one violation. Pure + deterministic so the async
+// wrapper (perm checks, Discord calls, DMs) stays thin and this can be exhaustively tested.
+//
+// Two guarantees the live bug reports demanded:
+//   1. One tier at a time — a hard burst that jumps the count can never skip a tier (e.g. go
+//      straight to kick from zero). We climb at most one enabled tier above what's already been
+//      applied, and re-apply the top tier for repeat offenders.
+//   2. One action per burst — after acting we ignore further violations for `cooldownMs`, so a
+//      handful of already-sent messages don't each fire another action.
+export function decideEscalation(opts: {
+  count: number; // violations in the memory window, INCLUDING the one being handled
+  tiers: Tier[]; // enabled tiers, in ascending severity (rank) order
+  appliedRank: number; // highest tier rank already applied in the window (0 = none)
+  lastActionAt: number; // ms timestamp of the most recent action in the window (0 = none)
+  now: number;
+  cooldownMs: number;
+}): EscalationDecision {
+  const { count, tiers, appliedRank, lastActionAt, now, cooldownMs } = opts;
+  if (tiers.length === 0) return { action: null, suppressWarnDm: false };
+
+  // One action per burst: within the cooldown of the last action, take no new action and stay
+  // quiet (the user was just told they were punished).
+  if (lastActionAt > 0 && now - lastActionAt < cooldownMs) return { action: null, suppressWarnDm: true };
+
+  // Highest enabled tier the count qualifies for; -1 if still below the lowest threshold.
+  let targetPos = -1;
+  for (let i = 0; i < tiers.length; i++) if (count >= (tiers[i]?.at ?? Infinity)) targetPos = i;
+  if (targetPos < 0) return { action: null, suppressWarnDm: false };
+
+  // Highest enabled tier at or below what's already been applied.
+  let appliedPos = -1;
+  for (let i = 0; i < tiers.length; i++) if ((tiers[i]?.rank ?? Infinity) <= appliedRank) appliedPos = i;
+
+  // Step up at most one enabled tier past what's applied (never skip); when already at the top
+  // eligible tier, min() lands back on it — a repeat offender is re-punished at that tier.
+  const applyPos = Math.min(targetPos, appliedPos + 1);
+  const action = tiers[applyPos] ?? null;
+  return { action, suppressWarnDm: action !== null };
+}

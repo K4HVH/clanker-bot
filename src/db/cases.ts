@@ -42,6 +42,28 @@ export function countAutomodViolations(
   );
 }
 
+// The automod actions (bot-authored punitive cases) still inside the memory window, used to
+// derive the escalation ladder position + burst cooldown from the DB (so it survives restarts
+// and history clears). Most recent first.
+export function listAutomodActions(
+  db: BotDatabase,
+  guildId: string,
+  userId: string,
+  botId: string,
+  sinceMs: number,
+): { type: string; createdAt: number }[] {
+  return many<{ type: string; createdAt: number }>(
+    db,
+    `SELECT type, created_at AS createdAt FROM cases
+     WHERE guild_id = ? AND user_id = ? AND moderator_id = ?
+       AND type IN ('timeout', 'kick', 'ban') AND created_at >= ?`,
+    guildId,
+    userId,
+    botId,
+    sinceMs,
+  );
+}
+
 export type CaseType = "warn" | "timeout" | "untimeout" | "kick" | "ban" | "unban" | "note";
 
 export interface NewCase {

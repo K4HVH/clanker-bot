@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { clearCases, countAutomodViolations, createCase, listCasesByUser } from "../../src/db/cases";
+import {
+  clearCases,
+  countAutomodViolations,
+  createCase,
+  listAutomodActions,
+  listCasesByUser,
+} from "../../src/db/cases";
 import { makeTestDb } from "../helpers/db";
 
 test("clearCases: automodOnly deletes only bot warns; full deletes everything for the user", () => {
@@ -38,6 +44,22 @@ test("countAutomodViolations counts only bot-authored warns for the user", () =>
   expect(countAutomodViolations(db, "g", "u", BOT, 0)).toBe(2);
   // A cutoff in the future excludes everything.
   expect(countAutomodViolations(db, "g", "u", BOT, Date.now() + 60_000)).toBe(0);
+});
+
+test("listAutomodActions returns only bot-authored punitive actions in the window", () => {
+  const db = makeTestDb();
+  const BOT = "bot";
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "warn", reason: "Automod: x" }); // not punitive
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "timeout", reason: "auto" });
+  createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "kick", reason: "auto" });
+  createCase(db, { guildId: "g", userId: "u", moderatorId: "human", type: "ban", reason: "manual" }); // not bot
+  createCase(db, { guildId: "g", userId: "other", moderatorId: BOT, type: "ban", reason: "auto" }); // other user
+
+  const actions = listAutomodActions(db, "g", "u", BOT, 0);
+  expect(actions.map((a) => a.type).sort()).toEqual(["kick", "timeout"]);
+  expect(actions.every((a) => typeof a.createdAt === "number")).toBe(true);
+  // A future cutoff excludes everything.
+  expect(listAutomodActions(db, "g", "u", BOT, Date.now() + 60_000)).toEqual([]);
 });
 
 test("case numbers increment sequentially per guild", () => {
