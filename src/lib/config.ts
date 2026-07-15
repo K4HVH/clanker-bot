@@ -1,5 +1,6 @@
 import { ChannelType } from "discord.js";
 import { type BotDatabase, many, one } from "../db/index";
+import { GUARD_ACTIONS } from "./guards";
 
 // ── Config keys (snake_case column values) ──────────────────────────────────
 export const CONFIG_KEYS = {
@@ -25,8 +26,11 @@ export const CONFIG_KEYS = {
   strikeWeightTimeout: "strike_weight_timeout",
   strikeWeightKick: "strike_weight_kick",
   minAccountAgeDays: "min_account_age_days",
-  accountAgeGateFlag: "account_age_gate_flag",
-  accountAgeGateKick: "account_age_gate_kick",
+  accountAgeGateAction: "account_age_gate_action",
+  nameBlocklist: "name_blocklist",
+  nameGuardAction: "name_guard_action",
+  flagNoAvatar: "flag_no_avatar",
+  guardDmOnRemoval: "guard_dm_on_removal",
   verifiedRoleId: "verified_role_id",
   verificationChannelId: "verification_channel_id",
   verificationChallengeMinutes: "verification_challenge_minutes",
@@ -52,7 +56,7 @@ export const CONFIG_KEYS = {
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
-export type SettingType = "bool" | "int" | "text" | "channel" | "role";
+export type SettingType = "bool" | "int" | "text" | "channel" | "role" | "choice";
 
 export interface Setting {
   key: string;
@@ -64,6 +68,7 @@ export interface Setting {
   min?: number;
   max?: number;
   channelTypes?: ChannelType[];
+  choices?: { value: string; label: string }[]; // for type "choice"
 }
 
 export interface Category {
@@ -119,8 +124,11 @@ export const REGISTRY: Setting[] = [
   { key: K.strikeWeightKick, category: "strike-weights", type: "int", min: 0, max: 100, default: 3, label: "Weight: kick" },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)" },
-  { key: K.accountAgeGateFlag, category: "guards", type: "bool", default: true, label: "Age gate: alert mod-log" },
-  { key: K.accountAgeGateKick, category: "guards", type: "bool", default: true, label: "Age gate: kick" },
+  { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "kick", label: "Age gate: action", description: "What to do with an account younger than the minimum." },
+  { key: K.nameBlocklist, category: "guards", type: "text", default: "", label: "Name blocklist", description: "Comma/newline-separated banned name patterns. Wrap in /slashes/ for regex; otherwise a case-insensitive substring." },
+  { key: K.nameGuardAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Name guard: action", description: "What to do when a username/nickname matches the blocklist." },
+  { key: K.flagNoAvatar, category: "guards", type: "bool", default: false, label: "Flag no-avatar joins", description: "Alert the mod-log when a joiner has the default avatar (a common bot tell)." },
+  { key: K.guardDmOnRemoval, category: "guards", type: "bool", default: false, label: "DM removed users why", description: "Tell a kicked/banned joiner why (e.g. account too new), so a legit one can come back." },
   // Verification
   { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role" },
   { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Verify channel (kept clear)" },
@@ -170,6 +178,8 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
     case "channel":
     case "role":
       return typeof value === "string" && /^\d{17,20}$/.test(value);
+    case "choice":
+      return typeof value === "string" && (setting.choices?.some((c) => c.value === value) ?? false);
   }
 }
 

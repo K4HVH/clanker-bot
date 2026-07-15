@@ -59,6 +59,13 @@ test("validateSetting enforces type and bounds", () => {
   expect(validateSetting(intS, 5.5)).toBe(false);
   expect(validateSetting(chanS, "123456789012345678")).toBe(true);
   expect(validateSetting(chanS, "abc")).toBe(false);
+
+  const choiceS = REGISTRY_BY_KEY.get(CONFIG_KEYS.accountAgeGateAction);
+  if (!choiceS) throw new Error("registry missing choice key");
+  expect(validateSetting(choiceS, "kick")).toBe(true);
+  expect(validateSetting(choiceS, "off")).toBe(true);
+  expect(validateSetting(choiceS, "explode")).toBe(false); // not an offered choice
+  expect(validateSetting(choiceS, true)).toBe(false);
 });
 
 test("typed get/set round-trips", () => {

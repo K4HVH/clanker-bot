@@ -255,13 +255,17 @@ const selectHandler: ComponentHandler = {
       return;
     }
 
-    // chan / role: set the chosen id, or unset when the selection is cleared
+    // chan / role / choice: set the chosen value, or unset when the selection is cleared
     if (arg) {
       const setting = getSetting(arg);
       if (!setting) return;
       const chosen = select.values[0];
-      if (chosen) ctx.config.set(guildId, setting.key, chosen);
-      else ctx.config.unset(guildId, setting.key);
+      if (chosen) {
+        if (!validateSetting(setting, chosen)) return;
+        ctx.config.set(guildId, setting.key, chosen);
+      } else {
+        ctx.config.unset(guildId, setting.key);
+      }
       await select.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
     }
   },

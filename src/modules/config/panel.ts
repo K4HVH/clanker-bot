@@ -97,6 +97,28 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       container.addActionRowComponents(
         new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(select),
       );
+    } else if (s.type === "choice") {
+      const current = String(ctx.config.getEffective(guildId, s.key) ?? "");
+      const chosen = s.choices?.find((c) => c.value === current);
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\``),
+      );
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(`cfg:choice:${s.key}`)
+        .setPlaceholder("Select…")
+        .setMinValues(1)
+        .setMaxValues(1);
+      for (const c of s.choices ?? []) {
+        select.addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(c.label)
+            .setValue(c.value)
+            .setDefault(c.value === current),
+        );
+      }
+      container.addActionRowComponents(
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+      );
     } else if (s.type === "role") {
       const id = ctx.config.get<string>(guildId, s.key);
       container.addTextDisplayComponents(

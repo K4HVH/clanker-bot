@@ -773,11 +773,12 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
     if (!ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId)) return;
     if (!ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.verificationDmOnJoin)) return;
 
-    // Don't render/DM someone the account-age gate is about to kick.
+    // Don't render/DM someone the account-age gate is about to remove.
     const minDays = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.minAccountAgeDays);
+    const ageAction = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.accountAgeGateAction);
     if (
       minDays > 0 &&
-      ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.accountAgeGateKick) &&
+      (ageAction === "kick" || ageAction === "ban") &&
       Date.now() - member.user.createdTimestamp < minDays * DAY_MS
     ) {
       return;
