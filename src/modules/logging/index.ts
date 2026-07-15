@@ -1,5 +1,6 @@
 import { Events } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
+import { suppressedDeletions } from "../../lib/log-suppress";
 import {
   buildMemberJoinEmbed,
   buildMemberLeaveEmbed,
@@ -7,11 +8,16 @@ import {
   buildMessageUpdateEmbed,
   logMemberEvent,
 } from "../../lib/modlog";
+import { inVerifyChannel } from "../../lib/verify-channel";
 
 const onDelete: Listener<Events.MessageDelete> = {
   event: Events.MessageDelete,
   async handle(ctx, message) {
+    // Skip deletions the bot performed on purpose (e.g. a typed verification code).
+    if (suppressedDeletions.delete(message.id)) return;
     if (!message.guild || message.author?.bot) return;
+    // The verify channel is transient scratch (codes + scrubbed spam), not audit material.
+    if (inVerifyChannel(ctx, message)) return;
     await logMemberEvent(
       ctx,
       message.guild,
@@ -28,6 +34,7 @@ const onUpdate: Listener<Events.MessageUpdate> = {
   event: Events.MessageUpdate,
   async handle(ctx, oldMessage, newMessage) {
     if (!newMessage.guild || newMessage.author?.bot) return;
+    if (inVerifyChannel(ctx, newMessage)) return;
     const before = oldMessage.content ?? "";
     const after = newMessage.content ?? "";
     if (before === after) return;

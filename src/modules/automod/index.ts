@@ -1,11 +1,14 @@
 import { Events, PermissionFlagsBits } from "discord.js";
 import type { BotModule, Listener } from "../../core/module";
 import { createCase } from "../../db/cases";
+import { getChallenge } from "../../db/verification";
 import { type AutomodConfig, checkContentRules } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
 import { applyEscalation } from "../../lib/escalation";
 import { HeatTracker } from "../../lib/heat";
 import { logCase } from "../../lib/modlog";
+import { inVerifyChannel } from "../../lib/verify-channel";
+import { isCodeShaped } from "../../lib/verification-logic";
 
 const heat = new HeatTracker();
 
@@ -25,6 +28,22 @@ const onMessage: Listener<Events.MessageCreate> = {
 
     // Exempt staff.
     if (message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
+
+    // The verify channel (and threads under it) is owned by the verification flow, which
+    // scrubs it; don't double-moderate it or count it toward flood heat.
+    if (inVerifyChannel(ctx, message)) return;
+
+    // Exempt an in-progress verification attempt elsewhere: a code the user types in a
+    // channel must not count toward spam heat or trip the content filters (it's about to
+    // be deleted by the verification flow anyway).
+    const challenge = getChallenge(ctx.db, guildId, message.author.id);
+    if (
+      challenge &&
+      challenge.expiresAt >= Date.now() &&
+      isCodeShaped(message.content.trim().toUpperCase(), challenge.code.length)
+    ) {
+      return;
+    }
 
     const mentionCount = message.mentions.users.size + message.mentions.roles.size;
     let violation = checkContentRules(message.content, mentionCount, cfg);
