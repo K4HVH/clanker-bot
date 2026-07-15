@@ -336,24 +336,33 @@ function registerSession(
   const now = Date.now();
   const issuedAt = s.mode === "reuse" ? (prev?.issuedAt ?? now) : now;
   const cap = s.isDm ? Number.MAX_SAFE_INTEGER : EPHEMERAL_CAP_MS;
-  const delay = Math.max(1000, Math.min(s.expiresAt - now, cap));
-  const timer = setTimeout(() => {
-    const bucket = sessions.get(userKey);
-    const cur = bucket?.get(s.channelId);
-    if (!bucket || !cur || cur.timer !== timer) return; // superseded
-    // A code submission is mid-flight — it owns the outcome (verify / rotate / exhaust). Don't
-    // race a contradictory "Timed out" onto a surface it's about to resolve.
-    if (processing.has(userKey)) return;
-    bucket.delete(s.channelId);
-    if (bucket.size === 0) sessions.delete(userKey);
-    // If the challenge was already resolved (verified / exhausted / left), drop the surface
-    // silently rather than stamp a false "Timed out" over a "Verified".
-    if (!getChallenge(ctx.db, s.guild.id, s.user.id)) return;
-    void cur
-      .refresh(terminal("Timed out", "Verification timed out. Run `/verify` to try again.", 0x95a5a6))
-      .catch(() => {});
-  }, delay);
-  timer.unref?.();
+  // Self-rescheduling expiry timer. If it fires while a code submission holds the lock, it
+  // RE-ARMS (a short re-check) rather than dying — the submission owns the outcome right now,
+  // but if it turns out non-terminal (a wrong-guess rotation keeps the session) the surface
+  // must still eventually time out instead of lingering with a dead one-shot timer.
+  const armTimeout = (): ReturnType<typeof setTimeout> => {
+    const delay = Math.max(1000, Math.min(s.expiresAt - Date.now(), cap));
+    const t = setTimeout(() => {
+      const bucket = sessions.get(userKey);
+      const cur = bucket?.get(s.channelId);
+      if (!bucket || !cur || cur.timer !== t) return; // superseded / gone
+      if (processing.has(userKey)) {
+        cur.timer = armTimeout(); // a submission is resolving — re-check shortly, don't die
+        return;
+      }
+      bucket.delete(s.channelId);
+      if (bucket.size === 0) sessions.delete(userKey);
+      // If the challenge was already resolved (verified / exhausted / left), drop the surface
+      // silently rather than stamp a false "Timed out" over a "Verified".
+      if (!getChallenge(ctx.db, s.guild.id, s.user.id)) return;
+      void cur
+        .refresh(terminal("Timed out", "Verification timed out. Run `/verify` to try again.", 0x95a5a6))
+        .catch(() => {});
+    }, delay);
+    t.unref?.();
+    return t;
+  };
+  const timer = armTimeout();
   m.set(s.channelId, {
     guild: s.guild,
     user: s.user,
@@ -633,19 +642,21 @@ async function beginInteractiveVerify(
   guildId: string,
 ): Promise<void> {
   const k = key(guildId, interaction.user.id);
-  if (!takeRenderSlot(k)) {
+  // Serialize with an in-flight code submission (onMessage holds the same lock). Otherwise a
+  // "reuse" render here could paint a code that a concurrent wrong-guess rotation has already
+  // replaced in storage, leaving this new surface showing a stale, wrong code. Check this
+  // BEFORE taking a render slot, so a bounced tap doesn't burn the slot and mis-rate-limit a
+  // legitimate retry.
+  if (processing.has(k)) {
     await interaction.reply({
-      content: "You're going too fast — wait a moment and try again.",
+      content: "You're mid-verification — give it a second and try again.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
-  // Serialize with an in-flight code submission (onMessage holds the same lock). Otherwise a
-  // "reuse" render here could paint a code that a concurrent wrong-guess rotation has already
-  // replaced in storage, leaving this new surface showing a stale, wrong code.
-  if (processing.has(k)) {
+  if (!takeRenderSlot(k)) {
     await interaction.reply({
-      content: "You're mid-verification — give it a second and try again.",
+      content: "You're going too fast — wait a moment and try again.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -901,15 +912,22 @@ const newCodeHandler: ComponentHandler = {
     }
     const isDm = button.guildId === null;
     const k = key(guildId, button.user.id);
+    // Serialize with an in-flight code submission (onMessage holds the same lock): both rotate
+    // the code and edit the same message, so overlapping them could leave the shown captcha
+    // out of sync with the stored code. Drop the tap if busy (ack it so Discord doesn't error)
+    // — checked BEFORE taking a render slot so a dropped tap doesn't mis-rate-limit a retry.
+    if (processing.has(k)) {
+      await button.deferUpdate().catch(() => {});
+      return;
+    }
     if (!takeRenderSlot(k)) {
       await button.reply({ content: "You're going too fast — wait a moment.", flags: MessageFlags.Ephemeral });
       return;
     }
     await button.deferUpdate();
-    // Serialize with an in-flight code submission (onMessage holds the same lock): both
-    // rotate the code and edit the same message, so overlapping them could leave the shown
-    // captcha out of sync with the stored code. Drop the tap if busy — it's idempotent, the
-    // user can tap again.
+    // Re-check after the deferUpdate await: a code submission could have taken the lock in the
+    // meantime. This check and the add() below have no await between them, so acquisition is
+    // atomic. (Dropping the tap here is fine — it's ack'd, and tapping again re-issues.)
     if (processing.has(k)) return;
     processing.add(k);
     try {
