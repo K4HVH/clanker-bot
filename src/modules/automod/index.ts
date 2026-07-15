@@ -15,10 +15,12 @@ import { isCodeShaped } from "../../lib/verification-logic";
 const heat = new HeatTracker();
 const repeats = new RepeatTracker();
 
-// After escalating a user, ignore further escalations for a short window — a rapid burst
-// arrives as several already-sent messages, and each crossing the threshold would otherwise
-// re-timeout/re-ban them (they can't send NEW messages once timed out).
-const escalatedAt = new Map<string, number>();
+// After escalating a user, ignore further escalations of the SAME-or-weaker tier for a short
+// window — a rapid burst arrives as several already-sent messages, and each crossing the
+// threshold would otherwise re-timeout/re-ban them (they can't send NEW messages once timed
+// out). A harsher tier within the window IS still applied (an upgrade). Records the applied
+// tier so the check→claim is atomic against concurrent burst handlers.
+const escalatedAt = new Map<string, { at: number; rank: number }>();
 const ESCALATION_COOLDOWN_MS = 20_000;
 
 function contentRulesFor(ctx: AppContext, guildId: string): ContentRules {
@@ -71,14 +73,17 @@ async function escalate(
   else if (kickAt > 0 && count >= kickAt) type = "kick";
   else if (timeoutAt > 0 && count >= timeoutAt) type = "timeout";
   if (!type) return false;
+  const rank = type === "ban" ? 3 : type === "kick" ? 2 : 1;
 
-  // Already escalated this user moments ago (a burst of already-sent messages) — don't re-act,
-  // and return true so the caller suppresses the "message removed" DM too.
+  // Burst dedup: a rapid burst arrives as several already-sent messages that each cross a
+  // threshold. Within the window, only re-act if this is a HARSHER tier than we already applied
+  // (an upgrade) — so we don't re-issue the same action, but a burst can still climb the ladder.
+  // Return true so the caller also suppresses the "message removed" DM.
   const key = `${guildId}:${userId}`;
-  const last = escalatedAt.get(key);
-  if (last !== undefined && Date.now() - last < ESCALATION_COOLDOWN_MS) return true;
+  const prev = escalatedAt.get(key);
+  if (prev && Date.now() - prev.at < ESCALATION_COOLDOWN_MS && rank <= prev.rank) return true;
   if (escalatedAt.size > 1000) {
-    for (const [k, t] of escalatedAt) if (Date.now() - t >= ESCALATION_COOLDOWN_MS) escalatedAt.delete(k);
+    for (const [k, v] of escalatedAt) if (Date.now() - v.at >= ESCALATION_COOLDOWN_MS) escalatedAt.delete(k);
   }
 
   // The target just sent a message, so they're a present member: require the bot to outrank
@@ -95,6 +100,10 @@ async function escalate(
         : PermissionFlagsBits.ModerateMembers;
   if (!outranks || !me?.permissions.has(perm)) return false;
 
+  // Claim the slot SYNCHRONOUSLY (no await between the cooldown check above and here), so
+  // concurrently-dispatched burst handlers can't all pass the check before any of them acts.
+  escalatedAt.set(key, { at: Date.now(), rank });
+
   // Act FIRST, then only DM/record on success — so a failed action never tells the user they
   // were punished. (A DM after a ban/kick silently no-ops since we no longer share a guild.)
   const reason = `Automod: ${count} violations in ${ttlMin}m`;
@@ -106,9 +115,11 @@ async function escalate(
       await member!.timeout(mins * 60_000, reason);
     }
   } catch {
+    // Failed — restore the prior claim (if any) so a later attempt isn't wrongly suppressed.
+    if (prev) escalatedAt.set(key, prev);
+    else escalatedAt.delete(key);
     return false;
   }
-  escalatedAt.set(key, Date.now());
   if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
     const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
     await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
