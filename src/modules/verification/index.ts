@@ -62,10 +62,39 @@ interface Session {
   refresh(payload: Payload): Promise<void>;
 }
 
-const sessions = new Map<string, Session>();
+// A user can have a live captcha on more than one surface at once — the on-join DM AND the
+// in-channel panel. Sessions are keyed by user, then by channel, and driven TOGETHER: a
+// wrong guess / solve / timeout on any surface updates EVERY open captcha the user has, so
+// the surfaces never disagree. (The code + attempt count live in SQLite, shared by all.)
+const sessions = new Map<string, Map<string, Session>>();
 // Users whose message is mid-processing, so two fast submissions can't interleave.
 const processing = new Set<string>();
 const key = (guildId: string, userId: string) => `${guildId}:${userId}`;
+
+// Every live session for a user (one per surface they have a captcha open on).
+function userSessions(userKey: string): Session[] {
+  const m = sessions.get(userKey);
+  return m ? [...m.values()] : [];
+}
+
+// The session for one specific surface (channel), if any.
+function surfaceSession(userKey: string, channelId: string): Session | undefined {
+  return sessions.get(userKey)?.get(channelId);
+}
+
+// Push a payload to EVERY open surface for the user. `make` is called once per surface so
+// each gets its own attachment instance — a Buffer can't be safely streamed to two uploads.
+async function refreshAll(userKey: string, make: () => Payload): Promise<void> {
+  await Promise.all(userSessions(userKey).map((s) => s.refresh(make()).catch(() => {})));
+}
+
+// Tear down every surface for a user (solved / exhausted / left / expired).
+function endAllSessions(userKey: string): void {
+  const m = sessions.get(userKey);
+  if (!m) return;
+  for (const s of m.values()) clearTimeout(s.timer);
+  sessions.delete(userKey);
+}
 
 let imageSeq = 0; // unique attachment filename per render (Discord caches by name)
 
@@ -133,14 +162,16 @@ function terminal(title: string, description: string, color: number): Payload {
   };
 }
 
-// Reuse / rotate / start a challenge, render it, and return a payload + deadline +
-// mode. Renders BEFORE persisting so a failed render leaves no row behind.
+// Reuse / rotate / start a challenge, render it, and return a payload FACTORY + deadline +
+// mode. The image is rendered once; `build()` wraps it in a fresh payload each call so the
+// same captcha can be pushed to several surfaces at once. Renders BEFORE persisting so a
+// failed render leaves no row behind.
 async function issueCaptcha(
   ctx: AppContext,
   guildId: string,
   userId: string,
   opts: { forceNew?: boolean; isDm: boolean; status?: string; attempts?: number },
-): Promise<{ payload: Payload; expiresAt: number; mode: ChallengeMode }> {
+): Promise<{ build: () => Payload; expiresAt: number; mode: ChallengeMode }> {
   const now = Date.now();
   const existing = getChallenge(ctx.db, guildId, userId);
   const mode = challengeMode(existing, now, opts.forceNew ?? false);
@@ -170,10 +201,6 @@ async function issueCaptcha(
   }
 
   const name = `captcha-${imageSeq++}.png`;
-  const file = new AttachmentBuilder(Buffer.from(png), {
-    name,
-    description: "Distorted verification code — an image-based challenge", // non-revealing a11y text
-  });
   // In-channel (ephemeral) sessions are capped at the interaction-token life, so
   // never promise longer than the session can actually honor.
   const shownExpiry = opts.isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
@@ -190,11 +217,20 @@ async function issueCaptcha(
     .setFooter({ text: "Can't read it? Tap New Code, or ask a moderator." });
   if (opts.status) embed.addFields({ name: "Status", value: opts.status });
 
-  return {
-    payload: { embeds: [embed], components: [newCodeRow()], files: [file], attachments: [] },
-    expiresAt,
-    mode,
-  };
+  // A fresh payload per call: each surface needs its own AttachmentBuilder (a Buffer can't be
+  // re-streamed to two uploads) and its own component row. The embed is immutable at send.
+  const build = (): Payload => ({
+    embeds: [embed],
+    components: [newCodeRow()],
+    files: [
+      new AttachmentBuilder(Buffer.from(png), {
+        name,
+        description: "Distorted verification code — an image-based challenge", // non-revealing a11y text
+      }),
+    ],
+    attachments: [],
+  });
+  return { build, expiresAt, mode };
 }
 
 async function grantVerified(
@@ -270,8 +306,10 @@ async function logVerified(
   }
 }
 
-// Register (or replace) the one live session for a user. Preserves the original issue
-// time on a pure reuse so "solved in" measures the real read-to-solve gap.
+// Register (or replace) the live session for ONE surface of a user, leaving their other
+// surfaces intact. Preserves the original issue time on a pure reuse so "solved in"
+// measures the real read-to-solve gap. Each surface times itself out (they share the
+// deadline, so all fire together).
 function registerSession(
   ctx: AppContext,
   s: {
@@ -284,23 +322,30 @@ function registerSession(
     mode: ChallengeMode;
   },
 ): void {
-  const k = key(s.guild.id, s.user.id);
-  const prev = sessions.get(k);
+  const userKey = key(s.guild.id, s.user.id);
+  let m = sessions.get(userKey);
+  if (!m) {
+    m = new Map();
+    sessions.set(userKey, m);
+  }
+  const prev = m.get(s.channelId);
   if (prev) clearTimeout(prev.timer);
   const now = Date.now();
   const issuedAt = s.mode === "reuse" ? (prev?.issuedAt ?? now) : now;
   const cap = s.isDm ? Number.MAX_SAFE_INTEGER : EPHEMERAL_CAP_MS;
   const delay = Math.max(1000, Math.min(s.expiresAt - now, cap));
   const timer = setTimeout(() => {
-    const cur = sessions.get(k);
-    if (!cur || cur.timer !== timer) return; // superseded
-    sessions.delete(k);
+    const bucket = sessions.get(userKey);
+    const cur = bucket?.get(s.channelId);
+    if (!bucket || !cur || cur.timer !== timer) return; // superseded
+    bucket.delete(s.channelId);
+    if (bucket.size === 0) sessions.delete(userKey);
     void cur
       .refresh(terminal("Timed out", "Verification timed out. Run `/verify` to try again.", 0x95a5a6))
       .catch(() => {});
   }, delay);
   timer.unref?.();
-  sessions.set(k, {
+  m.set(s.channelId, {
     guild: s.guild,
     user: s.user,
     isDm: s.isDm,
@@ -309,14 +354,6 @@ function registerSession(
     timer,
     refresh: s.refresh,
   });
-}
-
-function endSession(k: string): void {
-  const s = sessions.get(k);
-  if (s) {
-    clearTimeout(s.timer);
-    sessions.delete(k);
-  }
 }
 
 // Rebuild a DM session whose in-memory state was lost (a restart) while the DB challenge
@@ -366,7 +403,7 @@ async function reviveDmSession(
     expiresAt: challenge.expiresAt,
     mode: "reuse",
   });
-  return sessions.get(key(guildId, user.id));
+  return surfaceSession(key(guildId, user.id), message.channelId);
 }
 
 // ── The one validator: a typed code, in a DM or a session's channel ──────────
@@ -378,13 +415,10 @@ const onMessage: Listener<Events.MessageCreate> = {
     const guildId = message.guildId ?? ctx.env.guildId;
     const userId = message.author.id;
     const k = key(guildId, userId);
-    // Only act on a session that belongs to THIS surface. There's one session per user,
-    // and it lives on whichever surface they last started on — so without this check a
-    // DM message would drive the server's ephemeral captcha (and vice-versa), sending the
-    // wrong-code feedback to the wrong place entirely.
-    const raw = sessions.get(k);
-    const session =
-      raw && (isDm ? raw.isDm : !raw.isDm && raw.channelId === message.channelId) ? raw : undefined;
+    // The session for the surface this message is on — keyed by channel, so a DM message can
+    // only ever drive a DM session and a guild message only that channel's session. The
+    // wrong-code feedback structurally cannot land on the wrong surface.
+    const session = surfaceSession(k, message.channelId);
 
     // Channel context. A configured verify channel (and threads under it) is bot-owned:
     // every non-staff, non-verified message there is scrubbed to keep it clear (validated
@@ -431,7 +465,7 @@ const onMessage: Listener<Events.MessageCreate> = {
     }
 
     if (!isGuess) {
-      if (session && !live) endSession(k);
+      if (session && !live) endAllSessions(k);
       // Not a live code — typing does nothing (same in DMs and in-channel). An expired
       // captcha is revived by tapping New Code (or the panel Verify button / /verify).
       return; // scrubbed (if applicable) but not a live code — don't count as an attempt
@@ -444,26 +478,30 @@ const onMessage: Listener<Events.MessageCreate> = {
         session?.guild ?? message.guild ?? (await message.client.guilds.fetch(guildId).catch(() => null));
       if (!guild) return;
       const user = session?.user ?? message.author;
-      // Show the outcome on the live surface. With no session (post-restart): in a DM,
-      // edit the anchored captcha message in place so the result REPLACES the captcha
-      // instead of leaving a stale one behind; otherwise post a channel reply that
-      // auto-cleans itself in the policed verify channel.
-      const present = async (payload: Payload): Promise<void> => {
-        if (session) {
-          await session.refresh(payload).catch(() => {});
+      // Push an outcome to EVERY open surface for this user, plus the surface they just
+      // acted on even if it has no session (a DM after a restart): in a DM, edit the
+      // anchored captcha message in place so the result REPLACES the captcha; otherwise a
+      // self-cleaning reply in the policed verify channel. Used for terminal states.
+      const broadcast = async (make: () => Payload): Promise<void> => {
+        await refreshAll(k, make);
+        if (surfaceSession(k, message.channelId)) return; // this surface was already covered
+        if (isDm) {
+          if (challenge?.dmMessageId && "messages" in message.channel) {
+            const anchor = await message.channel.messages.fetch(challenge.dmMessageId).catch(() => null);
+            if (anchor) {
+              await anchor.edit(make()).catch(() => {});
+              return;
+            }
+          }
+          await message.channel.send({ embeds: make().embeds }).catch(() => {});
           return;
         }
-        if (isDm && challenge?.dmMessageId && "messages" in message.channel) {
-          const anchor = await message.channel.messages.fetch(challenge.dmMessageId).catch(() => null);
-          if (anchor) {
-            await anchor.edit(payload).catch(() => {});
-            return;
+        if (inVerify) {
+          const sent = await message.channel.send({ embeds: make().embeds }).catch(() => null);
+          if (sent) {
+            suppressDeletion(sent.id);
+            setTimeout(() => void sent.delete().catch(() => suppressedDeletions.delete(sent.id)), 6000).unref?.();
           }
-        }
-        const sent = await message.channel.send({ embeds: payload.embeds }).catch(() => null);
-        if (sent && inVerify) {
-          suppressDeletion(sent.id);
-          setTimeout(() => void sent.delete().catch(() => suppressedDeletions.delete(sent.id)), 6000).unref?.();
         }
       };
 
@@ -472,13 +510,13 @@ const onMessage: Listener<Events.MessageCreate> = {
         if (!result.ok) {
           if (result.left) {
             // The user solved but has since LEFT — clean up so it can't re-fire; no alert.
-            endSession(k);
+            endAllSessions(k);
             deleteChallenge(ctx.db, guildId, userId);
             return;
           }
-          // Misconfig or a transient error: keep the challenge + session so a retry (or a
+          // Misconfig or a transient error: keep the challenge + sessions so a retry (or a
           // fixed role) can still succeed; the alert is rate-limited so it can't flood.
-          await present(terminal("Verification failed", result.msg, 0xe74c3c));
+          await broadcast(() => terminal("Verification failed", result.msg, 0xe74c3c));
           await maybeAlert(ctx, guild, `grant-failed:${userId}`, () =>
             new EmbedBuilder()
               .setColor(0xe74c3c)
@@ -488,20 +526,20 @@ const onMessage: Listener<Events.MessageCreate> = {
           );
           return;
         }
-        endSession(k);
         deleteChallenge(ctx.db, guildId, userId);
-        await present(terminal("Verified", "✅ You're verified — welcome!", 0x2ecc71));
-        await logVerified(ctx, guild, user, session?.issuedAt);
+        const solvedAt = session?.issuedAt ?? userSessions(k)[0]?.issuedAt;
+        await broadcast(() => terminal("Verified", "✅ You're verified — welcome!", 0x2ecc71));
+        endAllSessions(k);
+        await logVerified(ctx, guild, user, solvedAt);
         return;
       }
 
       // ── Wrong guess ──
-      // The rotated captcha + "N left" feedback must land on the SAME surface the code was
-      // typed on. With a live session we edit it in place. Without one — a DM whose on-join
-      // session was dropped by a restart — we re-establish it against the DM message, so the
-      // DM rotates and counts down IDENTICALLY to the in-channel flow instead of dead-ending.
-      // A guild channel can't re-show an ephemeral captcha without an interaction, so a
-      // session-less wrong guess there was already scrubbed above — nothing private to show.
+      // Make sure the surface the user typed on is live (revive a DM whose session a restart
+      // dropped — a guild channel can't be revived without an interaction, so a session-less
+      // wrong guess there was already scrubbed above), then rotate the shared code and push
+      // the SAME new captcha to EVERY open surface, so the DM and in-channel captchas — and
+      // the shared "N left" counter — update together instead of drifting apart.
       let sess = session;
       if (!sess) {
         if (!isDm) return;
@@ -515,13 +553,11 @@ const onMessage: Listener<Events.MessageCreate> = {
       const maxAttempts = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.verificationMaxAttempts);
       const attempts = challenge!.attempts + 1;
       if (attempts >= maxAttempts) {
-        endSession(k);
         deleteChallenge(ctx.db, guildId, userId);
-        await sess
-          .refresh(
-            terminal("Too many attempts", "You've used all your attempts. Run `/verify` to start over.", 0xe74c3c),
-          )
-          .catch(() => {});
+        await refreshAll(k, () =>
+          terminal("Too many attempts", "You've used all your attempts. Run `/verify` to start over.", 0xe74c3c),
+        );
+        endAllSessions(k);
         await maybeAlert(ctx, guild, `exhausted:${userId}`, () =>
           new EmbedBuilder()
             .setColor(0xe74c3c)
@@ -534,16 +570,18 @@ const onMessage: Listener<Events.MessageCreate> = {
         return;
       }
       // Rotate the code (fresh image, same deadline), persisting the incremented shared
-      // count, and reset the read timer.
+      // count, and push it to every open surface at once. The deadline is unchanged, so the
+      // existing per-surface timers still stand.
       const left = maxAttempts - attempts;
-      const { payload } = await issueCaptcha(ctx, guildId, userId, {
+      const { build } = await issueCaptcha(ctx, guildId, userId, {
         forceNew: true,
         isDm,
         attempts,
         status: `❌ Incorrect — ${left} attempt${left === 1 ? "" : "s"} left. Try this new code.`,
       });
-      sess.issuedAt = Date.now();
-      await sess.refresh(payload).catch(() => {});
+      const rotatedAt = Date.now();
+      for (const s of userSessions(k)) s.issuedAt = rotatedAt;
+      await refreshAll(k, build);
     } catch (error) {
       ctx.logger.error("verification message handling failed", {
         guildId,
@@ -594,8 +632,8 @@ async function beginInteractiveVerify(
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, interaction.user.id, { isDm: false });
-  await interaction.editReply(payload);
+  const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, interaction.user.id, { isDm: false });
+  await interaction.editReply(build());
   registerSession(ctx, {
     guild: interaction.guild!,
     user: interaction.user,
@@ -675,7 +713,7 @@ const userSub: Subcommand = {
       return;
     }
     deleteChallenge(ctx.db, guildId, target.id);
-    endSession(key(guildId, target.id));
+    endAllSessions(key(guildId, target.id));
     await interaction.editReply(`✅ Verified <@${target.id}>.`);
     await logMemberEvent(
       ctx,
@@ -710,10 +748,10 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
       return;
     }
 
-    const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, member.id, { isDm: true });
+    const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, member.id, { isDm: true });
     try {
       const dm = await member.createDM();
-      const msg = await dm.send(payload);
+      const msg = await dm.send(build());
       // Remember which message holds the captcha so a restart can revive this DM in place.
       setChallengeDmMessage(ctx.db, guildId, member.id, msg.id);
       registerSession(ctx, {
@@ -782,7 +820,7 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
   async handle(ctx, member) {
     const guildId = member.guild.id;
     deleteChallenge(ctx.db, guildId, member.id);
-    endSession(key(guildId, member.id));
+    endAllSessions(key(guildId, member.id));
   },
 };
 
@@ -851,14 +889,14 @@ const newCodeHandler: ComponentHandler = {
     if (processing.has(k)) return;
     processing.add(k);
     try {
-      const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, button.user.id, {
+      const { build, expiresAt, mode } = await issueCaptcha(ctx, guildId, button.user.id, {
         forceNew: true,
         isDm,
       });
       // In a DM the captcha stays on this same message; keep the revive anchor pointed at it
       // (the row may be freshly created if the previous challenge had expired).
       if (isDm) setChallengeDmMessage(ctx.db, guildId, button.user.id, button.message.id);
-      await button.editReply(payload);
+      await button.editReply(build());
       // (Re)arm the session — this also revives collection after a restart, and edits
       // via the DM message (no token limit) or the ephemeral reply as appropriate.
       const guild = button.guild ?? (await button.client.guilds.fetch(guildId).catch(() => null));
