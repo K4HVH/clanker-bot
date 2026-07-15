@@ -7,6 +7,7 @@ import {
   EmbedBuilder,
   Events,
   type Guild,
+  type Message,
   MessageFlags,
   PermissionFlagsBits,
   type User,
@@ -308,6 +309,39 @@ function endSession(k: string): void {
   }
 }
 
+// An unverified member messaged the bot in DM with no live challenge — (re)issue a
+// captcha so verification is self-serve and recovers after a timeout or a restart that
+// lost the in-memory session (which would otherwise leave a stale, dead captcha in DM).
+async function offerDmCaptcha(
+  ctx: AppContext,
+  message: Message,
+  guildId: string,
+  userId: string,
+): Promise<void> {
+  const roleId = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
+  if (!roleId) return;
+  const guild = await message.client.guilds.fetch(guildId).catch(() => null);
+  if (!guild) return;
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member || memberHasRole(member.roles, roleId)) return; // gone, or already verified
+  if (!message.channel.isSendable()) return;
+  if (!takeRenderSlot(key(guildId, userId))) return; // rate-limit re-issues
+  const { payload, expiresAt, mode } = await issueCaptcha(ctx, guildId, userId, { isDm: true });
+  const sent = await message.channel.send(payload).catch(() => null);
+  if (!sent) return;
+  registerSession(ctx, {
+    guild,
+    user: member.user,
+    isDm: true,
+    channelId: message.channelId,
+    refresh: async (p) => {
+      await sent.edit(p);
+    },
+    expiresAt,
+    mode,
+  });
+}
+
 // ── The one validator: a typed code, in a DM or a session's channel ──────────
 const onMessage: Listener<Events.MessageCreate> = {
   event: Events.MessageCreate,
@@ -365,6 +399,10 @@ const onMessage: Listener<Events.MessageCreate> = {
 
     if (!isGuess) {
       if (session && !live) endSession(k);
+      // A DM from an unverified member with no live challenge means "let me verify" —
+      // (re)issue one, so the flow recovers after a timeout / restart instead of the DM
+      // captcha just sitting there dead.
+      if (isDm && !live) await offerDmCaptcha(ctx, message, guildId, userId);
       return; // scrubbed (if applicable) but not a live code — don't count as an attempt
     }
 
@@ -737,9 +775,13 @@ const newCodeHandler: ComponentHandler = {
   async handle(interaction, ctx) {
     const button = interaction as ButtonInteraction;
     const guildId = button.guildId ?? ctx.env.guildId;
-    const existing = getChallenge(ctx.db, guildId, button.user.id);
-    if (!existing || existing.expiresAt < Date.now()) {
-      await button.reply({ content: "No active verification. Run `/verify` to start.", flags: MessageFlags.Ephemeral });
+    // Works even if the current code expired — forceNew below starts a fresh challenge,
+    // so tapping New Code always revives a timed-out captcha instead of dead-ending.
+    if (!ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId)) {
+      await button.reply({
+        content: "Verification isn't set up. Contact a moderator.",
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
     const isDm = button.guildId === null;
