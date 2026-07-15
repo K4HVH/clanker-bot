@@ -26,7 +26,6 @@ import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, Listener } from "../../core/module";
 import {
   beginClose,
-  claimTicket,
   countOpenTicketsByUser,
   createTicket,
   firstOpenTicketByUser,
@@ -73,7 +72,6 @@ async function fetchAllMessages(channel: GuildTextBasedChannel): Promise<Message
 
 function ticketButtons(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("ticket_close").setLabel("Close").setStyle(ButtonStyle.Danger),
   );
 }
@@ -119,7 +117,6 @@ async function closeTicketFlow(
       ticketNumber: ticket.ticketNumber,
       subject: ticket.subject,
       openerId: `<@${ticket.openerId}>`,
-      claimedBy: ticket.claimedBy ? `<@${ticket.claimedBy}>` : null,
       closedBy: `<@${closedBy}>`,
       reason,
     },
@@ -197,27 +194,6 @@ async function requireTicket(
   }
   return { guild: interaction.guild, channel, ticket };
 }
-
-const claimSub: Subcommand = {
-  description: "Claim the current ticket (staff).",
-  async execute(interaction, ctx) {
-    const t = await requireTicket(interaction, ctx);
-    if (!t) return;
-    if (!(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
-      await interaction.reply({ content: "Only staff can claim tickets.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (t.ticket.claimedBy) {
-      await interaction.reply({
-        content: `Already claimed by <@${t.ticket.claimedBy}>.`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-    claimTicket(ctx.db, t.channel.id, interaction.user.id);
-    await interaction.reply({ content: `🙋 Claimed by <@${interaction.user.id}>.` });
-  },
-};
 
 const closeSub: Subcommand = {
   description: "Close the current ticket (opener or staff).",
@@ -375,26 +351,6 @@ const modalHandler: ComponentHandler = {
     } finally {
       opening.delete(lock);
     }
-  },
-};
-
-const claimHandler: ComponentHandler = {
-  customId: "ticket_claim",
-  type: "button",
-  async handle(interaction, ctx) {
-    const button = interaction as ButtonInteraction;
-    const t = await requireTicketButton(button, ctx);
-    if (!t) return;
-    if (!(await isTicketStaff(t.guild, button.user.id, ctx))) {
-      await button.reply({ content: "Only staff can claim tickets.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    if (t.ticket.claimedBy) {
-      await button.reply({ content: `Already claimed by <@${t.ticket.claimedBy}>.`, flags: MessageFlags.Ephemeral });
-      return;
-    }
-    claimTicket(ctx.db, t.channel.id, button.user.id);
-    await button.reply({ content: `🙋 Claimed by <@${button.user.id}>.` });
   },
 };
 
@@ -564,14 +520,13 @@ export const ticketsModule: BotModule = {
     featureCommand({
       name: "ticket",
       description: "Support tickets.",
-      subcommands: { panel: panelSub, claim: claimSub, close: closeSub, add: addSub, remove: removeSub },
+      subcommands: { panel: panelSub, close: closeSub, add: addSub, remove: removeSub },
     }),
   ],
   listeners: [onMessage, onChannelDelete, onReady] as Listener[],
   components: [
     openHandler,
     modalHandler,
-    claimHandler,
     closeHandler,
     closeConfirmHandler,
     closeCancelHandler,

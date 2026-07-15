@@ -66,7 +66,6 @@ CREATE TABLE IF NOT EXISTS tickets (
   transcript       TEXT,
   created_at       INTEGER NOT NULL,
   closed_at        INTEGER,
-  claimed_by       TEXT,
   last_activity_at INTEGER,
   closed_by        TEXT,
   close_reason     TEXT

@@ -11,7 +11,6 @@ export interface TicketRecord {
   transcript: string | null;
   createdAt: number;
   closedAt: number | null;
-  claimedBy: string | null;
   lastActivityAt: number | null;
   closedBy: string | null;
   closeReason: string | null;
@@ -19,8 +18,7 @@ export interface TicketRecord {
 
 const COLUMNS = `id, guild_id AS guildId, ticket_number AS ticketNumber, channel_id AS channelId,
   opener_id AS openerId, subject, status, transcript, created_at AS createdAt, closed_at AS closedAt,
-  claimed_by AS claimedBy, last_activity_at AS lastActivityAt, closed_by AS closedBy,
-  close_reason AS closeReason`;
+  last_activity_at AS lastActivityAt, closed_by AS closedBy, close_reason AS closeReason`;
 
 export function createTicket(
   db: BotDatabase,
@@ -97,10 +95,6 @@ export function touchTicketActivity(db: BotDatabase, channelId: string, at: numb
     at,
     channelId,
   );
-}
-
-export function claimTicket(db: BotDatabase, channelId: string, staffId: string): void {
-  run(db, "UPDATE tickets SET claimed_by = ? WHERE channel_id = ?", staffId, channelId);
 }
 
 // Atomically claim the close: flips status to 'closed' only if it's still 'open',

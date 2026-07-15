@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import {
   beginClose,
-  claimTicket,
   countOpenTicketsByUser,
   createTicket,
   firstOpenTicketByUser,
@@ -31,7 +30,7 @@ test("ticket numbers increment per guild; close is atomic and persists a transcr
   expect(closed?.closeReason).toBe("done");
 });
 
-test("open-ticket queries: count, first, list, and claim", () => {
+test("open-ticket queries: count, first, list", () => {
   const db = makeTestDb();
   createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "one" });
   createTicket(db, { guildId: "g", channelId: "c2", openerId: "u", subject: "two" });
@@ -40,9 +39,6 @@ test("open-ticket queries: count, first, list, and claim", () => {
   expect(countOpenTicketsByUser(db, "g", "u")).toBe(2);
   expect(firstOpenTicketByUser(db, "g", "u")?.channelId).toBe("c1");
   expect(listOpenTickets(db)).toHaveLength(3);
-
-  claimTicket(db, "c1", "staff");
-  expect(getTicketByChannel(db, "c1")?.claimedBy).toBe("staff");
 
   beginClose(db, "c1", "u", null, 1);
   expect(countOpenTicketsByUser(db, "g", "u")).toBe(1);

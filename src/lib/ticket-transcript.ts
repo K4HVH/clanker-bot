@@ -9,7 +9,6 @@ export interface TicketArchiveMeta {
   ticketNumber: number;
   subject: string;
   openerId: string;
-  claimedBy?: string | null;
   closedBy: string;
   reason?: string | null;
 }
@@ -26,7 +25,6 @@ export async function buildTicketArchive(
   const header = [
     `Ticket #${meta.ticketNumber} — ${meta.subject}`,
     `Opened by: ${meta.openerId}`,
-    meta.claimedBy ? `Claimed by: ${meta.claimedBy}` : undefined,
     `Closed by: ${meta.closedBy}${meta.reason ? ` — ${meta.reason}` : ""}`,
     "",
   ].filter((l): l is string => l !== undefined);

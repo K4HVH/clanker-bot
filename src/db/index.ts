@@ -31,7 +31,6 @@ export function createDatabase(path: string): BotDatabase {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
   ensureColumns(db, "tickets", {
-    claimed_by: "TEXT",
     last_activity_at: "INTEGER",
     closed_by: "TEXT",
     close_reason: "TEXT",
