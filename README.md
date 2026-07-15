@@ -12,7 +12,7 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Audit logging** — message edits/deletes + member joins/leaves to a member-log; all mod actions to a mod-log.
 - **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — account-age gate: flag and/or auto-kick accounts newer than a configurable threshold.
-- **Tickets** — `/ticket panel` → button opens a private channel per ticket; add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close; on close a **.zip** (transcript + posted images) is saved to the mod-log and DM'd to the opener.
+- **Tickets** — `/ticket panel` → button opens a private channel per ticket; add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close. Opens and closes are logged to the mod-log; on close a **.zip** (transcript + posted images) is saved there and DM'd to the opener, and `/ticket transcript <n>` fetches any past ticket's saved transcript.
 - **Support helpers** — `/tag` canned answers for common questions.
 
 All automod / escalation / verification features **default OFF** and are enabled via `/config`.
@@ -57,7 +57,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|kick|ban|unban|case|history` · `/verify me|panel|user` · `/ticket panel|close|add|remove` · `/tag get|list|set|delete`
+`/config` (settings panel) · `/mod warn|note|timeout|kick|ban|unban|case|history` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete`
 
 ## Development
 

@@ -30,6 +30,7 @@ import {
   createTicket,
   firstOpenTicketByUser,
   getTicketByChannel,
+  getTicketByNumber,
   listOpenTickets,
   setTicketTranscript,
   type TicketRecord,
@@ -54,20 +55,32 @@ const opening = new Set<string>();
 
 const MAX_TRANSCRIPT_MESSAGES = 2000;
 
-// Fetch the WHOLE ticket conversation (paginated past Discord's 100/fetch cap),
-// oldest-first, bounded by a sane safety ceiling.
-async function fetchAllMessages(channel: GuildTextBasedChannel): Promise<Message[]> {
+// Fetch the WHOLE ticket conversation OLDEST-first (paginating past Discord's 100/fetch cap).
+// If it exceeds the safety ceiling we keep the OLDEST messages — the problem statement and how
+// it unfolded — and report truncation, rather than silently dropping the start.
+async function fetchAllMessages(
+  channel: GuildTextBasedChannel,
+): Promise<{ messages: Message[]; truncated: boolean }> {
   const out: Message[] = [];
-  let before: string | undefined;
-  while (out.length < MAX_TRANSCRIPT_MESSAGES) {
-    const batch = await channel.messages.fetch({ limit: 100, before }).catch(() => null);
+  let after = channel.id; // snowflake floor: every message id in the channel is greater
+  let truncated = false;
+  while (true) {
+    const batch = await channel.messages.fetch({ limit: 100, after }).catch(() => null);
     if (!batch || batch.size === 0) break;
-    const arr = [...batch.values()]; // newest-first within the batch
+    // `after` responses aren't guaranteed ordered — sort oldest-first by snowflake.
+    const arr = [...batch.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
     out.push(...arr);
-    before = arr[arr.length - 1]?.id;
+    const newest = arr[arr.length - 1];
+    if (!newest) break;
+    after = newest.id;
+    if (out.length >= MAX_TRANSCRIPT_MESSAGES) {
+      out.length = MAX_TRANSCRIPT_MESSAGES;
+      truncated = true;
+      break;
+    }
     if (batch.size < 100) break;
   }
-  return out.reverse();
+  return { messages: out, truncated };
 }
 
 function ticketButtons(): ActionRowBuilder<ButtonBuilder> {
@@ -111,7 +124,7 @@ async function closeTicketFlow(
   warnedTickets.delete(channel.id);
 
   const withImages = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketArchiveImages);
-  const messages = await fetchAllMessages(channel);
+  const { messages, truncated } = await fetchAllMessages(channel);
   const { text, zipBytes } = await buildTicketArchive(
     {
       ticketNumber: ticket.ticketNumber,
@@ -121,7 +134,7 @@ async function closeTicketFlow(
       reason,
     },
     messages,
-    { withImages },
+    { withImages, truncated },
   );
   setTicketTranscript(ctx.db, channel.id, text);
 
@@ -130,6 +143,21 @@ async function closeTicketFlow(
     zipBytes
       ? new AttachmentBuilder(Buffer.from(zipBytes), { name: `ticket-${num}.zip` })
       : new AttachmentBuilder(Buffer.from(text, "utf8"), { name: `ticket-${num}.txt` });
+
+  // DM the transcript to the opener first (if enabled) so the mod-log can report whether it
+  // actually reached them — a closed-DM opener would otherwise fail completely silently.
+  let dmStatus: string | null = null;
+  if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketDmTranscript)) {
+    const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
+    const delivered = opener
+      ? await opener
+          .send({ content: `Your ticket **#${num}** in **${guild.name}** was closed.`, files: [file()] })
+          .then(() => true)
+          .catch(() => false)
+      : false;
+    dmStatus = delivered ? "✅ Sent to opener" : "⚠️ Couldn't DM the opener (DMs closed?)";
+  }
+
   const embed = new EmbedBuilder()
     .setColor(0x95a5a6)
     .setTitle(`Ticket #${num} closed`)
@@ -139,19 +167,8 @@ async function closeTicketFlow(
       { name: "Subject", value: ticket.subject },
     );
   if (reason) embed.addFields({ name: "Reason", value: reason });
+  if (dmStatus) embed.addFields({ name: "Transcript DM", value: dmStatus });
   await sendToModLog(ctx, guild, { embeds: [embed], files: [file()] });
-
-  if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketDmTranscript)) {
-    const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
-    if (opener) {
-      await opener
-        .send({
-          content: `Your ticket **#${num}** in **${guild.name}** was closed.`,
-          files: [file()],
-        })
-        .catch(() => {});
-    }
-  }
 
   await channel.delete(`Ticket #${num} closed`).catch(() => {});
 }
@@ -255,6 +272,47 @@ const removeSub: Subcommand = {
   },
 };
 
+// Retrieve a (usually closed) ticket's transcript by number — the channel is gone after
+// close, so this is the way back to it. Text-only: posted images aren't retained past close.
+const transcriptSub: Subcommand = {
+  description: "Fetch a ticket's saved transcript by number (staff).",
+  options: (s) =>
+    s.addIntegerOption((o) =>
+      o.setName("number").setDescription("The ticket number").setRequired(true).setMinValue(1),
+    ),
+  async execute(interaction, ctx) {
+    if (!interaction.guild || !interaction.guildId) {
+      await interaction.reply({ content: "Run this in the server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!(await isTicketStaff(interaction.guild, interaction.user.id, ctx))) {
+      await interaction.reply({ content: "Only staff can fetch transcripts.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const number = interaction.options.getInteger("number", true);
+    const ticket = getTicketByNumber(ctx.db, interaction.guildId, number);
+    if (!ticket) {
+      await interaction.reply({ content: `No ticket #${number} found.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!ticket.transcript) {
+      await interaction.reply({
+        content:
+          ticket.status === "open"
+            ? `Ticket #${number} is still open — no transcript until it's closed.`
+            : `Ticket #${number} has no saved transcript.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    await interaction.reply({
+      content: `Transcript for ticket **#${number}** — text only (images aren't retained after close).`,
+      files: [new AttachmentBuilder(Buffer.from(ticket.transcript, "utf8"), { name: `ticket-${number}.txt` })],
+      flags: MessageFlags.Ephemeral,
+    });
+  },
+};
+
 // ── Buttons ──────────────────────────────────────────────────────────────────
 
 const openHandler: ComponentHandler = {
@@ -327,12 +385,25 @@ const modalHandler: ComponentHandler = {
         permissionOverwrites: overwrites,
       });
 
-      const record = createTicket(ctx.db, {
-        guildId,
-        channelId: channel.id,
-        openerId: modal.user.id,
-        subject,
-      });
+      let record: TicketRecord;
+      try {
+        record = createTicket(ctx.db, {
+          guildId,
+          channelId: channel.id,
+          openerId: modal.user.id,
+          subject,
+        });
+      } catch (error) {
+        // The channel exists but the row didn't land — roll it back so we don't orphan a
+        // ticket channel with no record (untracked, invisible to auto-close and the quota).
+        await channel.delete("ticket row insert failed").catch(() => {});
+        ctx.logger.error("ticket: failed to persist ticket row; rolled back channel", {
+          guildId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await modal.editReply({ content: "Something went wrong opening your ticket — please try again." });
+        return;
+      }
       openTicketChannels.add(channel.id);
       // Rename with the authoritative ticket number now that we have it, e.g. "10-kenny".
       await channel.setName(`${record.ticketNumber}-${modal.user.username}`.slice(0, 90)).catch(() => {});
@@ -345,6 +416,21 @@ const modalHandler: ComponentHandler = {
         content: staffRoleId ? `<@&${staffRoleId}>` : undefined,
         embeds: [embed],
         components: [ticketButtons()],
+      });
+
+      // Audit the open to the mod-log (previously only closes were logged there).
+      await sendToModLog(ctx, modal.guild, {
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x2ecc71)
+            .setTitle(`Ticket #${record.ticketNumber} opened`)
+            .addFields(
+              { name: "Opened by", value: `<@${modal.user.id}>` },
+              { name: "Channel", value: `<#${channel.id}>` },
+              { name: "Subject", value: subject },
+            )
+            .setTimestamp(new Date()),
+        ],
       });
 
       await modal.editReply({ content: `Ticket opened: <#${channel.id}>` });
@@ -520,7 +606,13 @@ export const ticketsModule: BotModule = {
     featureCommand({
       name: "ticket",
       description: "Support tickets.",
-      subcommands: { panel: panelSub, close: closeSub, add: addSub, remove: removeSub },
+      subcommands: {
+        panel: panelSub,
+        close: closeSub,
+        add: addSub,
+        remove: removeSub,
+        transcript: transcriptSub,
+      },
     }),
   ],
   listeners: [onMessage, onChannelDelete, onReady] as Listener[],

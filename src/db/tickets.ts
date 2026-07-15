@@ -54,6 +54,21 @@ export function getTicketByChannel(db: BotDatabase, channelId: string): TicketRe
   return one<TicketRecord>(db, `SELECT ${COLUMNS} FROM tickets WHERE channel_id = ?`, channelId);
 }
 
+// Look a ticket up by its per-guild number (for retrieving a closed ticket's transcript,
+// after its channel is gone).
+export function getTicketByNumber(
+  db: BotDatabase,
+  guildId: string,
+  ticketNumber: number,
+): TicketRecord | undefined {
+  return one<TicketRecord>(
+    db,
+    `SELECT ${COLUMNS} FROM tickets WHERE guild_id = ? AND ticket_number = ?`,
+    guildId,
+    ticketNumber,
+  );
+}
+
 export function countOpenTicketsByUser(
   db: BotDatabase,
   guildId: string,

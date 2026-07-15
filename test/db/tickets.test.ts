@@ -5,10 +5,28 @@ import {
   createTicket,
   firstOpenTicketByUser,
   getTicketByChannel,
+  getTicketByNumber,
   listOpenTickets,
   setTicketTranscript,
 } from "../../src/db/tickets";
 import { makeTestDb } from "../helpers/db";
+
+test("getTicketByNumber finds a ticket (incl. closed) for transcript retrieval", () => {
+  const db = makeTestDb();
+  createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "help" });
+  createTicket(db, { guildId: "other", channelId: "c9", openerId: "u", subject: "elsewhere" });
+
+  // Scoped per guild — #1 in "g" is not #1 in "other".
+  expect(getTicketByNumber(db, "g", 1)?.channelId).toBe("c1");
+  expect(getTicketByNumber(db, "g", 2)).toBeUndefined();
+
+  // Still retrievable after close, with its saved transcript.
+  beginClose(db, "c1", "mod", null, 1);
+  setTicketTranscript(db, "c1", "the whole conversation");
+  const closed = getTicketByNumber(db, "g", 1);
+  expect(closed?.status).toBe("closed");
+  expect(closed?.transcript).toBe("the whole conversation");
+});
 
 test("ticket numbers increment per guild; close is atomic and persists a transcript", () => {
   const db = makeTestDb();

@@ -20,12 +20,15 @@ export interface TicketArchiveMeta {
 export async function buildTicketArchive(
   meta: TicketArchiveMeta,
   messages: Message[],
-  opts: { withImages: boolean },
+  opts: { withImages: boolean; truncated?: boolean },
 ): Promise<{ text: string; zipBytes: Uint8Array | null; imageCount: number }> {
   const header = [
     `Ticket #${meta.ticketNumber} — ${meta.subject}`,
     `Opened by: ${meta.openerId}`,
     `Closed by: ${meta.closedBy}${meta.reason ? ` — ${meta.reason}` : ""}`,
+    opts.truncated
+      ? `⚠️ Truncated to the first ${messages.length} messages — earlier limit reached.`
+      : undefined,
     "",
   ].filter((l): l is string => l !== undefined);
 
