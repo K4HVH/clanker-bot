@@ -7,12 +7,11 @@ import {
   EmbedBuilder,
   Events,
   type Guild,
-  InteractionContextType,
   MessageFlags,
   PermissionFlagsBits,
-  SlashCommandBuilder,
   type User,
 } from "discord.js";
+import { featureCommand, type Subcommand } from "../../core/command";
 import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, Listener, SlashCommand } from "../../core/module";
 import { type CaptchaDifficulty, ensureWasm, generateCode, renderCaptcha } from "../../lib/captcha";
@@ -470,12 +469,9 @@ const onMessage: Listener<Events.MessageCreate> = {
 
 // ── Entry points ─────────────────────────────────────────────────────────────
 
-const verifyPanel: SlashCommand = {
-  data: new SlashCommandBuilder()
-    .setName("verify-panel")
-    .setDescription("Post the verification panel in this channel.")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .setContexts(InteractionContextType.Guild),
+const panelSub: Subcommand = {
+  description: "Post the verification panel in this channel.",
+  permission: PermissionFlagsBits.ManageGuild,
   async execute(interaction, ctx) {
     if (!interaction.inGuild() || !interaction.channel || !("send" in interaction.channel)) {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
@@ -524,11 +520,8 @@ async function beginInteractiveVerify(
   });
 }
 
-const verifyCommand: SlashCommand = {
-  data: new SlashCommandBuilder()
-    .setName("verify")
-    .setDescription("Verify yourself to unlock the server.")
-    .setContexts(InteractionContextType.Guild),
+const meSub: Subcommand = {
+  description: "Verify yourself to unlock the server.",
   async execute(interaction, ctx) {
     const guildId = interaction.guildId ?? ctx.env.guildId;
     const roleId = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
@@ -556,13 +549,13 @@ const verifyCommand: SlashCommand = {
 
 // Manual override: a mod grants the Verified role directly (accessibility fallback
 // for someone who genuinely can't read the image, or a trusted-user shortcut).
-const verifyUserCommand: SlashCommand = {
-  data: new SlashCommandBuilder()
-    .setName("verify-user")
-    .setDescription("Manually verify a member (grants the Verified role).")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .setContexts(InteractionContextType.Guild)
-    .addUserOption((o) => o.setName("member").setDescription("The member to verify").setRequired(true)),
+const userSub: Subcommand = {
+  description: "Manually verify a member (grants the Verified role).",
+  permission: PermissionFlagsBits.ManageGuild,
+  options: (s) =>
+    s.addUserOption((o) =>
+      o.setName("member").setDescription("The member to verify").setRequired(true),
+    ),
   async execute(interaction, ctx) {
     const guildId = interaction.guildId ?? ctx.env.guildId;
     if (!interaction.guild) {
@@ -785,7 +778,13 @@ const newCodeHandler: ComponentHandler = {
 
 export const verificationModule: BotModule = {
   name: "verification",
-  commands: [verifyPanel, verifyCommand, verifyUserCommand],
+  commands: [
+    featureCommand({
+      name: "verify",
+      description: "Verify yourself, or manage verification.",
+      subcommands: { me: meSub, panel: panelSub, user: userSub },
+    }),
+  ],
   listeners: [onJoin, onLeave, onMessage, onThreadCreate, onReady] as Listener[],
   components: [startHandler, newCodeHandler],
 };

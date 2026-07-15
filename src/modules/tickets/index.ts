@@ -6,18 +6,17 @@ import {
   ButtonStyle,
   ChannelType,
   EmbedBuilder,
-  InteractionContextType,
   MessageFlags,
   ModalBuilder,
   type ModalSubmitInteraction,
   type OverwriteResolvable,
   OverwriteType,
   PermissionFlagsBits,
-  SlashCommandBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
-import type { BotModule, ComponentHandler, SlashCommand } from "../../core/module";
+import { featureCommand, type Subcommand } from "../../core/command";
+import type { BotModule, ComponentHandler } from "../../core/module";
 import {
   closeTicket,
   createTicket,
@@ -38,12 +37,9 @@ const ACCESS = [
   PermissionFlagsBits.ReadMessageHistory,
 ];
 
-const ticketPanel: SlashCommand = {
-  data: new SlashCommandBuilder()
-    .setName("ticket-panel")
-    .setDescription("Post the ticket panel in this channel.")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .setContexts(InteractionContextType.Guild),
+const panelSub: Subcommand = {
+  description: "Post the ticket panel in this channel.",
+  permission: PermissionFlagsBits.ManageGuild,
   async execute(interaction, ctx) {
     if (!interaction.inGuild() || !interaction.channel || !("send" in interaction.channel)) {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
@@ -189,6 +185,12 @@ const closeHandler: ComponentHandler = {
 
 export const ticketsModule: BotModule = {
   name: "tickets",
-  commands: [ticketPanel],
+  commands: [
+    featureCommand({
+      name: "ticket",
+      description: "Support tickets.",
+      subcommands: { panel: panelSub },
+    }),
+  ],
   components: [openHandler, modalHandler, closeHandler],
 };

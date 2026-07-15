@@ -10,9 +10,9 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Automod** — spam/mention-spam (heat-based) + invite/link filtering → delete + warn (staff exempt).
 - **Auto-escalation** — opt-in ladder (timeout → kick → ban) driven by the strike score.
 - **Audit logging** — message edits/deletes + member joins/leaves to a member-log; all mod actions to a mod-log.
-- **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify` self-serve, or a `/verify-panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify-user` someone manually.
+- **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — account-age gate: flag and/or auto-kick accounts newer than a configurable threshold.
-- **Tickets** — `/ticket-panel` → private channel per ticket → transcript saved on close.
+- **Tickets** — `/ticket panel` → private channel per ticket → transcript saved on close.
 - **Support helpers** — `/tag` canned answers for common questions.
 
 All automod / escalation / verification features **default OFF** and are enabled via `/config`.
@@ -55,7 +55,9 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 ## Commands
 
-`/config` (settings panel) · `/warn` `/note` `/timeout` `/kick` `/ban` `/unban` `/case` `/history` · `/verify` `/verify-panel` `/verify-user` · `/ticket-panel` · `/tag`
+Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
+
+`/config` (settings panel) · `/mod warn|note|timeout|kick|ban|unban|case|history` · `/verify me|panel|user` · `/ticket panel` · `/tag get|list|set|delete`
 
 ## Development
 
