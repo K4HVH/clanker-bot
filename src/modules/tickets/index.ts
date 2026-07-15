@@ -358,6 +358,8 @@ const modalHandler: ComponentHandler = {
         subject,
       });
       openTicketChannels.add(channel.id);
+      // Rename with the authoritative ticket number now that we have it, e.g. "10-kenny".
+      await channel.setName(`${record.ticketNumber}-${modal.user.username}`.slice(0, 90)).catch(() => {});
 
       const embed = new EmbedBuilder()
         .setTitle(`Ticket #${record.ticketNumber}`)
