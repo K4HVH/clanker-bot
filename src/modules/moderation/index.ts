@@ -1,18 +1,26 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   EmbedBuilder,
+  type Guild,
+  type GuildBasedChannel,
   type GuildTextBasedChannel,
   type Message,
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
-import type { BotModule } from "../../core/module";
+import type { BotModule, ComponentHandler } from "../../core/module";
 import { clearCases, listCasesByUser } from "../../db/cases";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logModAlert } from "../../lib/modlog";
+import { messageMatchesPurge, type PurgeCriteria } from "../../lib/purge";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 const warnSub: Subcommand = {
@@ -231,18 +239,232 @@ const unbanSub: Subcommand = {
   },
 };
 
+const BULK_MAX_AGE_MS = 14 * 86_400_000; // Discord's bulk endpoint refuses anything older
+const PURGE_MAX_COUNT = 1000; // messages to SCAN per channel
+const PURGE_TIME_BUDGET_MS = 10 * 60_000; // overall wall-clock cap, safely under the 15m token
+const PENDING_TTL_MS = 5 * 60_000;
+
+// A confirm/pick flow in progress. Keyed by the originating interaction id (which also rides in
+// the component customIds). Kept in memory only — a lost one just means "run the command again".
+interface PendingPurge {
+  requesterId: string;
+  count: number;
+  userId: string | null;
+  filter: string | null;
+  channelIds: string[]; // resolved for "all"; filled in by the picker for "pick"
+  createdAt: number;
+}
+const pendingPurges = new Map<string, PendingPurge>();
+function sweepPending(): void {
+  const now = Date.now();
+  for (const [k, v] of pendingPurges) if (now - v.createdAt > PENDING_TTL_MS) pendingPurges.delete(k);
+}
+
+// A text/announcement channel the bot can actually read + delete in.
+function botCanPurge(guild: Guild, channel: GuildBasedChannel): channel is GuildTextBasedChannel {
+  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return false;
+  const me = guild.members.me;
+  const perms = me && channel.permissionsFor(me);
+  return (
+    !!perms &&
+    perms.has(PermissionFlagsBits.ViewChannel) &&
+    perms.has(PermissionFlagsBits.ReadMessageHistory) &&
+    perms.has(PermissionFlagsBits.ManageMessages)
+  );
+}
+function purgeableChannels(guild: Guild): GuildTextBasedChannel[] {
+  return [...guild.channels.cache.values()].filter((c): c is GuildTextBasedChannel => botCanPurge(guild, c));
+}
+
+type Progress = (text: string) => Promise<void>;
+
+interface PurgeResult {
+  deleted: number;
+  channelsHit: number;
+  oldRemaining: number; // >14-day messages we ran out of time to individually delete
+  timedOut: boolean; // hit the time budget before covering every channel
+}
+
+// Scan up to `scanLimit` recent messages in one channel and delete the matches: recent ones in
+// fast bulk batches, >14-day ones individually (slow) until the shared deadline.
+async function purgeChannel(
+  channel: GuildTextBasedChannel,
+  criteria: PurgeCriteria,
+  scanLimit: number,
+  deadline: number,
+): Promise<{ deleted: number; oldRemaining: number }> {
+  const toDelete: Message[] = [];
+  let scanned = 0;
+  let before: string | undefined;
+  while (scanned < scanLimit && Date.now() < deadline) {
+    const limit = Math.min(100, scanLimit - scanned);
+    const batch = await channel.messages.fetch({ limit, before }).catch(() => null);
+    if (!batch || batch.size === 0) break;
+    scanned += batch.size;
+    before = batch.last()?.id;
+    for (const m of batch.values()) {
+      const p = { authorId: m.author.id, authorBot: m.author.bot, content: m.content, attachmentCount: m.attachments.size };
+      if (messageMatchesPurge(p, criteria)) toDelete.push(m);
+    }
+    if (batch.size < limit) break; // reached the start of history
+  }
+
+  const now = Date.now();
+  const recent = toDelete.filter((m) => now - m.createdTimestamp < BULK_MAX_AGE_MS);
+  const old = toDelete.filter((m) => now - m.createdTimestamp >= BULK_MAX_AGE_MS);
+
+  let deleted = 0;
+  for (let i = 0; i < recent.length; i += 100) {
+    const slice = recent.slice(i, i + 100);
+    const one = slice[0];
+    if (slice.length === 1 && one) {
+      // Discord's bulk endpoint needs 2+; a lone message is deleted directly. Suppress its
+      // member-log echo (the mod-log purge alert is the record; don't re-surface the content).
+      suppressDeletion(one.id);
+      if (await one.delete().then(() => true).catch(() => false)) deleted++;
+      else suppressedDeletions.delete(one.id);
+    } else {
+      const removed = await channel.bulkDelete(slice, true).catch(() => null);
+      deleted += removed?.size ?? 0;
+    }
+  }
+
+  let oldRemaining = 0;
+  for (let i = 0; i < old.length; i++) {
+    if (Date.now() >= deadline) {
+      oldRemaining = old.length - i;
+      break;
+    }
+    const m = old[i];
+    if (!m) continue;
+    suppressDeletion(m.id);
+    if (await m.delete().then(() => true).catch(() => false)) deleted++;
+    else suppressedDeletions.delete(m.id);
+  }
+  return { deleted, oldRemaining };
+}
+
+// Purge across one or more channels under a single wall-clock budget, reporting progress.
+async function runPurge(
+  channels: GuildTextBasedChannel[],
+  criteria: PurgeCriteria,
+  scanLimit: number,
+  onProgress: Progress,
+): Promise<PurgeResult> {
+  const deadline = Date.now() + PURGE_TIME_BUDGET_MS;
+  let deleted = 0;
+  let channelsHit = 0;
+  let oldRemaining = 0;
+  for (let i = 0; i < channels.length; i++) {
+    const channel = channels[i];
+    if (!channel) continue;
+    if (Date.now() >= deadline) return { deleted, channelsHit, oldRemaining, timedOut: true };
+    if (channels.length > 1) {
+      await onProgress(`🧹 Purging… ${deleted} deleted (channel ${i + 1}/${channels.length}: <#${channel.id}>)`);
+    }
+    const res = await purgeChannel(channel, criteria, scanLimit, deadline);
+    if (res.deleted > 0) channelsHit++;
+    deleted += res.deleted;
+    oldRemaining += res.oldRemaining;
+  }
+  return { deleted, channelsHit, oldRemaining, timedOut: false };
+}
+
+function purgeSummary(res: PurgeResult): string {
+  if (res.deleted === 0) return "Nothing matched to delete in the scanned range.";
+  const across = res.channelsHit > 1 ? ` across ${res.channelsHit} channels` : "";
+  let s = `🧹 Deleted **${res.deleted}** message${res.deleted === 1 ? "" : "s"}${across}.`;
+  if (res.oldRemaining > 0) {
+    s += `\n-# ${res.oldRemaining} message${res.oldRemaining === 1 ? "" : "s"} older than 14 days couldn't be finished in time (rate limits) — re-run to continue.`;
+  } else if (res.timedOut) {
+    s += "\n-# Stopped at the time limit before every channel was covered — re-run to continue.";
+  }
+  return s;
+}
+
+function purgeDetail(userId: string | null, filter: string | null): string {
+  return [userId ? `from <@${userId}>` : null, filter ? `(${filter})` : null].filter(Boolean).join(" ");
+}
+
+function confirmText(count: number, userId: string | null, filter: string | null, channelCount: number): string {
+  const who = userId ? `<@${userId}>'s messages` : "messages";
+  const filt = filter ? ` (${filter})` : "";
+  return (
+    `⚠️ Purge **${who}${filt}** — scanning up to **${count}** per channel — across **${channelCount}** ` +
+    `channel${channelCount === 1 ? "" : "s"}?\nMessages older than 14 days are deleted one-by-one (slower). **This can't be undone.**`
+  );
+}
+
+function confirmRow(token: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`purge_confirm:${token}`).setLabel("Purge").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`purge_cancel:${token}`).setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function channelSelectRow(token: string): ActionRowBuilder<ChannelSelectMenuBuilder> {
+  return new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId(`purge_pick:${token}`)
+      .setPlaceholder("Choose channels…")
+      .setMinValues(1)
+      .setMaxValues(25)
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
+  );
+}
+
+// Edit-throttle progress so a long multi-channel purge doesn't spam the interaction edit route.
+function throttledReporter(edit: (text: string) => Promise<unknown>): Progress {
+  let last = 0;
+  return async (text) => {
+    const now = Date.now();
+    if (now - last < 2000) return;
+    last = now;
+    await edit(text).catch(() => {});
+  };
+}
+
+async function logPurge(
+  ctx: Parameters<typeof logModAlert>[0],
+  guild: Guild,
+  byId: string,
+  res: PurgeResult,
+  userId: string | null,
+  filter: string | null,
+  channelIds: string[],
+): Promise<void> {
+  const scope = channelIds.length === 1 && channelIds[0] ? `<#${channelIds[0]}>` : `${channelIds.length} channels`;
+  const detail = purgeDetail(userId, filter);
+  await logModAlert(
+    ctx,
+    guild,
+    new EmbedBuilder()
+      .setColor(0x95a5a6)
+      .setTitle("🧹 Messages purged")
+      .addFields(
+        { name: "Scope", value: scope },
+        { name: "By", value: `<@${byId}>` },
+        {
+          name: "Deleted",
+          value: `${res.deleted}${detail ? ` ${detail}` : ""}${res.oldRemaining ? ` (+${res.oldRemaining} older left)` : ""}`,
+        },
+      )
+      .setTimestamp(new Date()),
+  );
+}
+
 const purgeSub: Subcommand = {
-  description: "Bulk-delete recent messages here (max 100, under 14 days old).",
+  description: "Delete messages — here, across channels, or clean up one user server-wide.",
   permission: PermissionFlagsBits.ManageMessages,
   options: (s) =>
     s
       .addIntegerOption((o) =>
         o
           .setName("count")
-          .setDescription("How many recent messages to scan (1-100)")
+          .setDescription(`Messages to scan per channel (1-${PURGE_MAX_COUNT})`)
           .setRequired(true)
           .setMinValue(1)
-          .setMaxValue(100),
+          .setMaxValue(PURGE_MAX_COUNT),
       )
       .addUserOption((o) => o.setName("user").setDescription("Only delete messages from this user"))
       .addStringOption((o) =>
@@ -255,77 +477,160 @@ const purgeSub: Subcommand = {
             { name: "With a link", value: "links" },
             { name: "With an attachment", value: "attachments" },
           ),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("scope")
+          .setDescription("Where to purge (default: this channel)")
+          .addChoices(
+            { name: "This channel", value: "here" },
+            { name: "All channels (needs a user)", value: "all" },
+            { name: "Pick channels…", value: "pick" },
+          ),
       ),
   async execute(interaction, ctx) {
-    if (!interaction.inGuild()) return;
-    const channel = interaction.channel;
-    if (!channel || !channel.isTextBased() || channel.isDMBased() || !("bulkDelete" in channel)) {
-      await interaction.reply({ content: "Run this in a server text channel.", flags: MessageFlags.Ephemeral });
-      return;
-    }
+    if (!interaction.inGuild() || !interaction.guild) return;
     const count = interaction.options.getInteger("count", true);
     const user = interaction.options.getUser("user");
     const filter = interaction.options.getString("filter");
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const scope = interaction.options.getString("scope") ?? "here";
+    const criteria: PurgeCriteria = { userId: user?.id, filter };
 
-    const fetched = await (channel as GuildTextBasedChannel).messages.fetch({ limit: count }).catch(() => null);
-    if (!fetched) {
-      await interaction.editReply("Couldn't read this channel's messages.");
-      return;
-    }
-    const cutoff = Date.now() - 14 * 86_400_000; // Discord can't bulk-delete older than 14 days
-    const linkRe = /https?:\/\//i;
-    const matches = (m: Message): boolean => {
-      if (m.createdTimestamp < cutoff) return false;
-      if (user && m.author.id !== user.id) return false;
-      if (filter === "bots" && !m.author.bot) return false;
-      if (filter === "humans" && m.author.bot) return false;
-      if (filter === "links" && !linkRe.test(m.content)) return false;
-      if (filter === "attachments" && m.attachments.size === 0) return false;
-      return true;
-    };
-    const toDelete = [...fetched.values()].filter(matches);
-    if (toDelete.length === 0) {
-      await interaction.editReply("Nothing matched (messages must be under 14 days old).");
+    if (scope === "here") {
+      const channel = interaction.channel;
+      if (!channel || !channel.isTextBased() || channel.isDMBased() || !("bulkDelete" in channel)) {
+        await interaction.reply({ content: "Run this in a server text channel.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const res = await runPurge([channel as GuildTextBasedChannel], criteria, count, async () => {});
+      await interaction.editReply(purgeSummary(res));
+      if (res.deleted > 0) await logPurge(ctx, interaction.guild, interaction.user.id, res, user?.id ?? null, filter, [channel.id]);
       return;
     }
 
-    let deleted = 0;
-    const bulkChannel = channel as GuildTextBasedChannel;
-    if (toDelete.length === 1) {
-      // Discord's bulk endpoint needs 2+; delete a lone message directly. Suppress its
-      // member-log echo so it matches the bulk path (which only logs a count) — the mod-log
-      // purge alert below is the record, and we don't re-surface the content we just removed.
-      const one = toDelete[0]!;
-      suppressDeletion(one.id);
-      if (await one.delete().then(() => true).catch(() => false)) deleted = 1;
-      else suppressedDeletions.delete(one.id);
-    } else {
-      const removed = await bulkChannel.bulkDelete(toDelete, true).catch(() => null);
-      deleted = removed?.size ?? 0;
+    if (scope === "all") {
+      if (!user) {
+        await interaction.reply({
+          content:
+            "A server-wide purge needs a **user** target (safety — so it can't wipe every channel for everyone). Add `user:`, or use **Pick channels** to purge whole channels.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const channels = purgeableChannels(interaction.guild);
+      if (channels.length === 0) {
+        await interaction.reply({ content: "I don't have Manage Messages in any text channel here.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      sweepPending();
+      pendingPurges.set(interaction.id, {
+        requesterId: interaction.user.id,
+        count,
+        userId: user.id,
+        filter,
+        channelIds: channels.map((c) => c.id),
+        createdAt: Date.now(),
+      });
+      await interaction.reply({
+        content: confirmText(count, user.id, filter, channels.length),
+        components: [confirmRow(interaction.id)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
 
-    await interaction.editReply(`🧹 Deleted ${deleted} message${deleted === 1 ? "" : "s"}.`);
-    if (deleted > 0 && interaction.guild) {
-      const scope = [user ? `from <@${user.id}>` : null, filter ? `(${filter})` : null]
-        .filter(Boolean)
-        .join(" ");
-      await logModAlert(
-        ctx,
-        interaction.guild,
-        new EmbedBuilder()
-          .setColor(0x95a5a6)
-          .setTitle("🧹 Messages purged")
-          .addFields(
-            { name: "Channel", value: `<#${channel.id}>` },
-            { name: "By", value: `<@${interaction.user.id}>` },
-            { name: "Deleted", value: `${deleted}${scope ? ` ${scope}` : ""}` },
-          )
-          .setTimestamp(new Date()),
-      );
+    // scope === "pick"
+    sweepPending();
+    pendingPurges.set(interaction.id, {
+      requesterId: interaction.user.id,
+      count,
+      userId: user?.id ?? null,
+      filter,
+      channelIds: [],
+      createdAt: Date.now(),
+    });
+    await interaction.reply({
+      content: "Select the channels to purge, then confirm:",
+      components: [channelSelectRow(interaction.id)],
+      flags: MessageFlags.Ephemeral,
+    });
+  },
+};
+
+const purgePickHandler: ComponentHandler = {
+  customId: "purge_pick",
+  type: "select",
+  match: "prefix",
+  async handle(interaction) {
+    if (!interaction.isChannelSelectMenu()) return;
+    const token = interaction.customId.split(":")[1] ?? "";
+    const pending = pendingPurges.get(token);
+    if (!pending || pending.requesterId !== interaction.user.id) {
+      await interaction.update({ content: "This purge selection expired — run `/mod purge` again.", components: [] });
+      return;
+    }
+    pending.channelIds = [...interaction.values];
+    pending.createdAt = Date.now(); // refresh the TTL now that they've engaged
+    await interaction.update({
+      content: confirmText(pending.count, pending.userId, pending.filter, pending.channelIds.length),
+      components: [confirmRow(token)],
+    });
+  },
+};
+
+const purgeConfirmHandler: ComponentHandler = {
+  customId: "purge_confirm",
+  type: "button",
+  match: "prefix",
+  async handle(interaction, ctx) {
+    if (!interaction.isButton() || !interaction.inGuild() || !interaction.guild) return;
+    const token = interaction.customId.split(":")[1] ?? "";
+    const pending = pendingPurges.get(token);
+    if (!pending || pending.requesterId !== interaction.user.id) {
+      await interaction.update({ content: "This purge expired or isn't yours — run `/mod purge` again.", components: [] });
+      return;
+    }
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+      await interaction.update({ content: "You need the Manage Messages permission.", components: [] });
+      return;
+    }
+    pendingPurges.delete(token);
+    const guild = interaction.guild;
+    const channels = pending.channelIds
+      .map((id) => guild.channels.cache.get(id))
+      .filter((c): c is GuildTextBasedChannel => !!c && botCanPurge(guild, c));
+    if (channels.length === 0) {
+      await interaction.update({ content: "None of those channels are purgeable (missing permissions?).", components: [] });
+      return;
+    }
+    await interaction.update({
+      content: `🧹 Purging across ${channels.length} channel${channels.length === 1 ? "" : "s"}…`,
+      components: [],
+    });
+    const report = throttledReporter((text) => interaction.editReply(text));
+    const criteria: PurgeCriteria = { userId: pending.userId ?? undefined, filter: pending.filter };
+    const res = await runPurge(channels, criteria, pending.count, report);
+    await interaction.editReply(purgeSummary(res));
+    if (res.deleted > 0) {
+      await logPurge(ctx, guild, interaction.user.id, res, pending.userId, pending.filter, channels.map((c) => c.id));
     }
   },
 };
+
+const purgeCancelHandler: ComponentHandler = {
+  customId: "purge_cancel",
+  type: "button",
+  match: "prefix",
+  async handle(interaction) {
+    if (!interaction.isButton()) return;
+    const token = interaction.customId.split(":")[1] ?? "";
+    pendingPurges.delete(token);
+    await interaction.update({ content: "Purge cancelled.", components: [] });
+  },
+};
+
+const purgeComponents: ComponentHandler[] = [purgePickHandler, purgeConfirmHandler, purgeCancelHandler];
 
 const clearHistorySub: Subcommand = {
   description: "Clear a user's automod violations (resets escalation) or their full history.",
@@ -437,4 +742,5 @@ export const moderationModule: BotModule = {
       },
     }),
   ],
+  components: purgeComponents,
 };
