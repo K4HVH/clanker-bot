@@ -9,7 +9,7 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Temp-bans** — `/ban … duration:7d` auto-expires via a durable scheduler (survives restarts).
 - **Automod** — spam/mention-spam (heat-based) + invite/link filtering → delete + warn (staff exempt).
 - **Auto-escalation** — opt-in ladder (timeout → kick → ban) driven by the strike score.
-- **Audit logging** — message edits/deletes + member joins/leaves to a member-log; all mod actions to a mod-log.
+- **Audit logging** — to a member-log: message edits/deletes/bulk-deletes, joins/leaves, nickname & role changes, and (optionally) channel/role create/delete/edit. To a mod-log: bot cases plus **manual** bans/unbans/kicks/timeouts done outside the bot, attributed with *who + why* from the audit-log stream (deduped against the bot's own actions; kicks are distinguished from plain leaves). Per-group toggles in `/config` → Logging. Needs **View Audit Log** for attribution.
 - **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — account-age gate: flag and/or auto-kick accounts newer than a configurable threshold.
 - **Tickets** — `/ticket panel` → button opens a private channel per ticket; add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close. Opens and closes are logged to the mod-log; on close a **.zip** (transcript + posted images) is saved there and DM'd to the opener, and `/ticket transcript <n>` fetches any past ticket's saved transcript.
@@ -49,7 +49,7 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 
 Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
 
-**Categories** (41 settings): General · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup (staff role, category, open limit, inactivity window, DM/zip/confirm toggles).
+**Categories** (46 settings): General · Logging · Automod · Escalation · Strike Weights · Guards · Verification · Tickets — covering log channels + per-group logging toggles, automod thresholds, the full escalation ladder, strike weights, the account-age gate, the verify channel + captcha tuning, and ticket setup (staff role, category, open limit, inactivity window, DM/zip/confirm/staff-only-close toggles).
 
 The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 

@@ -45,6 +45,10 @@ export const CONFIG_KEYS = {
   ticketArchiveImages: "ticket_archive_images",
   ticketCloseConfirm: "ticket_close_confirm",
   ticketStaffOnlyClose: "ticket_staff_only_close",
+  logMessageEvents: "log_message_events",
+  logMemberEvents: "log_member_events",
+  logModActions: "log_mod_actions",
+  logServerEvents: "log_server_events",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -70,6 +74,7 @@ export interface Category {
 
 export const CATEGORIES: Category[] = [
   { id: "general", label: "General", accentColor: 0x5865f2 },
+  { id: "logging", label: "Logging", accentColor: 0x1abc9c },
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "escalation", label: "Escalation", accentColor: 0xe67e22 },
   { id: "strike-weights", label: "Strike Weights", accentColor: 0xf1c40f },
@@ -83,9 +88,14 @@ const MAX_TIMEOUT_MINUTES = 28 * 24 * 60; // Discord's 28-day timeout cap, in mi
 
 export const REGISTRY: Setting[] = [
   // General
-  { key: K.modLogChannelId, category: "general", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Where moderation actions are logged." },
-  { key: K.memberLogChannelId, category: "general", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Member log channel", description: "Where message edits/deletes and joins/leaves are logged." },
   { key: K.dmOnAction, category: "general", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/kicked/banned." },
+  // Logging
+  { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Moderation cases, alerts, and attributed manual bans/kicks/timeouts." },
+  { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },
+  { key: K.logMessageEvents, category: "logging", type: "bool", default: true, label: "Log message edits/deletes", description: "Edited, deleted, and bulk-deleted messages (member log)." },
+  { key: K.logMemberEvents, category: "logging", type: "bool", default: true, label: "Log member events", description: "Joins, leaves, nickname changes, and role grants/removes (member log)." },
+  { key: K.logModActions, category: "logging", type: "bool", default: true, label: "Log manual mod actions", description: "Bans/unbans/kicks/timeouts done outside the bot, with who and why (mod log)." },
+  { key: K.logServerEvents, category: "logging", type: "bool", default: false, label: "Log server structure changes", description: "Channel and role create/delete/edit, with who (member log). Off by default — chatty." },
   // Automod
   { key: K.automodSpam, category: "automod", type: "bool", default: false, label: "Spam / flood filter" },
   { key: K.automodInvites, category: "automod", type: "bool", default: false, label: "Block invite links" },

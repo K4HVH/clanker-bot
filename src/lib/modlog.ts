@@ -77,6 +77,31 @@ export function buildMemberLeaveEmbed(a: { userId: string }): EmbedBuilder {
     .addFields({ name: "User", value: `<@${a.userId}> (${a.userId})` });
 }
 
+export function buildBulkDeleteEmbed(a: { channelId: string; count: number }): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xe74c3c)
+    .setTitle("Messages bulk-deleted")
+    .addFields(
+      { name: "Channel", value: `<#${a.channelId}>` },
+      { name: "Count", value: `${a.count}`, inline: true },
+    );
+}
+
+export function buildNicknameEmbed(a: {
+  userId: string;
+  before: string | null;
+  after: string | null;
+}): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle("Nickname changed")
+    .addFields(
+      { name: "User", value: `<@${a.userId}> (${a.userId})` },
+      { name: "Before", value: a.before ?? "*(none)*" },
+      { name: "After", value: a.after ?? "*(none)*" },
+    );
+}
+
 async function sendToConfigured(
   ctx: AppContext,
   guild: Guild,
