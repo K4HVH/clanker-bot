@@ -4,7 +4,7 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 
 ## Features
 
-- **Moderation** — `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history`; reason-required, role-hierarchy-safe, 28-day timeout cap. Every action is recorded in the user's **history** (`/mod history @user`). `/mod purge` bulk-deletes recent messages (by user / bots / links / attachments). `/mod ban` can wipe up to 7 days of the target's messages.
+- **Moderation** — `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory`; reason-required, role-hierarchy-safe, 28-day timeout cap. Every action is recorded in the user's **history** (`/mod history @user`). `/mod purge` bulk-deletes recent messages (by user / bots / links / attachments). `/mod ban` can wipe up to 7 days of the target's messages.
 - **Temp-bans** — `/mod ban … duration:7d` auto-expires via a durable scheduler (survives restarts).
 - **Automod** — a rule engine checked on new **and edited** messages (staff/ticket/verify-channel exempt): flood, duplicate spam, mention limit + `@everyone`/`@here`, invites (all hosts), links (with a domain allowlist), a word/phrase blocklist, and caps. Each hit deletes + records a **violation**; accumulated violations within a memory window **escalate** — timeout / kick / ban at configurable thresholds.
 - **Audit logging** — to a member-log: message edits/deletes/bulk-deletes, joins/leaves, nickname & role changes, and (optionally) channel/role create/delete/edit. To a mod-log: bot actions plus **manual** bans/unbans/kicks/timeouts done outside the bot, attributed with *who + why* from the audit-log stream (deduped against the bot's own actions; kicks are distinguished from plain leaves). Per-group toggles in `/config` → Logging. Needs **View Audit Log** for attribution.
@@ -55,7 +55,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete`
+`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete`
 
 ## Development
 

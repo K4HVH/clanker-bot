@@ -1,6 +1,28 @@
 import { expect, test } from "bun:test";
-import { countAutomodViolations, createCase, listCasesByUser } from "../../src/db/cases";
+import { clearCases, countAutomodViolations, createCase, listCasesByUser } from "../../src/db/cases";
 import { makeTestDb } from "../helpers/db";
+
+test("clearCases: automodOnly deletes only bot warns; full deletes everything for the user", () => {
+  const db = makeTestDb();
+  const BOT = "bot";
+  const seed = () => {
+    createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "warn", reason: "Automod: x" });
+    createCase(db, { guildId: "g", userId: "u", moderatorId: "human", type: "warn", reason: "manual" });
+    createCase(db, { guildId: "g", userId: "u", moderatorId: BOT, type: "ban", reason: "auto ban" });
+    createCase(db, { guildId: "g", userId: "other", moderatorId: BOT, type: "warn", reason: "Automod: z" });
+  };
+
+  seed();
+  expect(clearCases(db, "g", "u", { automodOnly: true, botId: BOT })).toBe(1); // just the bot warn
+  expect(listCasesByUser(db, "g", "u").length).toBe(2); // manual warn + ban remain
+  expect(listCasesByUser(db, "g", "other").length).toBe(1); // untouched
+
+  seed(); // now u has 3 again (+ the 2 that survived)
+  const before = listCasesByUser(db, "g", "u").length;
+  expect(before).toBeGreaterThan(0);
+  expect(clearCases(db, "g", "u", { automodOnly: false, botId: BOT })).toBe(before); // full wipe
+  expect(listCasesByUser(db, "g", "u").length).toBe(0);
+});
 
 test("countAutomodViolations counts only bot-authored warns for the user", () => {
   const db = makeTestDb();

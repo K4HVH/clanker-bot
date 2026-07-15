@@ -7,7 +7,7 @@ import {
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
 import type { BotModule } from "../../core/module";
-import { listCasesByUser } from "../../db/cases";
+import { clearCases, listCasesByUser } from "../../db/cases";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
@@ -327,6 +327,54 @@ const purgeSub: Subcommand = {
   },
 };
 
+const clearHistorySub: Subcommand = {
+  description: "Clear a user's automod violations (resets escalation) or their full history.",
+  permission: PermissionFlagsBits.ModerateMembers,
+  options: (s) =>
+    s
+      .addUserOption((o) => o.setName("user").setDescription("User").setRequired(true))
+      .addStringOption((o) =>
+        o
+          .setName("scope")
+          .setDescription("What to clear (default: automod violations)")
+          .addChoices(
+            { name: "Automod violations (resets the escalation ladder)", value: "automod" },
+            { name: "Full moderation history", value: "all" },
+          ),
+      ),
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild() || !interaction.guild) return;
+    const user = interaction.options.getUser("user", true);
+    const automodOnly = (interaction.options.getString("scope") ?? "automod") === "automod";
+    const n = clearCases(ctx.db, interaction.guildId, user.id, {
+      automodOnly,
+      botId: interaction.client.user.id,
+    });
+    const label = automodOnly
+      ? `${n} automod violation${n === 1 ? "" : "s"}`
+      : `${n} history ${n === 1 ? "entry" : "entries"}`;
+    await interaction.reply({
+      content: `🧹 Cleared ${label} for ${user.tag}.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    if (n > 0) {
+      await logModAlert(
+        ctx,
+        interaction.guild,
+        new EmbedBuilder()
+          .setColor(0x95a5a6)
+          .setTitle("🧹 Moderation history cleared")
+          .addFields(
+            { name: "User", value: `<@${user.id}> (${user.id})` },
+            { name: "By", value: `<@${interaction.user.id}>` },
+            { name: "Cleared", value: `${n} ${automodOnly ? "automod violation(s)" : "history entr(ies)"}` },
+          )
+          .setTimestamp(new Date()),
+      );
+    }
+  },
+};
+
 const historySub: Subcommand = {
   description: "Show a user's moderation history.",
   permission: PermissionFlagsBits.ModerateMembers,
@@ -385,6 +433,7 @@ export const moderationModule: BotModule = {
         unban: unbanSub,
         purge: purgeSub,
         history: historySub,
+        clearhistory: clearHistorySub,
       },
     }),
   ],

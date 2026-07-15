@@ -1,4 +1,24 @@
-import { type BotDatabase, many, one } from "../db/index";
+import { type BotDatabase, many, one, runChanges } from "../db/index";
+
+// Delete a user's moderation history. automodOnly restricts to the bot-authored warns (automod
+// violations) — resets the escalation ladder without wiping manual actions. Returns the count.
+export function clearCases(
+  db: BotDatabase,
+  guildId: string,
+  userId: string,
+  opts: { automodOnly: boolean; botId: string },
+): number {
+  if (opts.automodOnly) {
+    return runChanges(
+      db,
+      "DELETE FROM cases WHERE guild_id = ? AND user_id = ? AND moderator_id = ? AND type = 'warn'",
+      guildId,
+      userId,
+      opts.botId,
+    );
+  }
+  return runChanges(db, "DELETE FROM cases WHERE guild_id = ? AND user_id = ?", guildId, userId);
+}
 
 // Count a user's automod violations (bot-authored warns — the only bot-created warns) since a
 // cutoff, for automod's escalation ladder.
