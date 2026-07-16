@@ -3,6 +3,7 @@ import { automodModule } from "./automod";
 import { configModule } from "./config";
 import { guardsModule } from "./guards";
 import { loggingModule } from "./logging";
+import { memesModule } from "./memes";
 import { moderationModule } from "./moderation";
 import { sayModule } from "./say";
 import { tagsModule } from "./tags";
@@ -21,4 +22,5 @@ export const modules: BotModule[] = [
   ticketsModule,
   tagsModule,
   sayModule,
+  memesModule,
 ];

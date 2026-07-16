@@ -52,6 +52,10 @@ export const CONFIG_KEYS = {
   logMemberEvents: "log_member_events",
   logModActions: "log_mod_actions",
   logServerEvents: "log_server_events",
+  memesEnabled: "memes_enabled",
+  memesSuccessReplies: "memes_success_replies",
+  memesDeniedReplies: "memes_denied_replies",
+  memesBlockedReplies: "memes_blocked_replies",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -85,6 +89,7 @@ export const CATEGORIES: Category[] = [
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
+  { id: "memes", label: "Memes", accentColor: 0xe67e22 },
 ];
 
 const K = CONFIG_KEYS;
@@ -146,6 +151,13 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
   { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket — only staff can." },
+  // Memes — @-mention moderation ("@bot ban @user"). Runs the real mod pipeline for people who
+  // hold the permission; snarks at those who don't. All replies pull a random line from the lists
+  // (blank = built-in defaults). Placeholders: {mod}, {target}, {action}.
+  { key: K.memesEnabled, category: "memes", type: "bool", default: false, label: "@-mention commands", description: "Let people @ the bot to moderate (\"@bot ban @user\"). It obeys those with the permission and snarks at those without. Off by default." },
+  { key: K.memesSuccessReplies, category: "memes", type: "text", default: "", label: "Success lines", description: "Random reply when the bot carries out a command. One per line. {mod}, {target}, {action}. Blank = built-in defaults.", placeholder: "Done. {target} has been dealt with. 🔨\nSay goodbye to {target}. 👋" },
+  { key: K.memesDeniedReplies, category: "memes", type: "text", default: "", label: "Denied lines (no permission)", description: "Random snark when someone WITHOUT the permission tries it. One per line. {mod}, {target}. Blank = built-in defaults.", placeholder: "lol no. who are you, {mod}?\nnice try." },
+  { key: K.memesBlockedReplies, category: "memes", type: "text", default: "", label: "Can't-do-that lines", description: "Random reply when the target can't be actioned (owner, higher role, not in the server). One per line. {mod}, {target}. Blank = defaults.", placeholder: "{target}'s got plot armor.\nabove my pay grade." },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));
