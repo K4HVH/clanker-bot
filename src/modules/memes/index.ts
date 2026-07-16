@@ -11,21 +11,28 @@ import { logCase } from "../../lib/modlog";
 // Clean, funny defaults — the user can override every line in /config (and spice them up however
 // they like). Placeholders: {mod} = requester, {target} = victim, {action} = the verb.
 const DEFAULT_SUCCESS = [
-  "Done. {target} has been dealt with. 🔨",
-  "Say goodbye to {target}. 👋",
-  "It is done, {mod}. 🫡",
-  "{target} has left the building. You're welcome.",
+  "Boom. {target} is fucking gone. 🔨",
+  "Get fucked, {target}. 👋",
+  "{target} just got yeeted into the shadow realm. 💀",
+  "It's done, {mod}. {target} never stood a chance. 🫡",
+  "Say less. {target} is history.",
+  "Adios {target}, don't let the door hit ya on the way out.",
+  "One less clown in the circus. Later, {target}. 🤡",
 ];
 const DEFAULT_DENIED = [
-  "lol no. who do you think you are, {mod}?",
-  "nice try {mod}, you don't have the clearance.",
-  "and what exactly are you gonna do about it? sit down.",
-  "absolutely not. go touch some grass.",
+  "lmao no. sit the fuck down, {mod}.",
+  "who the hell are you? you don't have the clearance, clown. 🤡",
+  "and what's a nobody like you gonna do about it? shut up.",
+  "cute. no. go touch some grass, {mod}.",
+  "you? giving ME orders? that's fuckin' adorable. no.",
+  "hard pass. cry about it. 😭",
+  "nice try. now fuck off before I start keeping notes.",
 ];
 const DEFAULT_BLOCKED = [
-  "yeah, I'm not touching {target}. above my pay grade.",
-  "{target}'s got plot armor. can't do it.",
-  "nope, that one's off-limits.",
+  "nah, {target}'s way above your pay grade. and mine.",
+  "{target}'s got plot armor. eat shit. 💀",
+  "can't touch {target} — they'd end both of us. sit down.",
+  "lol no. {target}'s untouchable and you're not important enough to change that.",
 ];
 
 const ACTION_META: Record<MemeAction, { perm: bigint; verb: string; caseType: CaseType }> = {
@@ -117,7 +124,7 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
   };
 
   if (!targetId) {
-    await quip(message, "who? @ someone, {mod}.", vars);
+    await quip(message, "who? @ someone, genius.", vars);
     return;
   }
 
@@ -159,7 +166,7 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
   }
 
   if ((action === "kick" || action === "timeout" || action === "untimeout" || action === "warn") && !targetMember) {
-    await quip(message, "can't — {target} isn't even in the server.", vars);
+    await quip(message, "can't — {target} isn't even in the server, dipshit.", vars);
     return;
   }
 
@@ -174,7 +181,7 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
     } else if (action === "unban") {
       const ban = await guild.bans.fetch(targetId).catch(() => null);
       if (!ban) {
-        await quip(message, "{target} isn't even banned.", vars);
+        await quip(message, "{target} isn't even banned, genius.", vars);
         return;
       }
       await guild.members.unban(targetId, reason);
@@ -187,7 +194,7 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
       await targetMember?.timeout(ms, reason);
     } else if (action === "untimeout") {
       if ((targetMember?.communicationDisabledUntil?.getTime() ?? 0) <= Date.now()) {
-        await quip(message, "{target} isn't muted.", vars);
+        await quip(message, "{target} isn't even muted, dumbass.", vars);
         return;
       }
       await targetMember?.timeout(null, reason);
