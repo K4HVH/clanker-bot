@@ -3,27 +3,35 @@
 
 export type MemeAction = "ban" | "unban" | "kick" | "timeout" | "untimeout" | "warn";
 
-// Ordered so the reversals win before their base verb. Word boundaries already stop "unban" from
-// matching \bban\b (the char before "ban" is a word char), but we list them first for clarity.
-const PATTERNS: [RegExp, MemeAction][] = [
-  [/\bunban\b/i, "unban"],
-  [/\b(unmute|untimeout)\b/i, "untimeout"],
-  [/\bban\b/i, "ban"],
-  [/\bkick\b/i, "kick"],
-  [/\b(timeout|mute)\b/i, "timeout"],
-  [/\bwarn\b/i, "warn"],
-];
-
-// The moderation action named in a message, or null if none is present.
-export function detectMemeAction(content: string): MemeAction | null {
-  for (const [re, action] of PATTERNS) if (re.test(content)) return action;
-  return null;
+// The command verb is the FIRST word after the bot mention (`commandText`), not just any verb
+// anywhere in the sentence. This keeps a stray keyword mid-sentence, or a negation ("don't ban"
+// → first word "dont"), from firing a real moderation action. Reversals map to their base type.
+export function detectMemeAction(commandText: string): MemeAction | null {
+  const word = (commandText.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  switch (word) {
+    case "unban":
+      return "unban";
+    case "unmute":
+    case "untimeout":
+      return "untimeout";
+    case "ban":
+      return "ban";
+    case "kick":
+      return "kick";
+    case "timeout":
+    case "mute":
+      return "timeout";
+    case "warn":
+      return "warn";
+    default:
+      return null;
+  }
 }
 
-// Pull a duration token (e.g. "10m", "2 h") out of free text, normalized for parseDuration.
+// Pull a duration out of free text (e.g. "10m", "2 h", "10 minutes"), normalized for parseDuration.
 export function extractDuration(content: string): string | null {
-  const m = content.match(/\b(\d+)\s*([smhdw])\b/i);
-  return m ? `${m[1]}${(m[2] as string).toLowerCase()}` : null;
+  const m = content.match(/\b(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|[smhdw])\b/i);
+  return m ? `${m[1]}${(m[2] as string).charAt(0).toLowerCase()}` : null;
 }
 
 // The pool of reply lines: the user's configured lines (one per line, trimmed) or the fallbacks.

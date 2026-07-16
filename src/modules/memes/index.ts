@@ -3,7 +3,7 @@ import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
 import { type CaseType, createCase } from "../../db/cases";
 import { CONFIG_KEYS } from "../../lib/config";
-import { MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
+import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { applyTemplate, detectMemeAction, extractDuration, type MemeAction, replyPool } from "../../lib/meme-command";
 import { checkActionable } from "../../lib/moderation";
 import { logCase } from "../../lib/modlog";
@@ -83,21 +83,31 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
   if (!ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.memesEnabled)) return;
 
   const botId = message.client.user.id;
-  // Require an explicit in-content @mention of the bot (a reply-ping alone shouldn't trigger it).
-  if (!new RegExp(`<@!?${botId}>`).test(message.content)) return;
+  // The command is whatever follows an explicit in-content @mention of the bot. A reply-ping alone
+  // (no <@bot> in the text) doesn't count, so a casual reply near the bot never triggers anything.
+  const botMention = message.content.match(new RegExp(`<@!?${botId}>`));
+  if (!botMention) return;
+  const commandText = message.content.slice((botMention.index ?? 0) + botMention[0].length);
 
-  const action = detectMemeAction(message.content);
-  if (!action) return; // mentioned with no recognized command — stay quiet
+  // The verb must be the FIRST word of the command, so a stray keyword mid-sentence or a negation
+  // ("don't ban") doesn't fire a real action.
+  const action = detectMemeAction(commandText);
+  if (!action) return;
 
   const now = Date.now();
   if (now - (lastReply.get(message.author.id) ?? 0) < REPLY_COOLDOWN_MS) return;
   lastReply.set(message.author.id, now);
   if (lastReply.size > 1000) for (const [k, v] of lastReply) if (now - v > REPLY_COOLDOWN_MS) lastReply.delete(k);
 
-  // Target: the first mentioned user that isn't the bot, else a raw id in the text (for unbanning
-  // someone who isn't in the server to be mentioned).
-  const mentioned = message.mentions.users.filter((u) => u.id !== botId).first();
-  const rawId = (message.content.match(/\b\d{17,20}\b/g) ?? []).find((id) => id !== botId && id !== message.author.id);
+  // Target: only a user EXPLICITLY @-mentioned in the text (NOT the reply-ping author, which
+  // discord.js also puts in mentions.users), else a bare id typed out (for unbanning someone who
+  // isn't in the server to mention). Strip <…> tokens before the id scan so a role/channel/emoji
+  // snowflake is never mistaken for a user id.
+  const mentioned = message.mentions.users.find(
+    (u) => u.id !== botId && new RegExp(`<@!?${u.id}>`).test(message.content),
+  );
+  const bareText = message.content.replace(/<[^>]+>/g, " ");
+  const rawId = (bareText.match(/\b\d{17,20}\b/g) ?? []).find((id) => id !== botId && id !== message.author.id);
   const targetId = mentioned?.id ?? rawId;
   const meta = ACTION_META[action];
   const vars: Record<string, string> = {
@@ -111,9 +121,16 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
     return;
   }
 
-  // Permission gate — the whole point: obey those who have it, snark at those who don't.
+  // Permission gate — the whole point: obey those who have it, snark at those who don't. Use the
+  // CHANNEL-aware permissions (like /mod's interaction.memberPermissions) so a channel overwrite
+  // that revokes the permission here is respected — no borrowing a perm you lack in this channel.
   const member = message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
-  if (!member || !member.permissions.has(meta.perm)) {
+  const perms = member
+    ? "permissionsFor" in message.channel
+      ? message.channel.permissionsFor(member)
+      : member.permissions
+    : null;
+  if (!member || !perms?.has(meta.perm)) {
     await say(ctx, guildId, message, CONFIG_KEYS.memesDeniedReplies, DEFAULT_DENIED, vars);
     return;
   }
@@ -146,7 +163,7 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
     return;
   }
 
-  const reason = `Requested by ${message.author.tag} via @mention`;
+  let reason = `Requested by ${message.author.tag} via @mention`;
   const dmOn = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction);
   const targetUser = mentioned ?? targetMember?.user ?? (await message.client.users.fetch(targetId).catch(() => null));
 
@@ -164,8 +181,9 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
     } else if (action === "kick") {
       await targetMember?.kick(reason);
     } else if (action === "timeout") {
-      const token = extractDuration(message.content);
+      const token = extractDuration(commandText);
       const ms = Math.min((token && parseDuration(token)) || MEME_TIMEOUT_DEFAULT_MS, MAX_TIMEOUT_MS);
+      reason = `${reason} (${formatDuration(ms)})`; // record the duration, like /mod timeout
       await targetMember?.timeout(ms, reason);
     } else if (action === "untimeout") {
       if ((targetMember?.communicationDisabledUntil?.getTime() ?? 0) <= Date.now()) {

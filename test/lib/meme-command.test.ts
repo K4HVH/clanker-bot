@@ -1,33 +1,45 @@
 import { expect, test } from "bun:test";
 import { applyTemplate, detectMemeAction, extractDuration, replyPool } from "../../src/lib/meme-command";
 
-test("detectMemeAction: recognizes each verb", () => {
-  expect(detectMemeAction("<@1> ban that guy @2")).toBe("ban");
-  expect(detectMemeAction("<@1> kick @2")).toBe("kick");
-  expect(detectMemeAction("<@1> mute @2 for 10m")).toBe("timeout");
-  expect(detectMemeAction("<@1> timeout @2")).toBe("timeout");
-  expect(detectMemeAction("<@1> warn @2")).toBe("warn");
+// detectMemeAction takes the text AFTER the bot mention and matches only the FIRST word.
+test("detectMemeAction: recognizes each verb as the first word", () => {
+  expect(detectMemeAction("ban that guy @2")).toBe("ban");
+  expect(detectMemeAction("kick @2")).toBe("kick");
+  expect(detectMemeAction("mute @2 for 10m")).toBe("timeout");
+  expect(detectMemeAction("timeout @2")).toBe("timeout");
+  expect(detectMemeAction("warn @2")).toBe("warn");
 });
 
-test("detectMemeAction: reversals win over their base verb", () => {
-  expect(detectMemeAction("<@1> unban 123")).toBe("unban");
-  expect(detectMemeAction("<@1> unmute @2")).toBe("untimeout");
-  expect(detectMemeAction("<@1> untimeout @2")).toBe("untimeout");
+test("detectMemeAction: reversals map to their base type", () => {
+  expect(detectMemeAction("unban 123")).toBe("unban");
+  expect(detectMemeAction("unmute @2")).toBe("untimeout");
+  expect(detectMemeAction("untimeout @2")).toBe("untimeout");
 });
 
-test("detectMemeAction: no verb → null (bare mention stays quiet)", () => {
-  expect(detectMemeAction("<@1> hello there")).toBeNull();
-  expect(detectMemeAction("<@1> what's up")).toBeNull();
+test("detectMemeAction: no leading verb → null (bare mention stays quiet)", () => {
+  expect(detectMemeAction("hello there")).toBeNull();
+  expect(detectMemeAction("what's up")).toBeNull();
+  expect(detectMemeAction("")).toBeNull();
 });
 
-test("detectMemeAction: word-boundaried (doesn't fire on substrings)", () => {
-  expect(detectMemeAction("<@1> abandon the ship")).toBeNull(); // 'ban' inside 'abandon'
-  expect(detectMemeAction("<@1> kickstart the project")).toBeNull(); // 'kick' inside 'kickstart'
+test("detectMemeAction: only the FIRST word counts — negations and mid-sentence verbs don't fire", () => {
+  expect(detectMemeAction("don't ban him")).toBeNull(); // first word "dont"
+  expect(detectMemeAction("do not kick anyone")).toBeNull(); // first word "do"
+  expect(detectMemeAction("warn @2, next time it's a ban")).toBe("warn"); // "warn" wins, not "ban"
+  expect(detectMemeAction("please ban @2")).toBeNull(); // "please" first — not a command
 });
 
-test("extractDuration: pulls a normalized token or null", () => {
+test("detectMemeAction: leading punctuation is tolerated, substrings aren't", () => {
+  expect(detectMemeAction("ban! @2")).toBe("ban");
+  expect(detectMemeAction("abandon the ship")).toBeNull(); // 'ban' inside 'abandon'
+  expect(detectMemeAction("kickstart the project")).toBeNull(); // 'kick' inside 'kickstart'
+});
+
+test("extractDuration: pulls a normalized token (compact or long form) or null", () => {
   expect(extractDuration("mute @2 for 10m")).toBe("10m");
   expect(extractDuration("mute @2 2 h")).toBe("2h");
+  expect(extractDuration("mute @2 for 10 minutes")).toBe("10m");
+  expect(extractDuration("mute @2 3 days")).toBe("3d");
   expect(extractDuration("mute @2")).toBeNull();
   expect(extractDuration("ban <@1526727441442406610>")).toBeNull(); // a snowflake isn't a duration
 });
