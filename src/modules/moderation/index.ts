@@ -7,6 +7,7 @@ import {
   EmbedBuilder,
   type Guild,
   type GuildBasedChannel,
+  type GuildMember,
   type GuildTextBasedChannel,
   type Message,
   MessageFlags,
@@ -260,9 +261,8 @@ function sweepPending(): void {
   for (const [k, v] of pendingPurges) if (now - v.createdAt > PENDING_TTL_MS) pendingPurges.delete(k);
 }
 
-// A text/announcement channel the bot can actually read + delete in.
-function botCanPurge(guild: Guild, channel: GuildBasedChannel): channel is GuildTextBasedChannel {
-  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return false;
+// The bot can read + delete in this channel (perms only, any text-based channel incl. threads).
+function botHasPurgePerms(guild: Guild, channel: GuildBasedChannel): boolean {
   const me = guild.members.me;
   const perms = me && channel.permissionsFor(me);
   return (
@@ -272,8 +272,20 @@ function botCanPurge(guild: Guild, channel: GuildBasedChannel): channel is Guild
     perms.has(PermissionFlagsBits.ManageMessages)
   );
 }
+
+// A text/announcement channel the bot can act in — the set eligible for a multi-channel purge.
+function botCanPurge(guild: Guild, channel: GuildBasedChannel): channel is GuildTextBasedChannel {
+  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return false;
+  return botHasPurgePerms(guild, channel);
+}
 function purgeableChannels(guild: Guild): GuildTextBasedChannel[] {
   return [...guild.channels.cache.values()].filter((c): c is GuildTextBasedChannel => botCanPurge(guild, c));
+}
+
+// The INVOKER's own Manage Messages in a specific channel — so a channel-scoped moderator can't
+// borrow the bot's reach to purge channels they can't normally moderate.
+function memberCanManage(channel: GuildBasedChannel, member: GuildMember): boolean {
+  return channel.permissionsFor(member)?.has(PermissionFlagsBits.ManageMessages) ?? false;
 }
 
 type Progress = (text: string) => Promise<void>;
@@ -317,10 +329,13 @@ async function purgeChannel(
   for (let i = 0; i < recent.length; i += 100) {
     const slice = recent.slice(i, i + 100);
     const one = slice[0];
+    // Suppress every id up front (don't re-surface purged content in the member-log). Suppress the
+    // whole slice, not just the lone-message branch: bulkDelete's own 14-day filter can trim a
+    // 2+ slice down to one, at which point discord.js falls back to a single DELETE that fires a
+    // per-message MessageDelete — which would otherwise be echoed.
+    for (const m of slice) suppressDeletion(m.id);
     if (slice.length === 1 && one) {
-      // Discord's bulk endpoint needs 2+; a lone message is deleted directly. Suppress its
-      // member-log echo (the mod-log purge alert is the record; don't re-surface the content).
-      suppressDeletion(one.id);
+      // Discord's bulk endpoint needs 2+; a lone message is deleted directly.
       if (await one.delete().then(() => true).catch(() => false)) deleted++;
       else suppressedDeletions.delete(one.id);
     } else {
@@ -371,7 +386,9 @@ async function runPurge(
 }
 
 function purgeSummary(res: PurgeResult): string {
-  if (res.deleted === 0) return "Nothing matched to delete in the scanned range.";
+  if (res.deleted === 0 && res.oldRemaining === 0 && !res.timedOut) {
+    return "Nothing matched to delete in the scanned range.";
+  }
   const across = res.channelsHit > 1 ? ` across ${res.channelsHit} channels` : "";
   let s = `🧹 Deleted **${res.deleted}** message${res.deleted === 1 ? "" : "s"}${across}.`;
   if (res.oldRemaining > 0) {
@@ -502,9 +519,17 @@ const purgeSub: Subcommand = {
         await interaction.reply({ content: "Run this in a server text channel.", flags: MessageFlags.Ephemeral });
         return;
       }
+      if (!botHasPurgePerms(interaction.guild, channel as GuildTextBasedChannel)) {
+        await interaction.reply({
+          content: "I need View Channel, Read Message History, and Manage Messages here to purge.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const res = await runPurge([channel as GuildTextBasedChannel], criteria, count, async () => {});
-      await interaction.editReply(purgeSummary(res));
+      // Audit-log independent of the reply edit — a failed editReply mustn't lose the record.
+      await interaction.editReply(purgeSummary(res)).catch(() => {});
       if (res.deleted > 0) await logPurge(ctx, interaction.guild, interaction.user.id, res, user?.id ?? null, filter, [channel.id]);
       return;
     }
@@ -518,9 +543,14 @@ const purgeSub: Subcommand = {
         });
         return;
       }
-      const channels = purgeableChannels(interaction.guild);
+      const invoker = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      if (!invoker) {
+        await interaction.reply({ content: "Couldn't resolve your permissions — try again.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const channels = purgeableChannels(interaction.guild).filter((c) => memberCanManage(c, invoker));
       if (channels.length === 0) {
-        await interaction.reply({ content: "I don't have Manage Messages in any text channel here.", flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: "No text channels where both you and I have Manage Messages.", flags: MessageFlags.Ephemeral });
         return;
       }
       sweepPending();
@@ -566,7 +596,8 @@ const purgePickHandler: ComponentHandler = {
     if (!interaction.isChannelSelectMenu()) return;
     const token = interaction.customId.split(":")[1] ?? "";
     const pending = pendingPurges.get(token);
-    if (!pending || pending.requesterId !== interaction.user.id) {
+    if (!pending || pending.requesterId !== interaction.user.id || Date.now() - pending.createdAt > PENDING_TTL_MS) {
+      pendingPurges.delete(token);
       await interaction.update({ content: "This purge selection expired — run `/mod purge` again.", components: [] });
       return;
     }
@@ -587,7 +618,8 @@ const purgeConfirmHandler: ComponentHandler = {
     if (!interaction.isButton() || !interaction.inGuild() || !interaction.guild) return;
     const token = interaction.customId.split(":")[1] ?? "";
     const pending = pendingPurges.get(token);
-    if (!pending || pending.requesterId !== interaction.user.id) {
+    if (!pending || pending.requesterId !== interaction.user.id || Date.now() - pending.createdAt > PENDING_TTL_MS) {
+      pendingPurges.delete(token);
       await interaction.update({ content: "This purge expired or isn't yours — run `/mod purge` again.", components: [] });
       return;
     }
@@ -595,13 +627,18 @@ const purgeConfirmHandler: ComponentHandler = {
       await interaction.update({ content: "You need the Manage Messages permission.", components: [] });
       return;
     }
+    // Claim the pending synchronously (before any await) so a double-click can't run it twice.
     pendingPurges.delete(token);
     const guild = interaction.guild;
+    const invoker = await guild.members.fetch(interaction.user.id).catch(() => null);
     const channels = pending.channelIds
       .map((id) => guild.channels.cache.get(id))
-      .filter((c): c is GuildTextBasedChannel => !!c && botCanPurge(guild, c));
+      .filter((c): c is GuildTextBasedChannel => !!c && botCanPurge(guild, c) && !!invoker && memberCanManage(c, invoker));
     if (channels.length === 0) {
-      await interaction.update({ content: "None of those channels are purgeable (missing permissions?).", components: [] });
+      await interaction.update({
+        content: "None of those channels are purgeable — either I lack Manage Messages there, or you do.",
+        components: [],
+      });
       return;
     }
     await interaction.update({
@@ -611,7 +648,7 @@ const purgeConfirmHandler: ComponentHandler = {
     const report = throttledReporter((text) => interaction.editReply(text));
     const criteria: PurgeCriteria = { userId: pending.userId ?? undefined, filter: pending.filter };
     const res = await runPurge(channels, criteria, pending.count, report);
-    await interaction.editReply(purgeSummary(res));
+    await interaction.editReply(purgeSummary(res)).catch(() => {});
     if (res.deleted > 0) {
       await logPurge(ctx, guild, interaction.user.id, res, pending.userId, pending.filter, channels.map((c) => c.id));
     }

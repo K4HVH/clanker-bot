@@ -25,8 +25,10 @@ test("purge match: bots / humans filters", () => {
   expect(messageMatchesPurge(msg({ authorBot: true }), { filter: "humans" })).toBe(false);
 });
 
-test("purge match: links filter needs an http(s) link", () => {
+test("purge match: links filter catches http(s), www., and invites", () => {
   expect(messageMatchesPurge(msg({ content: "see https://x.com" }), { filter: "links" })).toBe(true);
+  expect(messageMatchesPurge(msg({ content: "go to www.evil.com" }), { filter: "links" })).toBe(true);
+  expect(messageMatchesPurge(msg({ content: "join discord.gg/abc" }), { filter: "links" })).toBe(true);
   expect(messageMatchesPurge(msg({ content: "no link here" }), { filter: "links" })).toBe(false);
 });
 

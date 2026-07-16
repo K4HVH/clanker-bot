@@ -14,7 +14,8 @@ export interface PurgeableMessage {
   attachmentCount: number;
 }
 
-const LINK_RE = /https?:\/\//i;
+// Catches http(s):// plus scheme-less links people actually post (www., invite shorteners).
+const LINK_RE = /(https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invite\/)/i;
 
 export function messageMatchesPurge(m: PurgeableMessage, c: PurgeCriteria): boolean {
   if (c.userId && m.authorId !== c.userId) return false;
