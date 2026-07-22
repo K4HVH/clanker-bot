@@ -49,6 +49,63 @@ export function hasUnallowedLink(content: string, allowlist: string): boolean {
   return false;
 }
 
+// Common file extensions that look like bare domains in a firmware community (readme.md,
+// build.sh, main.cpp). Never treated as hostnames when extracting BARE, scheme-less candidates.
+// This is a noise filter, not a security boundary: bare candidates are only ever tested against
+// the known-bad blocklist, which holds no filenames. Real scam links use https:// or www. and are
+// extracted regardless.
+const FILE_EXT_LIKE = new Set([
+  "md", "sh", "txt", "js", "ts", "tsx", "jsx", "json", "yml", "yaml", "toml", "ini", "cfg", "conf",
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "mp4", "mov", "webm", "mp3", "wav",
+  "zip", "tar", "gz", "rar", "7z", "pdf", "doc", "docx", "xls", "xlsx", "csv", "log", "bin", "hex",
+  "c", "cpp", "h", "hpp", "py", "rs", "go", "java", "rb", "php", "html", "css", "xml", "exe", "dll",
+  "so", "elf", "img", "iso", "bat", "ps1", "lua", "ino", "map", "lock", "env", "sql", "db",
+]);
+
+// A scheme-less domain: one or more labels then a 2+ alpha TLD. Word-bounded so it doesn't grab
+// fragments. Used only when the caller opts into bare-domain extraction.
+const BARE_DOMAIN_REGEX = /\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})\b/gi;
+
+// Strip a single trailing file extension (`.png`, `.jpg`, …) so a filename like
+// "free-nitro-discord.gg.png" can still surface its embedded "free-nitro-discord.gg".
+function stripFileExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return name;
+  return FILE_EXT_LIKE.has(name.slice(dot + 1).toLowerCase()) ? name.slice(0, dot) : name;
+}
+
+// Collect candidate hostnames from a message: scheme'd/www links in the content and any embed
+// text, plus (opt-in) bare scheme-less domains and de-extensioned attachment filenames. Returns
+// deduped, lowercased hostnames. The blocklist check decides what to DO with them — bare domains
+// are intended to be matched ONLY against the known-bad list, never the allowlist.
+export function extractHostnames(opts: {
+  content: string;
+  embedTexts?: string[];
+  filenames?: string[];
+  includeBare: boolean;
+}): string[] {
+  const out = new Set<string>();
+  const textSources = [opts.content, ...(opts.embedTexts ?? [])];
+
+  for (const src of textSources) {
+    const urls = src.match(URL_REGEX);
+    if (urls) for (const u of urls) { const d = domainOf(u); if (d) out.add(d); }
+  }
+
+  if (opts.includeBare) {
+    const bareSources = [...textSources, ...(opts.filenames ?? []).map(stripFileExt)];
+    for (const src of bareSources) {
+      for (const m of src.matchAll(BARE_DOMAIN_REGEX)) {
+        const host = (m[1] ?? "").toLowerCase().replace(/\.$/, "");
+        const tld = host.slice(host.lastIndexOf(".") + 1);
+        if (host && !FILE_EXT_LIKE.has(tld)) out.add(host);
+      }
+    }
+  }
+
+  return [...out];
+}
+
 // A high floor so short shouted acronym lists (GPIO, UART, I2C, SPI…) common in a firmware
 // community don't trip it — only a genuinely long, mostly-uppercase message does.
 export function isCapsSpam(content: string): boolean {

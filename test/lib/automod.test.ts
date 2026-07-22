@@ -3,6 +3,7 @@ import {
   checkContent,
   type ContentRules,
   decideEscalation,
+  extractHostnames,
   hasUnallowedLink,
   isCapsSpam,
   type Tier,
@@ -66,6 +67,41 @@ test("hasUnallowedLink normalizes www + punctuation; caps has a high floor", () 
   expect(isCapsSpam("THIS IS COMPLETELY UNACCEPTABLE BEHAVIOUR")).toBe(true);
   expect(isCapsSpam("GPIO UART I2C SPI ADC")).toBe(false); // short acronym list — under the floor
   expect(isCapsSpam("normal message")).toBe(false);
+});
+
+// ── extractHostnames ─────────────────────────────────────────────────────────
+test("extractHostnames: scheme'd + www links from content and embeds", () => {
+  expect(extractHostnames({ content: "see https://mrbeast-drop.xyz/claim now", includeBare: false })).toEqual([
+    "mrbeast-drop.xyz",
+  ]);
+  expect(
+    extractHostnames({ content: "hi", embedTexts: ["visit www.evil.example/x"], includeBare: false }),
+  ).toEqual(["evil.example"]);
+});
+
+test("extractHostnames: bare domains only when includeBare, and filenames aren't hostnames", () => {
+  // Without includeBare, a scheme-less domain is not extracted.
+  expect(extractHostnames({ content: "go to mrbeast-drop.xyz", includeBare: false })).toEqual([]);
+  // With includeBare, it is.
+  expect(extractHostnames({ content: "go to mrbeast-drop.xyz", includeBare: true })).toEqual(["mrbeast-drop.xyz"]);
+  // Firmware-community filenames must NOT become hostnames, even with includeBare.
+  expect(extractHostnames({ content: "check readme.md and build.sh and main.cpp", includeBare: true })).toEqual([]);
+});
+
+test("extractHostnames: bare domain from a de-extensioned attachment filename", () => {
+  expect(
+    extractHostnames({ content: "", filenames: ["free-nitro-discord.gg.png"], includeBare: true }),
+  ).toContain("free-nitro-discord.gg");
+  // But a plain image filename yields nothing.
+  expect(extractHostnames({ content: "", filenames: ["screenshot.png"], includeBare: true })).toEqual([]);
+});
+
+test("extractHostnames: dedupes and lowercases", () => {
+  const hosts = extractHostnames({
+    content: "https://Evil.Example/a and again evil.example",
+    includeBare: true,
+  });
+  expect(hosts).toEqual(["evil.example"]);
 });
 
 // ── decideEscalation ─────────────────────────────────────────────────────────
