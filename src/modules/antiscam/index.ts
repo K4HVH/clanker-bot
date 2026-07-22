@@ -218,8 +218,9 @@ async function actOnMatch(
 ): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
-  // One action per user per burst (synchronous claim, before any await below).
-  if (!claimAction(`${guild.id}:${message.author.id}`)) return;
+  // One blocklist action per user per burst (synchronous claim, before any await below).
+  // Namespaced per-path so a flag here can't suppress a stronger spray action, and vice versa.
+  if (!claimAction(`bl:${guild.id}:${message.author.id}`)) return;
   bumpSignatureHit(ctx.db, guild.id, match.kind, match.value, now);
   const botId = message.client.user.id;
   const reason = `Anti-scam: known-bad ${match.kind}`;
@@ -319,9 +320,10 @@ async function actOnSpray(
 ): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
-  // One action per user per burst — without this the detector re-fires on every message once the
-  // channel threshold is crossed (the ring buffer keeps matching), stacking timeouts/bans/purges.
-  if (!claimAction(`${guild.id}:${message.author.id}`)) return;
+  // One spray action per user per burst — without this the detector re-fires on every message once
+  // the channel threshold is crossed (the ring buffer keeps matching), stacking timeouts/bans/
+  // purges. Namespaced per-path (see actOnMatch).
+  if (!claimAction(`sp:${guild.id}:${message.author.id}`)) return;
   const botId = message.client.user.id;
   const reason = "Anti-scam: cross-channel spray";
   let effective: "flag" | "timeout" | "kick" | "ban" = action;
