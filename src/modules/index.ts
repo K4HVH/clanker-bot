@@ -1,4 +1,5 @@
 import type { BotModule } from "../core/module";
+import { antiscamModule } from "./antiscam";
 import { automodModule } from "./automod";
 import { configModule } from "./config";
 import { guardsModule } from "./guards";
@@ -21,6 +22,7 @@ export const modules: BotModule[] = [
   // but registering first also means the honeypot's synchronous claim runs before automod's scan.
   honeypotModule,
   automodModule,
+  antiscamModule,
   verificationModule,
   guardsModule,
   ticketsModule,

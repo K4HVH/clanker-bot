@@ -1,6 +1,7 @@
 import type { Client } from "discord.js";
 import type { AppContext } from "../core/context";
 import { createCase } from "../db/cases";
+import { pruneExpiredSignatures } from "../db/scam-signature";
 import {
   deleteScheduledAction,
   dueActions,
@@ -64,8 +65,9 @@ export function startScheduler(ctx: AppContext, client: Client, intervalMs = 30_
     // Guarded so a DB throw can't escape the timer callback and kill the process.
     try {
       pruneExpiredChallenges(ctx.db, now);
+      pruneExpiredSignatures(ctx.db, now);
     } catch (error) {
-      ctx.logger.error("prune expired challenges failed", {
+      ctx.logger.error("prune expired rows failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     }
