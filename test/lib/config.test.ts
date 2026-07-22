@@ -36,6 +36,23 @@ test("every setting has a known category and JSON-safe defaults", () => {
   }
 });
 
+test("honeypot + anti-scam removal actions default to off", () => {
+  for (const key of [
+    CONFIG_KEYS.honeypotAction,
+    CONFIG_KEYS.antiscamSprayAction,
+    CONFIG_KEYS.antiscamBlocklistAction,
+  ]) {
+    expect(REGISTRY_BY_KEY.get(key)?.default).toBe("off");
+  }
+  // The self-seeding writer must be opt-in.
+  expect(REGISTRY_BY_KEY.get(CONFIG_KEYS.antiscamSeedFromHoneypot)?.default).toBe(false);
+  // Four new categories exist.
+  const catIds = new Set(CATEGORIES.map((c) => c.id));
+  for (const id of ["honeypot", "antiscam-spray", "antiscam-filters", "antiscam-seed"]) {
+    expect(catIds.has(id)).toBe(true);
+  }
+});
+
 test("getEffective falls back to default; get stays unset-sensitive", () => {
   const cfg = new ConfigService(makeTestDb());
   expect(cfg.getEffective<boolean>("g", CONFIG_KEYS.dmOnAction)).toBe(false);
