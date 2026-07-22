@@ -81,6 +81,11 @@ const onCreate: Listener<Events.MessageCreate> = {
     const configured = actionOf(ctx, guild.id);
     if (configured === "off") return;
 
+    // Claim BEFORE resolving the member — which may `await` a fetch when the member isn't cached.
+    // Keying on the author id (which we already have) means a concurrent burst can't race past
+    // this while several member fetches are in flight. An exempt user simply claims-then-returns.
+    if (!claim(`${guild.id}:${message.author.id}`)) return;
+
     // FAIL CLOSED on member resolution: an instant ban must never fire against a moderator whose
     // member object simply didn't resolve. (Automod's `member?.permissions` fails OPEN — fine for
     // a delete + warn, not for a ban.)
@@ -100,9 +105,6 @@ const onCreate: Listener<Events.MessageCreate> = {
     if (member.permissions.has(PermissionFlagsBits.ManageMessages)) return;
     const exemptRoles = exemptRoleIds(ctx, guild.id);
     if (exemptRoles.some((r) => member.roles.cache.has(r))) return;
-
-    // Claim BEFORE the first genuine await below, so a burst collapses to one action.
-    if (!claim(`${guild.id}:${member.id}`)) return;
 
     // Capture the bait BEFORE acting — a ban's server-side prune does not reliably emit per-message
     // delete events, so this is the only record of what they posted.

@@ -52,6 +52,26 @@ function invalidate(guildId: string): void {
   sigCache.delete(guildId);
 }
 
+// A per-user action claim so a burst of the same user's messages produces ONE action, not one per
+// message — both the blocklist ban/delete path and the spray path check this before acting. The
+// spray detector keeps COUNTING every message (so it can trip); only the action is deduped. Held
+// synchronously (no await before the check inside actOnMatch/actOnSpray), so concurrent handlers
+// can't both pass. Mirrors the honeypot's claim().
+const actionClaimed = new Map<string, number>();
+const ACTION_CLAIM_TTL = 30_000;
+
+function claimAction(key: string): boolean {
+  const now = Date.now();
+  const prev = actionClaimed.get(key);
+  if (prev !== undefined && now - prev < ACTION_CLAIM_TTL) return false;
+  actionClaimed.set(key, now);
+  if (actionClaimed.size > 500) {
+    const cutoff = now - ACTION_CLAIM_TTL;
+    for (const [k, t] of actionClaimed) if (t < cutoff) actionClaimed.delete(k);
+  }
+  return true;
+}
+
 // ── Config readers (fail safe to "off") ──────────────────────────────────────
 function blocklistActionOf(ctx: AppContext, guildId: string): "off" | "flag" | "delete" | "ban" {
   const v = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.antiscamBlocklistAction);
@@ -129,19 +149,22 @@ async function matchBlocklist(ctx: AppContext, message: Message, now: number): P
     }
   }
 
-  // Images: cheap (size:w:h) pre-filter, then confirm with a SHA-256 when we hold hashes.
-  if (sets.triple.size || sets.sha256.size) {
+  // Images. sha256 (byte-exact) and triple (size:w:h fingerprint) are seeded mutually exclusively
+  // — an image we could hash is stored as a sha256; one we couldn't (too large / a failed seed-time
+  // fetch) as a triple. So each is checked independently, with no global-set gating that could hide
+  // a triple-only seed once the guild holds any unrelated hash.
+  if (sets.sha256.size) {
     const maxBytes = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.antiscamSeedMaxBytes) * 1_000_000;
     for (const a of message.attachments.values()) {
+      if (!a.width || !a.height || a.size > maxBytes) continue; // only hashable images
+      const hash = await sha256Of(a.url, maxBytes);
+      if (hash && sets.sha256.has(hash)) return { kind: "sha256", value: hash };
+    }
+  }
+  if (sets.triple.size) {
+    for (const a of message.attachments.values()) {
       const triple = attachmentTriple(a.size, a.width, a.height);
-      if (!triple || !sets.triple.has(triple)) continue;
-      if (sets.sha256.size && a.size <= maxBytes) {
-        const hash = await sha256Of(a.url, maxBytes);
-        if (hash && sets.sha256.has(hash)) return { kind: "sha256", value: hash };
-        // Same dimensions, different bytes — not the same file. Keep looking.
-      } else {
-        return { kind: "triple", value: triple };
-      }
+      if (triple && sets.triple.has(triple)) return { kind: "triple", value: triple };
     }
   }
   return null;
@@ -160,10 +183,26 @@ function matchAlert(userId: string, channelId: string, match: Match, action: str
     .setTimestamp(new Date());
 }
 
-function forgetButton(match: Match): ActionRowBuilder<ButtonBuilder> {
+// "Not a scam" buttons carry a short token, not the (possibly long) signature value — Discord caps
+// a customId at 100 chars, which would truncate a long phishing hostname and make removal delete
+// the wrong row / nothing. Tokens are in-memory, so a button from before a restart resolves to
+// "expired" (the `/antiscam forget` command still works for those).
+const forgetTargets = new Map<string, { kind: SignatureKind; value: string; at: number }>();
+let forgetSeq = 0;
+const FORGET_TTL = 3_600_000;
+
+function stashForget(kind: SignatureKind, value: string): string {
+  const now = Date.now();
+  for (const [k, v] of forgetTargets) if (now - v.at > FORGET_TTL) forgetTargets.delete(k);
+  const token = (forgetSeq++).toString(36);
+  forgetTargets.set(token, { kind, value, at: now });
+  return token;
+}
+
+function forgetButton(token: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`antiscam:forget:${match.kind}:${match.value}`.slice(0, 100))
+      .setCustomId(`antiscam:forget:${token}`)
       .setStyle(ButtonStyle.Secondary)
       .setLabel("Not a scam — remove"),
   );
@@ -179,6 +218,8 @@ async function actOnMatch(
 ): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
+  // One action per user per burst (synchronous claim, before any await below).
+  if (!claimAction(`${guild.id}:${message.author.id}`)) return;
   bumpSignatureHit(ctx.db, guild.id, match.kind, match.value, now);
   const botId = message.client.user.id;
   const reason = `Anti-scam: known-bad ${match.kind}`;
@@ -236,7 +277,7 @@ async function actOnMatch(
     const channel =
       guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId).catch(() => null));
     if (channel?.isTextBased()) {
-      await channel.send({ components: [forgetButton(match)] }).catch(() => {});
+      await channel.send({ components: [forgetButton(stashForget(match.kind, match.value))] }).catch(() => {});
     }
   }
 }
@@ -278,6 +319,9 @@ async function actOnSpray(
 ): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
+  // One action per user per burst — without this the detector re-fires on every message once the
+  // channel threshold is crossed (the ring buffer keeps matching), stacking timeouts/bans/purges.
+  if (!claimAction(`${guild.id}:${message.author.id}`)) return;
   const botId = message.client.user.id;
   const reason = "Anti-scam: cross-channel spray";
   let effective: "flag" | "timeout" | "kick" | "ban" = action;
@@ -369,11 +413,21 @@ async function seedFromEvidence(
     for (const a of evidence.attachments) {
       const triple = attachmentTriple(a.size, a.width, a.height);
       if (!triple) continue;
-      upsertSignature(ctx.db, { guildId: gid, kind: "triple", value: triple, source, expiresAt }, now);
-      added++;
+      // Prefer a byte-exact SHA-256; fall back to the fingerprint ONLY when we can't hash (too
+      // large, or the download failed). Mutually exclusive, so the check side never has to guess
+      // whether a triple has a paired hash.
+      let hashed = false;
       if (a.size <= maxBytes) {
         const hash = await sha256Of(a.url, maxBytes);
-        if (hash) upsertSignature(ctx.db, { guildId: gid, kind: "sha256", value: hash, source, expiresAt }, now);
+        if (hash) {
+          upsertSignature(ctx.db, { guildId: gid, kind: "sha256", value: hash, source, expiresAt }, now);
+          added++;
+          hashed = true;
+        }
+      }
+      if (!hashed) {
+        upsertSignature(ctx.db, { guildId: gid, kind: "triple", value: triple, source, expiresAt }, now);
+        added++;
       }
     }
   }
@@ -560,14 +614,23 @@ const forgetButtonHandler: ComponentHandler = {
       await interaction.reply({ content: "You don't have permission.", flags: MessageFlags.Ephemeral });
       return;
     }
-    // customId = antiscam:forget:<kind>:<value>
-    const rest = interaction.customId.slice("antiscam:forget:".length);
-    const sep = rest.indexOf(":");
-    const kind = rest.slice(0, sep) as SignatureKind;
-    const value = rest.slice(sep + 1);
-    removeSignature(ctx.db, interaction.guildId, kind, value);
+    // customId = antiscam:forget:<token> → look the full signature back up.
+    const token = interaction.customId.slice("antiscam:forget:".length);
+    const target = forgetTargets.get(token);
+    if (!target) {
+      await interaction.reply({
+        content: "That correction expired — use `/antiscam forget` instead.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const removed = removeSignature(ctx.db, interaction.guildId, target.kind, target.value);
+    forgetTargets.delete(token);
     invalidate(interaction.guildId);
-    await interaction.reply({ content: `Removed \`${kind}\` \`${value.slice(0, 100)}\` from the blocklist.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: removed > 0 ? `Removed \`${target.kind}\` from the blocklist.` : "That signature was already gone.",
+      flags: MessageFlags.Ephemeral,
+    });
   },
 };
 
