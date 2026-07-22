@@ -24,6 +24,7 @@ export const CONFIG_KEYS = {
   automodTimeoutMinutes: "automod_timeout_minutes",
   automodKickAt: "automod_kick_at",
   automodBanAt: "automod_ban_at",
+  automodBanDeleteHours: "automod_ban_delete_hours",
   minAccountAgeDays: "min_account_age_days",
   accountAgeGateAction: "account_age_gate_action",
   nameBlocklist: "name_blocklist",
@@ -124,6 +125,7 @@ export const REGISTRY: Setting[] = [
   { key: K.automodTimeoutMinutes, category: "automod-actions", type: "int", min: 1, max: 40320, default: 10, label: "Timeout length (minutes)", description: "How long the escalation timeout lasts (max 28 days)." },
   { key: K.automodKickAt, category: "automod-actions", type: "int", min: 0, max: 100, default: 0, label: "Kick at N violations (0=off)", description: "Kick a user once they hit this many violations. Off by default." },
   { key: K.automodBanAt, category: "automod-actions", type: "int", min: 0, max: 100, default: 0, label: "Ban at N violations (0=off)", description: "Ban a user once they hit this many violations. Off by default." },
+  { key: K.automodBanDeleteHours, category: "automod-actions", type: "int", min: 0, max: 168, default: 24, label: "Ban: wipe last N hours of messages", description: "When automod bans a user, ask Discord to delete this many hours of their messages server-wide (max 7 days). 0 keeps them." },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)", description: "Accounts newer than this trip the age gate. 0 disables it." },
   { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },

@@ -3,6 +3,7 @@ import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
 import { CONFIG_KEYS } from "../../lib/config";
 import { type GuardAction, matchBlocklist, parseBlocklist, strongerAction } from "../../lib/guards";
+import { applyModAction } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 
 const DAY_MS = 86_400_000;
@@ -33,31 +34,25 @@ async function enforce(
 ): Promise<void> {
   if (action === "off") return;
   const guild = member.guild;
-  let effective = action;
-  if (effective === "kick" || effective === "ban") {
-    const me = guild.members.me;
-    const outranks =
-      !!me && member.id !== guild.ownerId && member.roles.highest.position < me.roles.highest.position;
-    const perm = effective === "ban" ? PermissionFlagsBits.BanMembers : PermissionFlagsBits.KickMembers;
-    if (!outranks || !me?.permissions.has(perm)) effective = "flag";
-  }
-
   const summary = reasons.join("; ");
+  let effective = action;
 
-  // Carry out a removal FIRST — DMing beforehand, since afterwards we no longer share a guild
-  // to DM through — so the alert reports what actually happened, not just what we intended.
+  // Carry out a removal via the shared helper (gate + DM-before-removal + act). If it can't be
+  // done — owner, a member above the bot, missing permission, or an API failure — downgrade to a
+  // flag so the alert reports what actually happened, not just what we intended.
   if (effective === "kick" || effective === "ban") {
-    if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.guardDmOnRemoval)) {
-      await member
-        .send(`You were ${effective === "ban" ? "banned from" : "removed from"} **${guild.name}**: ${summary}.`)
-        .catch(() => {});
-    }
-    const reason = `Guard: ${summary}`.slice(0, 500);
-    const ok =
-      effective === "ban"
-        ? await member.ban({ reason }).then(() => true).catch(() => false)
-        : await member.kick(reason).then(() => true).catch(() => false);
-    if (!ok) effective = "flag"; // couldn't carry it out — report honestly as a flag
+    const dm = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.guardDmOnRemoval)
+      ? `You were ${effective === "ban" ? "banned from" : "removed from"} **${guild.name}**: ${summary}.`
+      : undefined;
+    const acted = await applyModAction({
+      guild,
+      member,
+      userId: member.id,
+      type: effective,
+      reason: `Guard: ${summary}`,
+      dm,
+    });
+    if (!acted) effective = "flag";
   }
 
   await logModAlert(

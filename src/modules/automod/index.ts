@@ -8,6 +8,7 @@ import { checkContent, type ContentRules, decideEscalation, type Tier } from "..
 import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
+import { applyModAction } from "../../lib/mod-action";
 import { logCase } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
 import { isCodeShaped } from "../../lib/verification-logic";
@@ -124,43 +125,31 @@ async function escalate(
   if (!decision.action) return decision.suppressWarnDm;
   const type = decision.action.type;
 
-  // The user just sent a message, so they're present: require the bot to outrank them (and not be
-  // the owner) and hold the permission, or skip silently — avoids a doomed API call + a lying DM.
-  const me = guild.members.me;
-  const outranks =
-    !!me && !!member && userId !== guild.ownerId && member.roles.highest.position < me.roles.highest.position;
-  const perm =
-    type === "ban"
-      ? PermissionFlagsBits.BanMembers
-      : type === "kick"
-        ? PermissionFlagsBits.KickMembers
-        : PermissionFlagsBits.ModerateMembers;
-  if (!outranks || !me?.permissions.has(perm)) return false;
-
+  // The user just sent a message, so they're present. applyModAction runs the shared gate (bot
+  // outranks them, not the owner, holds the permission) and takes the action with the correct DM
+  // ordering — skipping silently on a failed gate avoids a doomed API call + a lying DM.
   const reason = `Automod: ${count} violations in ${ttlMin}m`;
   const dmEnabled = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction);
-  const notify = async () => {
-    if (!dmEnabled) return;
-    const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
-    await message.author.send(`You were ${verb} **${guild.name}** by automod — ${reason}.`).catch(() => {});
-  };
+  const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
+  const acted = await applyModAction({
+    guild,
+    member,
+    userId,
+    type,
+    reason,
+    dm: dmEnabled ? `You were ${verb} **${guild.name}** by automod — ${reason}.` : undefined,
+    timeoutMs:
+      type === "timeout"
+        ? ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes) * 60_000
+        : undefined,
+    // Fixes a prior bug: automod bans left the scam messages up. Wipe the configured window.
+    deleteMessageSeconds:
+      type === "ban"
+        ? ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanDeleteHours) * 3600
+        : undefined,
+  });
+  if (!acted) return false; // action failed/skipped; the delete + warn still stand, so allow the warn DM
 
-  try {
-    if (type === "ban") {
-      // DM BEFORE removal — once kicked/banned we no longer share a guild, so the DM would fail.
-      await notify();
-      await guild.members.ban(userId, { reason });
-    } else if (type === "kick") {
-      await notify();
-      await member?.kick(reason);
-    } else {
-      const mins = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes);
-      await member?.timeout(mins * 60_000, reason);
-      await notify(); // still in the guild — DM after so it only sends on success
-    }
-  } catch {
-    return false; // action failed; the delete + warn still stand, so allow the warn DM
-  }
   // Record the action so the ladder advances. Guard the write: the action already happened, so a
   // failed insert should be logged, not thrown — a throw here would skip recording AND could let
   // the next burst message re-act (it derives the cooldown from this row).
