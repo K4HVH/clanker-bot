@@ -17,6 +17,7 @@ test("schema loads all tables", () => {
     "verification_challenges",
     "tickets",
     "tags",
+    "scam_signature",
   ]) {
     expect(names).toContain(table);
   }

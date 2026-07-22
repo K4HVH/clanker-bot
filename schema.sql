@@ -80,3 +80,20 @@ CREATE TABLE IF NOT EXISTS tags (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (guild_id, name)
 );
+
+-- Known-bad scam signatures: domains + image hashes/fingerprints seeded from confirmed honeypot
+-- hits (or a manual command). Matched on every message so the next account posting the same scam
+-- anywhere is caught. `expires_at` NULL = never (feed entries); self-seeded rows carry a TTL.
+CREATE TABLE IF NOT EXISTS scam_signature (
+  guild_id   TEXT    NOT NULL,
+  kind       TEXT    NOT NULL,  -- 'domain' | 'sha256' | 'triple'
+  value      TEXT    NOT NULL,  -- hostname | hex digest | "size:w:h"
+  source     TEXT    NOT NULL,  -- 'honeypot' | 'manual' | 'feed'
+  case_id    INTEGER,
+  hits       INTEGER NOT NULL DEFAULT 0,
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL,
+  expires_at INTEGER,
+  PRIMARY KEY (guild_id, kind, value)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS scam_signature_expiry_idx ON scam_signature (expires_at);
