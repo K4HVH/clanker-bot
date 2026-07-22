@@ -10,10 +10,12 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Audit logging** — to a member-log: message edits/deletes/bulk-deletes, joins/leaves, nickname & role changes, and (optionally) channel/role create/delete/edit. To a mod-log: bot actions plus **manual** bans/unbans/kicks/timeouts done outside the bot, attributed with *who + why* from the audit-log stream (deduped against the bot's own actions; kicks are distinguished from plain leaves). Per-group toggles in `/config` → Logging. Needs **View Audit Log** for attribution.
 - **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — assess every joiner and take one configured action (off/flag/kick/ban): account-age gate, a username/nickname **blocklist** (substring or `/regex/`, re-checked on nickname change), and a no-avatar flag. Optionally DMs a removed user why. Won't act above its own role, the owner, or without permission (downgrades to a flag).
+- **Honeypot** — a bait channel no real member should post in (put it near the top of your list and post the warning with `/honeypot panel`). Anyone who posts there trips one configured action (off/flag/kick/ban) with a configurable message wipe and an owner ping — catches hijacked/compromised accounts that spray every channel, including image-only posts automod can't see. Fails *closed* on member resolution, exempts the owner/staff/configured roles, and collapses a burst into a single action.
+- **Anti-scam** — defence against compromised accounts posting scams that the join gates (already-verified members) can't touch. A **cross-channel spray detector** (own window, sees image-only posts, near-duplicate text via Levenshtein) times out/kicks/bans and can purge the sprayed messages across every channel. A **known-bad signature blocklist** (scam domains + image SHA-256/`size:w:h` fingerprints) is checked on every message — including bare domains (vs the blocklist only, so `readme.md` stays safe) and embed/attachment names. The blocklist **self-seeds** from confirmed honeypot hits (the only automated writer) and a manual `/antiscam seed`, so the *next* account posting the same scam anywhere is caught instantly; entries carry a TTL and a one-click "not a scam" correction.
 - **Tickets** — `/ticket panel` → button opens a private channel per ticket; add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close. Opens and closes are logged to the mod-log; on close a **.zip** (transcript + posted images) is saved there and DM'd to the opener, and `/ticket transcript <n>` fetches any past ticket's saved transcript.
 - **Support helpers** — `/tag` canned answers for common questions.
 
-All automod / verification / guard features **default OFF** and are enabled via `/config`.
+All automod / verification / guard / honeypot / anti-scam features **default OFF** and are enabled via `/config`.
 
 ## Stack
 
@@ -55,7 +57,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete` · `/say` (+ right-click → **Reply as bot**)
+`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete` · `/honeypot panel` · `/antiscam seed|forget` · `/say` (+ right-click → **Reply as bot**)
 
 ## Development
 
@@ -68,4 +70,4 @@ Layout: `src/core/` (framework), `src/db/` (connection + one query file per tabl
 
 ## Roadmap
 
-Done: moderation, automod, verification, tickets, tags. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.
+Done: moderation, automod, verification, tickets, tags, memes, honeypot, anti-scam. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.
