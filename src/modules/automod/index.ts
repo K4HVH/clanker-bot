@@ -6,6 +6,7 @@ import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
 import { checkContent, type ContentRules, decideEscalation, type Tier } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
+import { inHoneypotChannel } from "../../lib/honeypot";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { applyModAction } from "../../lib/mod-action";
@@ -168,7 +169,12 @@ async function escalate(
 
 async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise<void> {
   const guild = message.guild;
-  if (!guild || message.author.bot || !message.content) return;
+  if (!guild || message.author.bot) return;
+  // The honeypot owns its channel — it kicks/bans on its own terms. Bail BEFORE the content
+  // guard so an image-only bait post is still left entirely to the honeypot (and never gets a
+  // contradictory automod action + delete race).
+  if (inHoneypotChannel(ctx, message)) return;
+  if (!message.content) return;
   const guildId = guild.id;
 
   const rules = contentRulesFor(ctx, guildId);

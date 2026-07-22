@@ -110,6 +110,7 @@ async function sendToConfigured(
   guild: Guild,
   key: string,
   embed: EmbedBuilder,
+  extra?: { content?: string; allowedMentions?: { roles: string[] } },
 ): Promise<void> {
   const channelId = ctx.config.get<string>(guild.id, key);
   if (!channelId) return;
@@ -117,7 +118,7 @@ async function sendToConfigured(
     guild.channels.cache.get(channelId) ??
     (await guild.channels.fetch(channelId).catch(() => null));
   if (channel?.isTextBased()) {
-    await channel.send({ embeds: [embed] }).catch(() => {});
+    await channel.send({ embeds: [embed], ...extra }).catch(() => {});
   }
 }
 
@@ -137,6 +138,10 @@ export async function logModAlert(
   ctx: AppContext,
   guild: Guild,
   embed: EmbedBuilder,
+  opts?: { pingRoleId?: string },
 ): Promise<void> {
-  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, embed);
+  const extra = opts?.pingRoleId
+    ? { content: `<@&${opts.pingRoleId}>`, allowedMentions: { roles: [opts.pingRoleId] } }
+    : undefined;
+  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, embed, extra);
 }

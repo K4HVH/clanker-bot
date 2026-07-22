@@ -2,6 +2,7 @@ import type { BotModule } from "../core/module";
 import { automodModule } from "./automod";
 import { configModule } from "./config";
 import { guardsModule } from "./guards";
+import { honeypotModule } from "./honeypot";
 import { loggingModule } from "./logging";
 import { memesModule } from "./memes";
 import { moderationModule } from "./moderation";
@@ -16,6 +17,9 @@ export const modules: BotModule[] = [
   configModule,
   loggingModule,
   moderationModule,
+  // Honeypot before automod: the scan() early-return is what actually protects the trap channel,
+  // but registering first also means the honeypot's synchronous claim runs before automod's scan.
+  honeypotModule,
   automodModule,
   verificationModule,
   guardsModule,
