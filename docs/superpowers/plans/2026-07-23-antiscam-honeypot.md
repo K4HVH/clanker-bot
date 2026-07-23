@@ -66,7 +66,7 @@
 
 - [ ] **Step 1:** Add a test asserting every new key is in the registry, each category renders within the 40-component panel budget, and `honeypot_action` default is `"off"`.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3:** Add keys to `CONFIG_KEYS`; add `honeypot` + `antiscam` to `CATEGORIES`; add REGISTRY entries per spec §8 (honeypot: channel/action/delete_hours/panel_text/exempt_roles/dm_user/alert_role; antiscam spray: action/channels/seconds/similarity/min_chars/match_attachments/timeout_minutes/exempt_staff/purge; antiscam blocklist+seed: blocklist_action/bare_domains/scan_embeds/scan_attachment_names/seed_from_honeypot/seed_domains/seed_images/seed_max_bytes/seed_ttl_days/seed_max_entries/domain_feed). Also add `automodBanDeleteHours` from Task 2. Fix the `automod_caps` description "10+ letters"→"24+ letters". Update README count.
+- [ ] **Step 3:** Add keys to `CONFIG_KEYS`; add `honeypot` + `antiscam` to `CATEGORIES`; add REGISTRY entries per spec §8 (honeypot: channel/action/delete_hours/panel_text/exempt_roles/dm_user/alert_role; antiscam spray: action/channels/seconds/similarity/min_chars/match_attachments/timeout_minutes/exempt_staff/purge; antiscam blocklist+seed: blocklist_action/bare_domains/scan_embeds/scan_attachment_names/seed_from_honeypot/seed_domains/seed_images/seed_max_bytes/seed_ttl_days/seed_max_entries). Also add `automodBanDeleteHours` from Task 2. Fix the `automod_caps` description "10+ letters"→"24+ letters". Update README count.
 - [ ] **Step 4:** Run `bun test test/lib/config.test.ts` → PASS.
 - [ ] **Step 5:** `bun run typecheck` clean. Commit `feat(config): honeypot + anti-scam settings`.
 
@@ -181,5 +181,5 @@
 ## Self-Review notes
 
 - **Spec coverage:** honeypot (T4/T5), automod gaps — bare-domain (T6), embed/attachment (T6), spray (T7), bug fixes: automod ban wipe (T2), caps desc + README (T3/T10) — self-seeding (T8/T9), mod-action extraction (T1/T2), config (T3). All spec §12 files mapped.
-- **Deferred, default-off (not built):** external FishFish/SY feed sync + `tldts`. `antiscam_domain_feed` key exists (T3) but has no sync implementation — it is inert until a future plan. Note this in the setting description so it isn't mistaken for working.
+- **Not built, no stub:** external FishFish/SY feed sync + `tldts`. No config toggle ships for it (a dead `antiscam_domain_feed` key was removed) — it would get its own plan + keys if ever built.
 - **Type consistency:** `applyModAction`/`ModActionInput` (T1) used verbatim in T2/T5/T9; `onHoneypotHit` seam defined T5, consumed T9; signature query names (T8) used in T9.

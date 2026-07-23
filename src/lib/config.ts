@@ -80,7 +80,6 @@ export const CONFIG_KEYS = {
   antiscamBareDomains: "antiscam_bare_domains",
   antiscamScanEmbeds: "antiscam_scan_embeds",
   antiscamScanAttachmentNames: "antiscam_scan_attachment_names",
-  antiscamDomainFeed: "antiscam_domain_feed",
   // Anti-scam — self-seeding from confirmed honeypot hits.
   antiscamSeedFromHoneypot: "antiscam_seed_from_honeypot",
   antiscamSeedDomains: "antiscam_seed_domains",
@@ -236,7 +235,6 @@ export const REGISTRY: Setting[] = [
   { key: K.antiscamBareDomains, category: "antiscam-filters", type: "bool", default: true, label: "Match bare domains (no https://)", description: "Also catch scam domains written without a scheme (e.g. mrbeast-drop.xyz). Only ever checked against the blocklist, never the automod allowlist, so filenames like readme.md stay safe." },
   { key: K.antiscamScanEmbeds, category: "antiscam-filters", type: "bool", default: true, label: "Scan link-preview embeds", description: "Also extract domains from embed titles/descriptions/URLs, not just the message text." },
   { key: K.antiscamScanAttachmentNames, category: "antiscam-filters", type: "bool", default: true, label: "Scan attachment filenames", description: "Also extract domains from attachment filenames (scammers sometimes hide the link there)." },
-  { key: K.antiscamDomainFeed, category: "antiscam-filters", type: "bool", default: false, label: "Sync an external scam-domain feed (not yet built)", description: "Reserved: sync a public phishing-domain feed into the blocklist. Not implemented yet — leave off. Self-seeding (below) covers this from your own confirmed hits." },
   // Anti-Scam: Seeding — the honeypot is the only automated writer of the blocklist.
   { key: K.antiscamSeedFromHoneypot, category: "antiscam-seed", type: "bool", default: false, label: "Seed the blocklist from honeypot hits", description: "When the honeypot fires, add the scam's domains and image hash to the blocklist so the NEXT account posting it anywhere is caught instantly. Turn on after the honeypot has run clean for a week." },
   { key: K.antiscamSeedDomains, category: "antiscam-seed", type: "bool", default: true, label: "Seed domains", description: "Include scam domains when seeding. Skips anything allowlisted or on shared hosting." },

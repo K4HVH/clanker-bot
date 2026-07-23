@@ -88,8 +88,8 @@ and is worthless in 60 days, so a shared corpus wouldn't help even if one existe
 **Non-goals (explicitly out of scope — see §9)**
 
 Perceptual image hashing (PDQ/pHash), OCR, a behavioural profile store, a Discord AutoMod
-rule provisioner, and third-party domain-feed syncing as a *hard* dependency (an optional,
-default-off feed sync is noted in §5.5 but is not required for the feature to work).
+rule provisioner, and third-party domain-feed syncing (noted in §5.5 as possible future work,
+but not built and shipping no config toggle).
 
 ## 3. Architecture overview
 
@@ -103,7 +103,7 @@ Three phases, shippable independently, in this order:
   in-place bug fixes.
 - **Phase 3 — Self-seeding.** New `scam_signature` table + `src/db/scam-signature.ts`, an
   extraction step wired to honeypot hits and a manual `/antiscam seed`, and the message-side
-  check that reads the blocklist. Optional default-off external feed sync.
+  check that reads the blocklist.
 
 **Cross-cutting refactor:** extract `src/lib/mod-action.ts` — one implementation of
 "act → write case → log" — and move automod's `escalate()` and guards' `enforce()` onto it.
@@ -270,13 +270,14 @@ of Discord/GitHub/Espressif/etc. safe domains; any public suffix or shared-hosti
 (store the full hostname for shared hosting, never the registrable domain). Wrong entries are
 reversible via a one-click "not a scam — remove" button on the mod-log alert.
 
-### 5.5 Optional external feed (default OFF, not required)
+### 5.5 External feed — NOT built, and NOT stubbed
 
-The same table accepts `source='feed'` rows. A default-off toggle can bootstrap FishFish
-(`api.fishfish.gg/v1/domains`, ~43k domains, unauth) once at boot + Sinking Yachts deltas,
-using `tldts` with `allowPrivateDomains: true` for suffix-walking. **Off by day one** — it's
-purely additive coverage and adds HTTP/polling surface. Included in the config block so it
-can be switched on later without a redeploy, but not part of the core deliverable.
+An external phishing-domain feed (FishFish `api.fishfish.gg/v1/domains` + Sinking Yachts
+deltas, `tldts` with `allowPrivateDomains: true` for suffix-walking) would be a viable future
+add on the same `scam_signature` table (`source='feed'`). It is **not built** — and per the
+"no half-implemented config" rule, **no toggle was shipped for it** (an early `antiscam_domain_feed`
+key was removed). Self-seeding covers the domain half from the server's own confirmed hits. If
+this is ever built it gets its own spec + config keys at that time.
 
 ### 5.6 Where self-seeding fails (stated plainly)
 
@@ -420,10 +421,8 @@ further code.
 | `antiscam_seed_max_bytes` | int 1–25 | 8 | MB. Larger attachments fingerprinted by triple only, never downloaded. |
 | `antiscam_seed_ttl_days` | int 1–365 | 30 | Expiry on every self-seeded entry. |
 | `antiscam_seed_max_entries` | int 50–5000 | 500 | Cap; oldest-`last_seen` evicted. |
-| `antiscam_domain_feed` | bool | **false** | Optional FishFish/SY sync (§5.5). Off by default. |
 
-*(Feed URL/interval keys added only if `antiscam_domain_feed` is built; omitted here to keep
-the day-one surface small.)*
+*(No external-feed keys — the feed is not built and no toggle ships for it; see §5.5.)*
 
 ## 9. What we explicitly do NOT build
 
