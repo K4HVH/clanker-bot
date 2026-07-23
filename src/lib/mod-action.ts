@@ -2,11 +2,17 @@ import { type Guild, type GuildMember, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../core/context";
 import { CONFIG_KEYS } from "./config";
 
-// How many seconds of a user's messages to wipe when the bot bans them automatically. One setting
-// (Moderation → Auto-ban wipe) shared by guards, automod, the honeypot, and anti-scam, so every
-// automated ban wipes consistently. Discord caps deleteMessageSeconds at 604800 (7 days = 168h).
+// The two shared punishment magnitudes, read only here. One Moderation setting each, so every
+// automated action uses the same length/wipe regardless of which feature triggered it.
+
+// Seconds of a banned user's messages to wipe. Discord caps deleteMessageSeconds at 604800 (7d).
 export function autobanWipeSeconds(ctx: AppContext, guildId: string): number {
   return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.autobanDeleteHours) * 3600;
+}
+
+// Length of any automatic timeout, in ms (used by the automod ladder, signature, and spray).
+export function autoTimeoutMs(ctx: AppContext, guildId: string): number {
+  return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.timeoutMinutes) * 60_000;
 }
 
 // The single "can the bot carry out this removal?" gate, shared by automod escalation, join
@@ -40,7 +46,7 @@ export interface ModActionInput {
 }
 
 // Carry out one moderation action, applying the shared permission/hierarchy gate and the correct
-// DM ordering. Returns true iff the Discord action actually landed. NEVER throws and NEVER logs —
+// DM ordering. Returns true iff the Discord action actually landed. NEVER throws and NEVER logs,
 // each caller owns its own record-keeping (automod writes a case, guards writes an alert, the
 // honeypot writes both), so logging is deliberately left out.
 export async function applyModAction(input: ModActionInput): Promise<boolean> {
@@ -68,14 +74,14 @@ export async function applyModAction(input: ModActionInput): Promise<boolean> {
 
   try {
     if (type === "ban") {
-      await notify(); // DM BEFORE removal — no shared guild afterwards
+      await notify(); // DM before removal, no shared guild afterwards
       await guild.members.ban(userId, { reason, deleteMessageSeconds: input.deleteMessageSeconds });
     } else if (type === "kick") {
       await notify();
       await member?.kick(reason);
     } else {
       await member?.timeout(input.timeoutMs ?? 0, reason);
-      await notify(); // still in the guild — DM after, so it only sends on success
+      await notify(); // still in the guild, so DM after (only sends on success)
     }
   } catch {
     return false;

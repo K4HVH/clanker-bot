@@ -1,5 +1,5 @@
 // Pure helpers for deciding what may be promoted into the scam-signature blocklist. Kept separate
-// from Discord/DB so the promotion guards can be unit-tested — a wrong entry here auto-fires on
+// from Discord/DB so the promotion guards can be unit-tested. A wrong entry here auto-fires on
 // innocent members.
 
 // Legit domains that must never be seeded, even when a scam message quotes them as decoration
@@ -14,7 +14,7 @@ const SAFE_DOMAINS = [
   "reddit.com", "twitter.com", "x.com", "imgur.com", "pastebin.com",
 ];
 
-// Public suffixes / shared-hosting apexes that must never be seeded on their OWN — seeding one
+// Public suffixes / shared-hosting apexes that must never be seeded on their own, since seeding one
 // would block every site on that host. We always store the FULL hostname, so a scam on shared
 // hosting (scam.vercel.app) is still seedable; only the bare apex is refused.
 const NEVER_SEED_EXACT = new Set([
@@ -39,7 +39,7 @@ export function isSeedableDomain(host: string, allowlist: string[]): boolean {
 }
 
 // The image fingerprint stored/checked as a cheap pre-filter. Only images (with real dimensions)
-// get one — a non-image attachment (.zip, .bin) returns null and is never fingerprinted.
+// get one. A non-image attachment (.zip, .bin) returns null and is never fingerprinted.
 export function attachmentTriple(size: number, width: number | null, height: number | null): string | null {
   if (!width || !height) return null;
   return `${size}:${width}:${height}`;

@@ -1,10 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  parseBlocklistAction,
-  parseGuardAction,
-  parseSprayAction,
-  strongerAction,
-} from "../../src/lib/actions";
+import { parseGuardAction, parseScamAction, strongerAction } from "../../src/lib/actions";
 
 test("strongerAction picks the harshest (ban > kick > flag > off)", () => {
   expect(strongerAction("off", "flag")).toBe("flag");
@@ -22,14 +17,11 @@ test("parseGuardAction accepts its values and falls back to off", () => {
   expect(parseGuardAction("garbage")).toBe("off");
 });
 
-test("parseSprayAction includes timeout, rejects delete", () => {
-  for (const v of ["flag", "timeout", "kick", "ban"] as const) expect(parseSprayAction(v)).toBe(v);
-  expect(parseSprayAction("delete")).toBe("off");
-  expect(parseSprayAction(null)).toBe("off");
-});
-
-test("parseBlocklistAction includes delete, rejects timeout/kick", () => {
-  for (const v of ["flag", "delete", "ban"] as const) expect(parseBlocklistAction(v)).toBe(v);
-  expect(parseBlocklistAction("timeout")).toBe("off");
-  expect(parseBlocklistAction("kick")).toBe("off");
+test("parseScamAction accepts the full set (delete/timeout/kick/ban), falls back to off", () => {
+  for (const v of ["flag", "delete", "timeout", "kick", "ban"] as const) {
+    expect(parseScamAction(v)).toBe(v);
+  }
+  expect(parseScamAction("off")).toBe("off");
+  expect(parseScamAction("garbage")).toBe("off");
+  expect(parseScamAction(null)).toBe("off");
 });

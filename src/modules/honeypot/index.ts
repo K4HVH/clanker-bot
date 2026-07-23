@@ -33,7 +33,7 @@ function exemptRoleIds(ctx: AppContext, guildId: string): string[] {
 function dmText(guildName: string): string {
   return (
     `You were removed from **${guildName}** for posting in a channel that is a trap for ` +
-    `compromised accounts. If this wasn't you, your account may be compromised — change your ` +
+    `compromised accounts. If this wasn't you, your account may be compromised. Change your ` +
     `password from a device you trust, then revoke access under **Settings → Authorized Apps**.`
   );
 }
@@ -57,7 +57,7 @@ const onCreate: Listener<Events.MessageCreate> = {
   event: Events.MessageCreate,
   async handle(ctx, message) {
     const guild = message.guild;
-    // Never fire on bots/webhooks — our own pinned warning, or another integration, would
+    // Never fire on bots/webhooks: our own pinned warning, or another integration, would
     // otherwise self-trigger.
     if (!guild || message.author.bot) return;
     if (!inHoneypotChannel(ctx, message)) return;
@@ -69,13 +69,13 @@ const onCreate: Listener<Events.MessageCreate> = {
     // keyed on the author id we already have, so a concurrent burst can't race past this.
     if (!claims.claim(`${guild.id}:${message.author.id}`)) return;
 
-    // FAIL CLOSED on member resolution: an instant ban must never fire against a moderator whose
-    // member object simply didn't resolve. (Automod's `member?.permissions` fails OPEN — fine for
+    // Fail closed on member resolution: an instant ban must never fire against a moderator whose
+    // member object simply didn't resolve. (Automod's `member?.permissions` fails open, fine for
     // a delete + warn, not for a ban.)
     const member: GuildMember | null =
       message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
     if (!member) {
-      ctx.logger.warn("honeypot: couldn't resolve member — taking no action", {
+      ctx.logger.warn("honeypot: couldn't resolve member, taking no action", {
         guildId: guild.id,
         userId: message.author.id,
       });
@@ -89,9 +89,9 @@ const onCreate: Listener<Events.MessageCreate> = {
     const exemptRoles = exemptRoleIds(ctx, guild.id);
     if (exemptRoles.some((r) => member.roles.cache.has(r))) return;
 
-    // Capture the bait BEFORE acting — a ban's server-side prune does not reliably emit per-message
+    // Capture the bait before acting: a ban's server-side prune does not reliably emit per-message
     // delete events, so this is the only record of what they posted.
-    const bait = (message.content || "*(no text — attachment/embed only)*").slice(0, 1024);
+    const bait = (message.content || "*(no text, attachment or embed only)*").slice(0, 1024);
     const attachments: HoneypotAttachment[] = message.attachments.map((a) => ({
       url: a.url,
       size: a.size,
@@ -138,7 +138,7 @@ const onCreate: Listener<Events.MessageCreate> = {
           });
         }
       } else {
-        effective = "flag"; // couldn't carry it out — report honestly
+        effective = "flag"; // couldn't carry it out, report honestly
       }
     }
 
@@ -155,7 +155,7 @@ const onCreate: Listener<Events.MessageCreate> = {
       { pingRoleId: ctx.config.get<string>(guild.id, CONFIG_KEYS.honeypotAlertRoleId) },
     );
 
-    // Hand the confirmed-bad evidence to the anti-scam seeder (a no-op unless seeding is on).
+    // Hand the confirmed-bad evidence to the scam-signatures seeder (a no-op unless seeding is on).
     emitHoneypotHit({ guild, userId: member.id, content: message.content, attachments });
   },
 };

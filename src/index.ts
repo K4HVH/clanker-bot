@@ -5,7 +5,7 @@ import { createLogger } from "./core/logger";
 import { registerGuildCommands } from "./core/register-commands";
 import { createDatabase } from "./db/index";
 import { modules } from "./modules";
-import { ConfigService } from "./lib/config";
+import { ConfigService, migrateConfig } from "./lib/config";
 import { startScheduler } from "./lib/scheduler";
 
 async function main(): Promise<void> {
@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const logger = createLogger(env.logLevel);
 
   const db = createDatabase(env.databasePath);
+  migrateConfig(db);
   logger.info("database ready", { databasePath: env.databasePath });
 
   const config = new ConfigService(db);

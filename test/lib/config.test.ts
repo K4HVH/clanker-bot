@@ -3,11 +3,42 @@ import {
   CATEGORIES,
   CONFIG_KEYS,
   ConfigService,
+  migrateConfig,
   REGISTRY,
   REGISTRY_BY_KEY,
   validateSetting,
 } from "../../src/lib/config";
 import { makeTestDb } from "../helpers/db";
+
+test("migrateConfig renames old keys, drops removed ones, and is idempotent", () => {
+  const db = makeTestDb();
+  const cfg = new ConfigService(db);
+  cfg.set("g", "automod_timeout_minutes", 30);
+  cfg.set("g", "antiscam_blocklist_action", "ban");
+  cfg.set("g", "antiscam_spray_purge", true); // removed key
+  cfg.set("g", "honeypot_delete_hours", 12); // removed key
+
+  migrateConfig(db);
+  expect(cfg.get<number>("g", "timeout_minutes")).toBe(30);
+  expect(cfg.get<number>("g", "automod_timeout_minutes")).toBeUndefined();
+  expect(cfg.get<string>("g", "scam_signature_action")).toBe("ban");
+  expect(cfg.get<string>("g", "antiscam_blocklist_action")).toBeUndefined();
+  expect(cfg.get<boolean>("g", "antiscam_spray_purge")).toBeUndefined();
+  expect(cfg.get<number>("g", "honeypot_delete_hours")).toBeUndefined();
+
+  migrateConfig(db); // idempotent
+  expect(cfg.get<number>("g", "timeout_minutes")).toBe(30);
+});
+
+test("migrateConfig does not overwrite an already-migrated value", () => {
+  const db = makeTestDb();
+  const cfg = new ConfigService(db);
+  cfg.set("g", "automod_timeout_minutes", 5); // old
+  cfg.set("g", "timeout_minutes", 99); // new already set
+  migrateConfig(db);
+  expect(cfg.get<number>("g", "timeout_minutes")).toBe(99); // kept
+  expect(cfg.get<number>("g", "automod_timeout_minutes")).toBeUndefined(); // old dropped
+});
 
 test("registry covers every CONFIG_KEYS value and vice versa, with no duplicates", () => {
   const keyValues = new Set<string>(Object.values(CONFIG_KEYS));
@@ -36,19 +67,19 @@ test("every setting has a known category and JSON-safe defaults", () => {
   }
 });
 
-test("honeypot + anti-scam removal actions default to off", () => {
+test("honeypot + scam removal actions default to off", () => {
   for (const key of [
     CONFIG_KEYS.honeypotAction,
-    CONFIG_KEYS.antiscamSprayAction,
-    CONFIG_KEYS.antiscamBlocklistAction,
+    CONFIG_KEYS.scamSprayAction,
+    CONFIG_KEYS.scamSignatureAction,
   ]) {
     expect(REGISTRY_BY_KEY.get(key)?.default).toBe("off");
   }
   // The self-seeding writer must be opt-in.
-  expect(REGISTRY_BY_KEY.get(CONFIG_KEYS.antiscamSeedFromHoneypot)?.default).toBe(false);
-  // Four new categories exist.
+  expect(REGISTRY_BY_KEY.get(CONFIG_KEYS.scamSeedFromHoneypot)?.default).toBe(false);
+  // The scam categories exist under the Automod prefix.
   const catIds = new Set(CATEGORIES.map((c) => c.id));
-  for (const id of ["honeypot", "antiscam-spray", "antiscam-filters", "antiscam-seed"]) {
+  for (const id of ["honeypot", "automod-scam", "automod-scam-seed"]) {
     expect(catIds.has(id)).toBe(true);
   }
 });

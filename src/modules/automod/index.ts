@@ -1,16 +1,21 @@
-import { Events, type GuildMember, type Message, PermissionFlagsBits } from "discord.js";
+import { EmbedBuilder, Events, type GuildMember, type Message, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
 import { countAutomodViolations, createCase, listAutomodActions } from "../../db/cases";
+import { bumpSignatureHit } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
+import { parseScamAction, type ScamAction } from "../../lib/actions";
 import { checkContent, type ContentRules, decideEscalation, type Tier } from "../../lib/automod";
+import { Claims } from "../../lib/claim";
 import { CONFIG_KEYS } from "../../lib/config";
+import { HeatTracker, RepeatTracker, SprayTracker } from "../../lib/heat";
 import { inHoneypotChannel } from "../../lib/honeypot";
-import { HeatTracker, RepeatTracker } from "../../lib/heat";
 import { deleteSuppressed } from "../../lib/log-suppress";
-import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
-import { logCase } from "../../lib/modlog";
+import { applyModAction, autobanWipeSeconds, autoTimeoutMs } from "../../lib/mod-action";
+import { logCase, logModAlert } from "../../lib/modlog";
+import { attachmentTriple } from "../../lib/scam-seed";
+import { forgetButton, matchSignatures, type SignatureMatch } from "../../lib/scam-signatures";
 import { inVerifyChannel } from "../../lib/verify-channel";
 import { isCodeShaped } from "../../lib/verification-logic";
 
@@ -128,7 +133,7 @@ async function escalate(
 
   // The user just sent a message, so they're present. applyModAction runs the shared gate (bot
   // outranks them, not the owner, holds the permission) and takes the action with the correct DM
-  // ordering — skipping silently on a failed gate avoids a doomed API call + a lying DM.
+  // ordering. Skipping silently on a failed gate avoids a doomed API call and a lying DM.
   const reason = `Automod: ${count} violations in ${ttlMin}m`;
   const dmEnabled = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction);
   const verb = type === "ban" ? "banned from" : type === "kick" ? "kicked from" : "timed out in";
@@ -138,12 +143,8 @@ async function escalate(
     userId,
     type,
     reason,
-    dm: dmEnabled ? `You were ${verb} **${guild.name}** by automod — ${reason}.` : undefined,
-    timeoutMs:
-      type === "timeout"
-        ? ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes) * 60_000
-        : undefined,
-    // Wipe the configured window on a ban (previously automod bans left the messages up).
+    dm: dmEnabled ? `You were ${verb} **${guild.name}** by automod: ${reason}.` : undefined,
+    timeoutMs: type === "timeout" ? autoTimeoutMs(ctx, guildId) : undefined,
     deleteMessageSeconds: type === "ban" ? autobanWipeSeconds(ctx, guildId) : undefined,
   });
   if (!acted) return false; // action failed/skipped; the delete + warn still stand, so allow the warn DM
@@ -164,27 +165,159 @@ async function escalate(
   return true;
 }
 
+// ── Confirmed-bad rules: a scam signature match or a cross-channel spray. Unlike the heuristic
+// rules these are facts, not guesses, so they act at once with one configured action instead of
+// accumulating on the ladder. Both draw the timeout length and ban wipe from Moderation.
+
+const sprays = new SprayTracker();
+// Recent message refs per user, so a tripped spray is purged across every channel it hit.
+const sprayMsgs = new Map<string, { channelId: string; messageId: string; ts: number }[]>();
+// One action per user per burst. flag and delete write no case, so the ladder cooldown can't dedup
+// them; this does. Namespaced per rule so one rule's flag can't suppress the other's stronger action.
+const decisiveClaims = new Claims(30_000);
+
+function recordSprayMsg(key: string, channelId: string, messageId: string, now: number, windowMs: number): void {
+  const list = (sprayMsgs.get(key) ?? []).filter((m) => m.ts > now - windowMs);
+  list.push({ channelId, messageId, ts: now });
+  sprayMsgs.set(key, list);
+  if (sprayMsgs.size > 1000) {
+    for (const [k, ms] of sprayMsgs) if (ms.every((m) => m.ts <= now - windowMs)) sprayMsgs.delete(k);
+  }
+}
+
+async function purgeSpray(guild: Message["guild"], key: string): Promise<void> {
+  if (!guild) return;
+  for (const ref of sprayMsgs.get(key) ?? []) {
+    const channel = guild.channels.cache.get(ref.channelId);
+    if (!channel?.isTextBased()) continue;
+    await deleteSuppressed(ref.messageId, () => channel.messages.delete(ref.messageId));
+  }
+  sprayMsgs.delete(key);
+}
+
+function firstImageTriple(message: Message): string | null {
+  for (const a of message.attachments.values()) {
+    const triple = attachmentTriple(a.size, a.width, a.height);
+    if (triple) return triple;
+  }
+  return null;
+}
+
+const SCAM_LABEL: Record<ScamAction, string> = {
+  off: "Off",
+  flag: "Flagged",
+  delete: "Deleted",
+  timeout: "Timed out",
+  kick: "Kicked",
+  ban: "Banned",
+};
+
+// Take one decisive action for a confirmed-bad signal. Claims the user before the first await so a
+// burst collapses into one action. flag alerts only; delete removes the content without penalty;
+// timeout/kick/ban also act and record a real case. Content is removed for any enforcing action
+// except a ban whose server-side wipe already covered it. Returns nothing; posts the alert itself.
+async function actDecisive(
+  ctx: AppContext,
+  message: Message,
+  member: GuildMember | null,
+  opts: {
+    action: Exclude<ScamAction, "off">;
+    claimKey: string;
+    reason: string;
+    dm?: string;
+    onClaimed?: () => void;
+    removeContent: () => Promise<void>;
+    alert: (label: string) => EmbedBuilder;
+    components?: ActionRowLike[];
+  },
+): Promise<void> {
+  const guild = message.guild;
+  if (!guild) return;
+  if (!decisiveClaims.claim(opts.claimKey)) return;
+  opts.onClaimed?.();
+  const userId = message.author.id;
+  const botId = message.client.user.id;
+
+  let effective: ScamAction = opts.action;
+  let wiped = false;
+  if (opts.action === "timeout" || opts.action === "kick" || opts.action === "ban") {
+    const wipeSeconds = opts.action === "ban" ? autobanWipeSeconds(ctx, guild.id) : 0;
+    const acted = await applyModAction({
+      guild,
+      member,
+      userId,
+      type: opts.action,
+      reason: opts.reason,
+      timeoutMs: opts.action === "timeout" ? autoTimeoutMs(ctx, guild.id) : undefined,
+      deleteMessageSeconds: opts.action === "ban" ? wipeSeconds : undefined,
+      dm: opts.dm,
+    });
+    if (acted) {
+      wiped = opts.action === "ban" && wipeSeconds > 0;
+      try {
+        createCase(ctx.db, { guildId: guild.id, userId, moderatorId: botId, type: opts.action, reason: opts.reason });
+      } catch (error) {
+        ctx.logger.error("automod: acted on a confirmed-bad signal but failed to record the case", {
+          guildId: guild.id,
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else {
+      effective = "flag"; // couldn't carry it out, report honestly
+    }
+  }
+
+  // Remove the offending content for any enforcing action. A ban's wipe already covers it; flag does not remove.
+  if (effective !== "flag" && !wiped) await opts.removeContent();
+
+  await logModAlert(ctx, guild, opts.alert(SCAM_LABEL[effective]), { components: opts.components });
+}
+
+type ActionRowLike = ReturnType<typeof forgetButton>;
+
+function signatureAlert(userId: string, channelId: string, match: SignatureMatch, label: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xd35400)
+    .setTitle("🛑 Known scam signature matched")
+    .addFields(
+      { name: "User", value: `<@${userId}> (${userId})` },
+      { name: "Channel", value: `<#${channelId}>` },
+      { name: "Matched", value: `\`${match.kind}\`: \`${match.value.slice(0, 200)}\`` },
+      { name: "Action", value: label },
+    )
+    .setTimestamp(new Date());
+}
+
+function sprayAlert(userId: string, label: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xd35400)
+    .setTitle("🚿 Cross-channel spray detected")
+    .addFields(
+      { name: "User", value: `<@${userId}> (${userId})` },
+      { name: "Action", value: label },
+    )
+    .setTimestamp(new Date());
+}
+
 async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise<void> {
   const guild = message.guild;
   if (!guild || message.author.bot) return;
-  // The honeypot owns its channel — it kicks/bans on its own terms. Bail BEFORE the content
-  // guard so an image-only bait post is still left entirely to the honeypot (and never gets a
-  // contradictory automod action + delete race).
+  // The honeypot owns its channel: it acts on its own terms, so automod never touches it.
   if (inHoneypotChannel(ctx, message)) return;
-  if (!message.content) return;
   const guildId = guild.id;
 
+  // What's enabled? Confirmed-bad rules (signature, spray) can run while the heuristic rules are off.
+  const sigAction = parseScamAction(ctx.config.getEffective(guildId, CONFIG_KEYS.scamSignatureAction));
+  const sprayAction = parseScamAction(ctx.config.getEffective(guildId, CONFIG_KEYS.scamSprayAction));
   const rules = contentRulesFor(ctx, guildId);
   const flood = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodFlood);
   const duplicates = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodDuplicates);
-  if (!anyRuleEnabled(rules, flood, duplicates)) return;
+  const heuristicsOn = anyRuleEnabled(rules, flood, duplicates);
+  if (sigAction === "off" && sprayAction === "off" && !heuristicsOn) return;
 
-  // Exemptions: staff, the verify channel, ticket channels, and an in-progress verification
-  // code typed elsewhere. Resolve the member so the staff check holds even on an edit where
-  // message.member wasn't cached.
-  const member =
-    message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
-  if (member?.permissions.has(PermissionFlagsBits.ManageMessages)) return;
+  // Channel exemptions apply to every rule: the verify channel is auto-scrubbed elsewhere, and
+  // ticket channels follow their toggle.
   if (inVerifyChannel(ctx, message)) return;
   if (
     !ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodModerateTickets) &&
@@ -192,6 +325,70 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   ) {
     return;
   }
+
+  // Resolve the member for the staff checks. Fail-open here (an unresolved member is treated as
+  // non-staff), but applyModAction's gate is fail-closed, so a match can never ban an unresolvable
+  // moderator.
+  const member = message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
+  const isStaff = member?.permissions.has(PermissionFlagsBits.ManageMessages) ?? false;
+  const now = Date.now();
+
+  // ── Confirmed-bad, first match wins, one action per message ──
+  if (sigAction !== "off" && !isStaff) {
+    const match = await matchSignatures(ctx, message, now, { skipImages: isEdit });
+    if (match) {
+      await actDecisive(ctx, message, member, {
+        action: sigAction,
+        claimKey: `sig:${guildId}:${message.author.id}`,
+        reason: `Scam signature (${match.kind})`,
+        dm: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)
+          ? `Your message in **${guild.name}** matched a known scam and was actioned.`
+          : undefined,
+        onClaimed: () => bumpSignatureHit(ctx.db, guildId, match.kind, match.value, now),
+        removeContent: () => deleteSuppressed(message.id, () => message.delete()).then(() => {}),
+        alert: (label) => signatureAlert(message.author.id, message.channelId, match, label),
+        components: [forgetButton(match.kind, match.value)],
+      });
+      return;
+    }
+  }
+
+  if (sprayAction !== "off" && !isEdit && !(isStaff && ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.scamSprayExemptStaff))) {
+    const key = `${guildId}:${message.author.id}`;
+    const windowMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSpraySeconds) * 1000;
+    recordSprayMsg(key, message.channelId, message.id, now, windowMs);
+    const fp = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.scamSprayMatchAttachments)
+      ? firstImageTriple(message)
+      : null;
+    const tripped = sprays.record(
+      key,
+      { channelId: message.channelId, text: message.content, fp, now },
+      {
+        windowMs,
+        minChars: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSprayMinChars),
+        similarity: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSpraySimilarity),
+        channels: ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSprayChannels),
+      },
+    );
+    if (tripped) {
+      await actDecisive(ctx, message, member, {
+        action: sprayAction,
+        claimKey: `spray:${guildId}:${message.author.id}`,
+        reason: "Cross-channel spray",
+        dm: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)
+          ? `You were actioned in **${guild.name}** for posting the same message across many channels. If this wasn't you, your account may be compromised.`
+          : undefined,
+        removeContent: () => purgeSpray(guild, key),
+        alert: (label) => sprayAlert(message.author.id, label),
+      });
+      return;
+    }
+  }
+
+  // ── Heuristic content + rate rules: require content, exempt staff, accumulate on the ladder ──
+  if (!heuristicsOn || !message.content || isStaff) return;
+
+  // An in-progress verification code typed anywhere is exempt, so a code isn't punished as caps etc.
   const challenge = getChallenge(ctx.db, guildId, message.author.id);
   if (
     challenge &&
@@ -201,8 +398,8 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     return;
   }
 
-  // Content rules run on new AND edited messages (kills the edit-bypass). Don't count the
-  // reply-ping toward the mention limit — it's implicit, not spam.
+  // Content rules run on new and edited messages, killing the edit-bypass. Don't count the
+  // reply-ping toward the mention limit, it's implicit not spam.
   const repliedTo = message.mentions.repliedUser;
   const replyPing = repliedTo && message.mentions.users.has(repliedTo.id) ? 1 : 0;
   const mentionCount = message.mentions.users.size + message.mentions.roles.size - replyPing;

@@ -49,7 +49,7 @@ export function upsertSignature(db: BotDatabase, input: NewSignature, now: numbe
   );
 }
 
-// True when a live (non-expired) signature exists. A read — the hot path uses loadSignatures.
+// True when a live (non-expired) signature exists. A read; the hot path uses loadSignatures.
 export function hasSignature(
   db: BotDatabase,
   guildId: string,
