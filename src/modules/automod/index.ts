@@ -264,7 +264,10 @@ async function actDecisive(
         });
       }
     } else {
-      effective = "flag"; // couldn't carry it out, report honestly
+      // Couldn't apply the penalty (missing permission, target outranks the bot, or unresolvable).
+      // Removing the message needs only ManageMessages, so still take it down and label it a delete
+      // rather than claiming a ban that didn't happen.
+      effective = "delete";
     }
   }
 
@@ -316,9 +319,9 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   const heuristicsOn = anyRuleEnabled(rules, flood, duplicates);
   if (sigAction === "off" && sprayAction === "off" && !heuristicsOn) return;
 
-  // Channel exemptions apply to every rule: the verify channel is auto-scrubbed elsewhere, and
-  // ticket channels follow their toggle.
-  if (inVerifyChannel(ctx, message)) return;
+  // Ticket channels follow their toggle for every rule (both the heuristic and confirmed-bad rules,
+  // matching the pre-refactor behaviour of automod and the old scam checks). The verify-channel
+  // exemption is applied to the heuristics only, below, so a seeded scam is still caught there.
   if (
     !ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodModerateTickets) &&
     getTicketByChannel(ctx.db, message.channelId)
@@ -387,6 +390,9 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
 
   // ── Heuristic content + rate rules: require content, exempt staff, accumulate on the ladder ──
   if (!heuristicsOn || !message.content || isStaff) return;
+  // The verify channel is auto-scrubbed, so the heuristics skip it (the confirmed-bad rules above
+  // still run there, to catch a seeded scam a verified hijacked account posts in it).
+  if (inVerifyChannel(ctx, message)) return;
 
   // An in-progress verification code typed anywhere is exempt, so a code isn't punished as caps etc.
   const challenge = getChallenge(ctx.db, guildId, message.author.id);
