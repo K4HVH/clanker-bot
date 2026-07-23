@@ -2,39 +2,24 @@ import { EmbedBuilder, Events, type GuildMember, MessageFlags, PermissionFlagsBi
 import { featureCommand, type Subcommand } from "../../core/command";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
+import { type GuardAction, parseGuardAction } from "../../lib/actions";
+import { Claims } from "../../lib/claim";
 import { createCase } from "../../db/cases";
 import { CONFIG_KEYS } from "../../lib/config";
-import type { GuardAction } from "../../lib/guards";
 import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
-import { applyModAction } from "../../lib/mod-action";
+import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 
 const REASON = "Honeypot: posted in a trap channel";
 
-// A burst into the trap dispatches concurrent MessageCreate handlers. Claim the user before the
-// first await so the burst collapses into one action instead of one per message. Automod's
-// runExclusive() does the same job but is module-private, so we keep a short-lived claim here.
-const claimed = new Map<string, number>();
-const CLAIM_TTL_MS = 30_000;
+// Collapse a burst into the trap into one action: claim the user before the first await, and the
+// concurrent handlers for the other messages bail.
+const claims = new Claims(30_000);
 
-function claim(key: string): boolean {
-  const now = Date.now();
-  const prev = claimed.get(key);
-  if (prev !== undefined && now - prev < CLAIM_TTL_MS) return false;
-  claimed.set(key, now);
-  if (claimed.size > 500) {
-    const cutoff = now - CLAIM_TTL_MS;
-    for (const [k, t] of claimed) if (t < cutoff) claimed.delete(k);
-  }
-  return true;
-}
-
-// A corrupt/legacy row must fail safe to "off" — never getEffective<GuardAction> directly.
 function actionOf(ctx: AppContext, guildId: string): GuardAction {
-  const v = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.honeypotAction);
-  return v === "flag" || v === "kick" || v === "ban" ? v : "off";
+  return parseGuardAction(ctx.config.getEffective(guildId, CONFIG_KEYS.honeypotAction));
 }
 
 function exemptRoleIds(ctx: AppContext, guildId: string): string[] {
@@ -80,10 +65,9 @@ const onCreate: Listener<Events.MessageCreate> = {
     const configured = actionOf(ctx, guild.id);
     if (configured === "off") return;
 
-    // Claim BEFORE resolving the member — which may `await` a fetch when the member isn't cached.
-    // Keying on the author id (which we already have) means a concurrent burst can't race past
-    // this while several member fetches are in flight. An exempt user simply claims-then-returns.
-    if (!claim(`${guild.id}:${message.author.id}`)) return;
+    // Claim before resolving the member (which may await a fetch when the member isn't cached),
+    // keyed on the author id we already have, so a concurrent burst can't race past this.
+    if (!claims.claim(`${guild.id}:${message.author.id}`)) return;
 
     // FAIL CLOSED on member resolution: an instant ban must never fire against a moderator whose
     // member object simply didn't resolve. (Automod's `member?.permissions` fails OPEN — fine for
@@ -121,7 +105,7 @@ const onCreate: Listener<Events.MessageCreate> = {
     let didServerPrune = false;
 
     if (configured === "kick" || configured === "ban") {
-      const deleteHours = ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.honeypotDeleteHours);
+      const wipeSeconds = configured === "ban" ? autobanWipeSeconds(ctx, guild.id) : 0;
       const dm = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.honeypotDmUser)
         ? dmText(guild.name)
         : undefined;
@@ -132,10 +116,10 @@ const onCreate: Listener<Events.MessageCreate> = {
         type: configured,
         reason: REASON,
         dm,
-        deleteMessageSeconds: configured === "ban" ? deleteHours * 3600 : undefined,
+        deleteMessageSeconds: configured === "ban" ? wipeSeconds : undefined,
       });
       if (acted) {
-        if (configured === "ban" && deleteHours > 0) didServerPrune = true;
+        if (configured === "ban" && wipeSeconds > 0) didServerPrune = true;
         // Record for /mod history. The action already happened, so a failed insert is logged, not
         // thrown. Only kick/ban write a case; a ban is terminal so ladder coupling is harmless.
         try {

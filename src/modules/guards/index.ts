@@ -2,8 +2,9 @@ import { EmbedBuilder, Events, type GuildMember, PermissionFlagsBits } from "dis
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
 import { CONFIG_KEYS } from "../../lib/config";
-import { type GuardAction, matchBlocklist, parseBlocklist, strongerAction } from "../../lib/guards";
-import { applyModAction } from "../../lib/mod-action";
+import { type GuardAction, parseGuardAction, strongerAction } from "../../lib/actions";
+import { matchBlocklist, parseBlocklist } from "../../lib/guards";
+import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 
 const DAY_MS = 86_400_000;
@@ -14,8 +15,7 @@ interface Signal {
 }
 
 function actionOf(ctx: AppContext, guildId: string, key: string): GuardAction {
-  const v = ctx.config.getEffective<string>(guildId, key);
-  return v === "flag" || v === "kick" || v === "ban" ? v : "off";
+  return parseGuardAction(ctx.config.getEffective(guildId, key));
 }
 
 function blocklistHit(ctx: AppContext, guildId: string, names: Array<string | null>): string | null {
@@ -51,6 +51,7 @@ async function enforce(
       type: effective,
       reason: `Guard: ${summary}`,
       dm,
+      deleteMessageSeconds: effective === "ban" ? autobanWipeSeconds(ctx, guild.id) : undefined,
     });
     if (!acted) effective = "flag";
   }

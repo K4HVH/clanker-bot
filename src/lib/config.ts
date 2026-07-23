@@ -1,12 +1,22 @@
 import { ChannelType } from "discord.js";
+import { BLOCKLIST_ACTIONS, GUARD_ACTIONS, SPRAY_ACTIONS } from "./actions";
 import { type BotDatabase, many, one } from "../db/index";
-import { GUARD_ACTIONS } from "./guards";
+
+// Channel types a text-message picker should offer. Text channels are the common case, but a
+// mod-log or trap channel can equally be an announcement or voice channel — restricting to plain
+// text is why such channels "don't show" in the picker.
+const TEXT_CHANNELS: ChannelType[] = [
+  ChannelType.GuildText,
+  ChannelType.GuildAnnouncement,
+  ChannelType.GuildVoice,
+];
 
 // ── Config keys (snake_case column values) ──────────────────────────────────
 export const CONFIG_KEYS = {
   modLogChannelId: "mod_log_channel_id",
   memberLogChannelId: "member_log_channel_id",
   dmOnAction: "dm_on_action",
+  autobanDeleteHours: "autoban_delete_hours",
   automodModerateTickets: "automod_moderate_tickets",
   automodInvites: "automod_invites",
   automodLinks: "automod_links",
@@ -24,7 +34,6 @@ export const CONFIG_KEYS = {
   automodTimeoutMinutes: "automod_timeout_minutes",
   automodKickAt: "automod_kick_at",
   automodBanAt: "automod_ban_at",
-  automodBanDeleteHours: "automod_ban_delete_hours",
   minAccountAgeDays: "min_account_age_days",
   accountAgeGateAction: "account_age_gate_action",
   nameBlocklist: "name_blocklist",
@@ -60,7 +69,6 @@ export const CONFIG_KEYS = {
   // Honeypot — a bait channel no legitimate member should post in.
   honeypotChannelId: "honeypot_channel_id",
   honeypotAction: "honeypot_action",
-  honeypotDeleteHours: "honeypot_delete_hours",
   honeypotPanelText: "honeypot_panel_text",
   honeypotExemptRoles: "honeypot_exempt_roles",
   honeypotDmUser: "honeypot_dm_user",
@@ -88,23 +96,6 @@ export const CONFIG_KEYS = {
   antiscamSeedTtlDays: "antiscam_seed_ttl_days",
   antiscamSeedMaxEntries: "antiscam_seed_max_entries",
 } as const;
-
-// Action choice lists. Honeypot reuses GUARD_ACTIONS (off/flag/kick/ban). The spray detector
-// adds a reversible `timeout` (the trap poster is a victim's account); the blocklist adds
-// `delete` (delete + record a violation, letting the existing automod ladder escalate).
-export const SPRAY_ACTIONS: { value: string; label: string }[] = [
-  { value: "off", label: "Off" },
-  { value: "flag", label: "Flag (alert only)" },
-  { value: "timeout", label: "Timeout" },
-  { value: "kick", label: "Kick" },
-  { value: "ban", label: "Ban" },
-];
-export const BLOCKLIST_ACTIONS: { value: string; label: string }[] = [
-  { value: "off", label: "Off" },
-  { value: "flag", label: "Flag (alert only)" },
-  { value: "delete", label: "Delete + record violation" },
-  { value: "ban", label: "Ban" },
-];
 
 // ── Registry: the single source of truth for every setting ──────────────────
 export type SettingType = "bool" | "int" | "text" | "channel" | "role" | "choice";
@@ -149,9 +140,10 @@ const K = CONFIG_KEYS;
 export const REGISTRY: Setting[] = [
   // Moderation
   { key: K.dmOnAction, category: "moderation", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/timed out/kicked/banned, telling them the reason." },
+  { key: K.autobanDeleteHours, category: "moderation", type: "int", min: 0, max: 168, default: 24, label: "Auto-ban: wipe last N hours of messages", description: "When the bot bans someone automatically (guards, automod, honeypot, anti-scam), delete this many hours of their messages (max 168). 0 keeps them." },
   // Logging
-  { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
-  { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },
+  { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
+  { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },
   { key: K.logMessageEvents, category: "logging", type: "bool", default: true, label: "Log message edits/deletes", description: "Edited, deleted, and bulk-deleted messages (member log)." },
   { key: K.logMemberEvents, category: "logging", type: "bool", default: true, label: "Log member events", description: "Joins, leaves, nickname changes, and role grants/removes (member log)." },
   { key: K.logModActions, category: "logging", type: "bool", default: true, label: "Log manual mod actions", description: "Bans/unbans/kicks/timeouts done outside the bot, with who and why (mod log)." },
@@ -176,7 +168,6 @@ export const REGISTRY: Setting[] = [
   { key: K.automodTimeoutMinutes, category: "automod-actions", type: "int", min: 1, max: 40320, default: 10, label: "Timeout length (minutes)", description: "How long the escalation timeout lasts (max 28 days)." },
   { key: K.automodKickAt, category: "automod-actions", type: "int", min: 0, max: 100, default: 0, label: "Kick at N violations (0=off)", description: "Kick a user once they hit this many violations. Off by default." },
   { key: K.automodBanAt, category: "automod-actions", type: "int", min: 0, max: 100, default: 0, label: "Ban at N violations (0=off)", description: "Ban a user once they hit this many violations. Off by default." },
-  { key: K.automodBanDeleteHours, category: "automod-actions", type: "int", min: 0, max: 168, default: 24, label: "Ban: wipe last N hours of messages", description: "When automod bans a user, ask Discord to delete this many hours of their messages server-wide (max 7 days). 0 keeps them." },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)", description: "Accounts newer than this trip the age gate. 0 disables it." },
   { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },
@@ -186,7 +177,7 @@ export const REGISTRY: Setting[] = [
   { key: K.guardDmOnRemoval, category: "guards", type: "bool", default: false, label: "DM removed users why", description: "Tell a kicked/banned joiner why (e.g. account too new), so a legit one can come back." },
   // Verification
   { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role", description: "Role granted once a member passes verification — gate your channels behind it. Required for verification to work." },
-  { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Verify channel (kept clear)", description: "Optional channel the bot auto-scrubs (deletes every non-staff message) so members can type their code in it." },
+  { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Verify channel (kept clear)", description: "Optional channel the bot auto-scrubs (deletes every non-staff message) so members can type their code in it." },
   { key: K.verificationChallengeMinutes, category: "verification", type: "int", min: 1, max: 60, default: 10, label: "Captcha TTL (minutes)", description: "How long a captcha code stays valid before it expires." },
   { key: K.verificationCodeLength, category: "verification", type: "int", min: 4, max: 8, default: 6, label: "Captcha length", description: "Number of characters in the captcha code." },
   { key: K.verificationPanelText, category: "verification", type: "text", default: "Click **Verify** to prove you're human and unlock the server.", label: "Verify panel text", description: "Message shown on the /verify panel above the Verify button." },
@@ -213,10 +204,9 @@ export const REGISTRY: Setting[] = [
   { key: K.memesBlockedReplies, category: "memes", type: "text", default: "", label: "Can't-do-that lines", description: "Random reply when the target can't be actioned (owner, higher role, not in the server). One per line. {mod}, {target}. Blank = defaults.", placeholder: "can't, they outrank us both.\nabove my paygrade." },
   // Honeypot — a bait channel no real member should post in. Anyone who does is almost certainly
   // a compromised account or spam bot, so the action can be instant. Unset channel + "off" = inert.
-  { key: K.honeypotChannelId, category: "honeypot", type: "channel", channelTypes: [ChannelType.GuildText], default: undefined, label: "Honeypot channel", description: "Trap channel — anyone who posts here trips the action below. Put it near the top of your channel list. Unset = disabled." },
-  { key: K.honeypotAction, category: "honeypot", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Honeypot: action", description: "What to do with someone who posts in the trap channel. Defaults to off — flag to watch, kick/ban to remove." },
-  { key: K.honeypotDeleteHours, category: "honeypot", type: "int", min: 0, max: 168, default: 24, label: "Ban: wipe last N hours of messages", description: "On a ban, delete this many hours of the user's messages server-wide (max 168). 0 keeps them; ignored for kick/flag." },
-  { key: K.honeypotPanelText, category: "honeypot", type: "text", default: "**Do not post in this channel.** It is a trap for compromised accounts — posting here removes you from the server automatically.", label: "Warning panel text", description: "Message shown by /honeypot panel in the trap channel." },
+  { key: K.honeypotChannelId, category: "honeypot", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Honeypot channel", description: "Trap channel — anyone who posts here trips the action below. Put it near the top of your channel list. Unset = disabled." },
+  { key: K.honeypotAction, category: "honeypot", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Honeypot: action", description: "What to do with someone who posts in the trap channel. Defaults to off — flag to watch, kick/ban to remove. Ban wipe is set under Moderation." },
+  { key: K.honeypotPanelText, category: "honeypot", type: "text", default: "**Do not post in this channel.** It is a trap for compromised accounts — posting here removes you from the server automatically.", label: "Honeypot panel text", description: "Message shown by /honeypot panel in the trap channel." },
   { key: K.honeypotExemptRoles, category: "honeypot", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs never actioned, comma/newline separated. The owner and Manage Messages holders are always exempt.", placeholder: "1234567890, 9876543210" },
   { key: K.honeypotDmUser, category: "honeypot", type: "bool", default: true, label: "DM removed users why", description: "Tell a kicked/banned user why (sent before removal), so a hijack victim knows to secure their account." },
   { key: K.honeypotAlertRoleId, category: "honeypot", type: "role", default: undefined, label: "Alert role", description: "Role pinged in the mod-log whenever the honeypot fires. Needs a mod-log channel set under Logging." },

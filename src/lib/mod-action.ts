@@ -1,4 +1,13 @@
 import { type Guild, type GuildMember, PermissionFlagsBits } from "discord.js";
+import type { AppContext } from "../core/context";
+import { CONFIG_KEYS } from "./config";
+
+// How many seconds of a user's messages to wipe when the bot bans them automatically. One setting
+// (Moderation → Auto-ban wipe) shared by guards, automod, the honeypot, and anti-scam, so every
+// automated ban wipes consistently. Discord caps deleteMessageSeconds at 604800 (7 days = 168h).
+export function autobanWipeSeconds(ctx: AppContext, guildId: string): number {
+  return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.autobanDeleteHours) * 3600;
+}
 
 // The single "can the bot carry out this removal?" gate, shared by automod escalation, join
 // guards, and the honeypot. Pure + numeric so it can be exhaustively unit-tested without

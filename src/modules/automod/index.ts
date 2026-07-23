@@ -9,7 +9,7 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
-import { applyModAction } from "../../lib/mod-action";
+import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logCase } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
 import { isCodeShaped } from "../../lib/verification-logic";
@@ -143,11 +143,8 @@ async function escalate(
       type === "timeout"
         ? ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodTimeoutMinutes) * 60_000
         : undefined,
-    // Fixes a prior bug: automod bans left the scam messages up. Wipe the configured window.
-    deleteMessageSeconds:
-      type === "ban"
-        ? ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanDeleteHours) * 3600
-        : undefined,
+    // Wipe the configured window on a ban (previously automod bans left the messages up).
+    deleteMessageSeconds: type === "ban" ? autobanWipeSeconds(ctx, guildId) : undefined,
   });
   if (!acted) return false; // action failed/skipped; the delete + warn still stand, so allow the warn DM
 

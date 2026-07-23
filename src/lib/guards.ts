@@ -1,22 +1,6 @@
-// Pure guard logic: action ranking + name-blocklist parsing/matching. No Discord/config
-// dependencies, so it can be unit-tested in isolation.
-
-export type GuardAction = "off" | "flag" | "kick" | "ban";
-
-export const GUARD_ACTIONS: { value: GuardAction; label: string }[] = [
-  { value: "off", label: "Off" },
-  { value: "flag", label: "Flag (alert only)" },
-  { value: "kick", label: "Kick" },
-  { value: "ban", label: "Ban" },
-];
-
-const RANK: Record<GuardAction, number> = { off: 0, flag: 1, kick: 2, ban: 3 };
-
-// The stronger of two actions (ban > kick > flag > off) — so several tripped signals collapse
-// to the harshest one.
-export function strongerAction(a: GuardAction, b: GuardAction): GuardAction {
-  return RANK[a] >= RANK[b] ? a : b;
-}
+// Pure name-blocklist parsing/matching (username/nickname guards + the automod word blocklist).
+// No Discord/config dependencies, so it can be unit-tested in isolation. Action enums live in
+// ./actions.
 
 export interface NamePattern {
   source: string; // the raw entry, shown in the alert

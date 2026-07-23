@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchBlocklist, parseBlocklist, strongerAction } from "../../src/lib/guards";
-
-test("strongerAction picks the harshest (ban > kick > flag > off)", () => {
-  expect(strongerAction("off", "flag")).toBe("flag");
-  expect(strongerAction("flag", "kick")).toBe("kick");
-  expect(strongerAction("kick", "ban")).toBe("ban");
-  expect(strongerAction("ban", "flag")).toBe("ban");
-  expect(strongerAction("off", "off")).toBe("off");
-});
+import { matchBlocklist, parseBlocklist } from "../../src/lib/guards";
 
 test("parseBlocklist: case-insensitive substrings, comma-separated per line, blanks skipped", () => {
   const p = parseBlocklist("Nitro, free-gift ,,\nADMIN");

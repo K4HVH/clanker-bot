@@ -22,13 +22,15 @@ import {
   upsertSignature,
 } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
+import { parseBlocklistAction, parseSprayAction } from "../../lib/actions";
 import { extractHostnames } from "../../lib/automod";
+import { Claims } from "../../lib/claim";
 import { CONFIG_KEYS } from "../../lib/config";
 import { onHoneypotHit } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { SprayTracker } from "../../lib/heat";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
-import { applyModAction } from "../../lib/mod-action";
+import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 import { attachmentTriple, isSeedableDomain, parseDomainList } from "../../lib/scam-seed";
 
@@ -52,36 +54,10 @@ function invalidate(guildId: string): void {
   sigCache.delete(guildId);
 }
 
-// A per-user action claim so a burst of the same user's messages produces ONE action, not one per
-// message — both the blocklist ban/delete path and the spray path check this before acting. The
-// spray detector keeps COUNTING every message (so it can trip); only the action is deduped. Held
-// synchronously (no await before the check inside actOnMatch/actOnSpray), so concurrent handlers
-// can't both pass. Mirrors the honeypot's claim().
-const actionClaimed = new Map<string, number>();
-const ACTION_CLAIM_TTL = 30_000;
-
-function claimAction(key: string): boolean {
-  const now = Date.now();
-  const prev = actionClaimed.get(key);
-  if (prev !== undefined && now - prev < ACTION_CLAIM_TTL) return false;
-  actionClaimed.set(key, now);
-  if (actionClaimed.size > 500) {
-    const cutoff = now - ACTION_CLAIM_TTL;
-    for (const [k, t] of actionClaimed) if (t < cutoff) actionClaimed.delete(k);
-  }
-  return true;
-}
-
-// ── Config readers (fail safe to "off") ──────────────────────────────────────
-function blocklistActionOf(ctx: AppContext, guildId: string): "off" | "flag" | "delete" | "ban" {
-  const v = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.antiscamBlocklistAction);
-  return v === "flag" || v === "delete" || v === "ban" ? v : "off";
-}
-
-function sprayActionOf(ctx: AppContext, guildId: string): "off" | "flag" | "timeout" | "kick" | "ban" {
-  const v = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.antiscamSprayAction);
-  return v === "flag" || v === "timeout" || v === "kick" || v === "ban" ? v : "off";
-}
+// One action per user per burst. The blocklist and spray paths each claim before acting (the spray
+// detector still counts every message so it can trip; only the action is deduped). Namespaced per
+// path so a flag on one path can't suppress a stronger action on the other.
+const claims = new Claims(30_000);
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 function embedTextsOf(message: Message): string[] {
@@ -118,10 +94,6 @@ async function resolveMember(message: Message): Promise<GuildMember | null> {
   const guild = message.guild;
   if (!guild) return null;
   return guild.members.fetch(message.author.id).catch(() => null);
-}
-
-function banWipeSeconds(ctx: AppContext, guildId: string): number {
-  return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodBanDeleteHours) * 3600;
 }
 
 // ── Blocklist matching ───────────────────────────────────────────────────────
@@ -220,7 +192,7 @@ async function actOnMatch(
   if (!guild) return;
   // One blocklist action per user per burst (synchronous claim, before any await below).
   // Namespaced per-path so a flag here can't suppress a stronger spray action, and vice versa.
-  if (!claimAction(`bl:${guild.id}:${message.author.id}`)) return;
+  if (!claims.claim(`bl:${guild.id}:${message.author.id}`)) return;
   bumpSignatureHit(ctx.db, guild.id, match.kind, match.value, now);
   const botId = message.client.user.id;
   const reason = `Anti-scam: known-bad ${match.kind}`;
@@ -233,7 +205,7 @@ async function actOnMatch(
       userId: message.author.id,
       type: "ban",
       reason,
-      deleteMessageSeconds: banWipeSeconds(ctx, guild.id),
+      deleteMessageSeconds: autobanWipeSeconds(ctx, guild.id),
       dm: ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.dmOnAction)
         ? `You were banned from **${guild.name}** — your message matched a known scam.`
         : undefined,
@@ -323,7 +295,7 @@ async function actOnSpray(
   // One spray action per user per burst — without this the detector re-fires on every message once
   // the channel threshold is crossed (the ring buffer keeps matching), stacking timeouts/bans/
   // purges. Namespaced per-path (see actOnMatch).
-  if (!claimAction(`sp:${guild.id}:${message.author.id}`)) return;
+  if (!claims.claim(`sp:${guild.id}:${message.author.id}`)) return;
   const botId = message.client.user.id;
   const reason = "Anti-scam: cross-channel spray";
   let effective: "flag" | "timeout" | "kick" | "ban" = action;
@@ -339,7 +311,7 @@ async function actOnSpray(
         action === "timeout"
           ? ctx.config.getEffective<number>(guild.id, CONFIG_KEYS.antiscamSprayTimeoutMinutes) * 60_000
           : undefined,
-      deleteMessageSeconds: action === "ban" ? banWipeSeconds(ctx, guild.id) : undefined,
+      deleteMessageSeconds: action === "ban" ? autobanWipeSeconds(ctx, guild.id) : undefined,
       dm: ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.dmOnAction)
         ? `You were actioned in **${guild.name}** for spraying the same message across many channels — if this wasn't you, your account may be compromised.`
         : undefined,
@@ -451,8 +423,8 @@ const onCreate: Listener<Events.MessageCreate> = {
     if (inHoneypotChannel(ctx, message)) return; // the honeypot owns its channel
     const gid = guild.id;
 
-    const blocklistAction = blocklistActionOf(ctx, gid);
-    const sprayAction = sprayActionOf(ctx, gid);
+    const blocklistAction = parseBlocklistAction(ctx.config.getEffective(gid, CONFIG_KEYS.antiscamBlocklistAction));
+    const sprayAction = parseSprayAction(ctx.config.getEffective(gid, CONFIG_KEYS.antiscamSprayAction));
     if (blocklistAction === "off" && sprayAction === "off") return;
 
     // Ticket channels follow the same exemption toggle as automod.
