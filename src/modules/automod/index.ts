@@ -8,7 +8,7 @@ import { checkContent, type ContentRules, decideEscalation, type Tier } from "..
 import { CONFIG_KEYS } from "../../lib/config";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { HeatTracker, RepeatTracker } from "../../lib/heat";
-import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
+import { deleteSuppressed } from "../../lib/log-suppress";
 import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logCase } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
@@ -229,12 +229,10 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
 
   // Delete + record the violation, then escalate on accumulation. Suppress the member-log echo
   // (the mod-log automod entry is the record; don't reprint the removed content).
-  suppressDeletion(message.id);
-  const deleted = await message.delete().then(() => true).catch(() => false);
+  const deleted = await deleteSuppressed(message.id, () => message.delete());
   if (!deleted) {
     // Couldn't remove it (no ManageMessages here, or it's already gone) — don't record a warn,
     // escalate, or tell the user it was "removed" while it's still sitting in the channel.
-    suppressedDeletions.delete(message.id);
     return;
   }
   const botId = message.client.user.id;

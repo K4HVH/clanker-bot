@@ -1,4 +1,4 @@
-import { EmbedBuilder, type Guild } from "discord.js";
+import { EmbedBuilder, type Guild, type MessageCreateOptions } from "discord.js";
 import type { AppContext } from "../core/context";
 import type { CaseRecord } from "../db/cases";
 import { CONFIG_KEYS } from "./config";
@@ -105,12 +105,18 @@ export function buildNicknameEmbed(a: {
     );
 }
 
+type ExtraSend = {
+  content?: string;
+  allowedMentions?: { roles: string[] };
+  components?: MessageCreateOptions["components"];
+};
+
 async function sendToConfigured(
   ctx: AppContext,
   guild: Guild,
   key: string,
   embed: EmbedBuilder,
-  extra?: { content?: string; allowedMentions?: { roles: string[] } },
+  extra?: ExtraSend,
 ): Promise<void> {
   const channelId = ctx.config.get<string>(guild.id, key);
   if (!channelId) return;
@@ -138,10 +144,12 @@ export async function logModAlert(
   ctx: AppContext,
   guild: Guild,
   embed: EmbedBuilder,
-  opts?: { pingRoleId?: string },
+  opts?: { pingRoleId?: string; components?: MessageCreateOptions["components"] },
 ): Promise<void> {
-  const extra = opts?.pingRoleId
-    ? { content: `<@&${opts.pingRoleId}>`, allowedMentions: { roles: [opts.pingRoleId] } }
-    : undefined;
+  const extra: ExtraSend = { components: opts?.components };
+  if (opts?.pingRoleId) {
+    extra.content = `<@&${opts.pingRoleId}>`;
+    extra.allowedMentions = { roles: [opts.pingRoleId] };
+  }
   await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, embed, extra);
 }

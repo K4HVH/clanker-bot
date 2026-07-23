@@ -8,7 +8,7 @@ import { createCase } from "../../db/cases";
 import { CONFIG_KEYS } from "../../lib/config";
 import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
-import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
+import { deleteSuppressed } from "../../lib/log-suppress";
 import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 
@@ -145,12 +145,7 @@ const onCreate: Listener<Events.MessageCreate> = {
     // Remove the bait message when we didn't already prune it server-side (kick, or ban with 0h).
     // Flag = alert only, leave it. suppressDeletion keeps the member-log from echoing the scam.
     if ((effective === "kick" || effective === "ban") && !didServerPrune) {
-      suppressDeletion(message.id);
-      const ok = await message
-        .delete()
-        .then(() => true)
-        .catch(() => false);
-      if (!ok) suppressedDeletions.delete(message.id);
+      await deleteSuppressed(message.id, () => message.delete());
     }
 
     await logModAlert(

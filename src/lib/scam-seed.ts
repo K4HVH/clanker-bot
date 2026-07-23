@@ -1,6 +1,6 @@
 // Pure helpers for deciding what may be promoted into the scam-signature blocklist. Kept separate
 // from Discord/DB so the promotion guards can be unit-tested — a wrong entry here auto-fires on
-// innocent members, so the guards matter.
+// innocent members.
 
 // Legit domains that must never be seeded, even when a scam message quotes them as decoration
 // (scam text routinely includes discord.gg / discord.com). A host matches if it equals the entry
@@ -43,12 +43,4 @@ export function isSeedableDomain(host: string, allowlist: string[]): boolean {
 export function attachmentTriple(size: number, width: number | null, height: number | null): string | null {
   if (!width || !height) return null;
   return `${size}:${width}:${height}`;
-}
-
-// Split an allowlist textarea (comma/newline separated) into normalized domains.
-export function parseDomainList(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((s) => s.trim().toLowerCase().replace(/^www\./, ""))
-    .filter(Boolean);
 }

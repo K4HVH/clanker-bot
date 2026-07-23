@@ -31,15 +31,21 @@ function domainOf(raw: string): string {
   }
 }
 
+// Split a comma/newline domain list (an allowlist, or a blocklist allowlist-check) into normalized
+// bare domains: trimmed, lowercased, `www.` stripped, blanks dropped.
+export function parseDomainList(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean);
+}
+
 // True if the content contains a URL whose domain is NOT in the allowlist (an empty allowlist
 // means every link is disallowed). Subdomains of an allowlisted domain are allowed.
 export function hasUnallowedLink(content: string, allowlist: string): boolean {
   const urls = content.match(URL_REGEX);
   if (!urls) return false;
-  const allowed = allowlist
-    .split(/[\n,]/)
-    .map((s) => s.trim().toLowerCase().replace(/^www\./, ""))
-    .filter(Boolean);
+  const allowed = parseDomainList(allowlist);
   for (const url of urls) {
     const domain = domainOf(url);
     if (!domain) continue;

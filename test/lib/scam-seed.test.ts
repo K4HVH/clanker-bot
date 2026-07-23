@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { attachmentTriple, isSeedableDomain, parseDomainList } from "../../src/lib/scam-seed";
+import { attachmentTriple, isSeedableDomain } from "../../src/lib/scam-seed";
 
 test("isSeedableDomain: a normal scam domain is seedable", () => {
   expect(isSeedableDomain("mrbeast-drop.xyz", [])).toBe(true);
@@ -33,13 +33,4 @@ test("attachmentTriple: only images (with dimensions) get a fingerprint", () => 
   expect(attachmentTriple(12345, 800, 600)).toBe("12345:800:600");
   expect(attachmentTriple(9999, null, null)).toBeNull(); // e.g. a .zip
   expect(attachmentTriple(9999, 800, null)).toBeNull();
-});
-
-test("parseDomainList: splits, trims, lowercases, strips www", () => {
-  expect(parseDomainList("GitHub.com, www.YouTube.com\nespressif.com")).toEqual([
-    "github.com",
-    "youtube.com",
-    "espressif.com",
-  ]);
-  expect(parseDomainList("")).toEqual([]);
 });

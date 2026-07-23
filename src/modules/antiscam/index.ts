@@ -23,16 +23,16 @@ import {
 } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
 import { parseBlocklistAction, parseSprayAction } from "../../lib/actions";
-import { extractHostnames } from "../../lib/automod";
+import { extractHostnames, parseDomainList } from "../../lib/automod";
 import { Claims } from "../../lib/claim";
 import { CONFIG_KEYS } from "../../lib/config";
 import { onHoneypotHit } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { SprayTracker } from "../../lib/heat";
-import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
+import { deleteSuppressed } from "../../lib/log-suppress";
 import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
-import { attachmentTriple, isSeedableDomain, parseDomainList } from "../../lib/scam-seed";
+import { attachmentTriple, isSeedableDomain } from "../../lib/scam-seed";
 
 const DAY_MS = 86_400_000;
 
@@ -227,9 +227,7 @@ async function actOnMatch(
 
   // Remove the message on delete. Flag = alert only. (Ban already wiped via deleteMessageSeconds.)
   if (effective === "delete") {
-    suppressDeletion(message.id);
-    const ok = await message.delete().then(() => true).catch(() => false);
-    if (!ok) suppressedDeletions.delete(message.id);
+    await deleteSuppressed(message.id, () => message.delete());
     // Record a violation (counts toward the automod escalation ladder) — no logCase, the match
     // alert below is the visible mod-log record.
     try {
@@ -243,16 +241,10 @@ async function actOnMatch(
   }
 
   const label = effective === "ban" ? "Banned" : effective === "delete" ? "Deleted + recorded" : "Flagged";
-  await logModAlert(ctx, guild, matchAlert(message.author.id, message.channelId, match, label));
-  // The alert carries a one-click correction for a false positive.
-  const channelId = ctx.config.get<string>(guild.id, CONFIG_KEYS.modLogChannelId);
-  if (channelId) {
-    const channel =
-      guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId).catch(() => null));
-    if (channel?.isTextBased()) {
-      await channel.send({ components: [forgetButton(stashForget(match.kind, match.value))] }).catch(() => {});
-    }
-  }
+  // The alert carries a one-click "not a scam" correction on the same message.
+  await logModAlert(ctx, guild, matchAlert(message.author.id, message.channelId, match, label), {
+    components: [forgetButton(stashForget(match.kind, match.value))],
+  });
 }
 
 // ── Cross-channel spray ──────────────────────────────────────────────────────
@@ -276,9 +268,7 @@ async function purgeSpray(ctx: AppContext, message: Message, key: string): Promi
   for (const ref of refs) {
     const channel = guild.channels.cache.get(ref.channelId);
     if (!channel?.isTextBased()) continue;
-    suppressDeletion(ref.messageId);
-    const ok = await channel.messages.delete(ref.messageId).then(() => true).catch(() => false);
-    if (!ok) suppressedDeletions.delete(ref.messageId);
+    await deleteSuppressed(ref.messageId, () => channel.messages.delete(ref.messageId));
   }
   sprayMsgs.delete(key);
 }

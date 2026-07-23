@@ -6,6 +6,7 @@ import {
   extractHostnames,
   hasUnallowedLink,
   isCapsSpam,
+  parseDomainList,
   type Tier,
 } from "../../src/lib/automod";
 
@@ -67,6 +68,15 @@ test("hasUnallowedLink normalizes www + punctuation; caps has a high floor", () 
   expect(isCapsSpam("THIS IS COMPLETELY UNACCEPTABLE BEHAVIOUR")).toBe(true);
   expect(isCapsSpam("GPIO UART I2C SPI ADC")).toBe(false); // short acronym list — under the floor
   expect(isCapsSpam("normal message")).toBe(false);
+});
+
+test("parseDomainList: splits, trims, lowercases, strips www", () => {
+  expect(parseDomainList("GitHub.com, www.YouTube.com\nespressif.com")).toEqual([
+    "github.com",
+    "youtube.com",
+    "espressif.com",
+  ]);
+  expect(parseDomainList("")).toEqual([]);
 });
 
 // ── extractHostnames ─────────────────────────────────────────────────────────

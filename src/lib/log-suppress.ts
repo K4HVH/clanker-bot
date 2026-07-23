@@ -11,3 +11,12 @@ export function suppressDeletion(messageId: string): void {
   suppressedDeletions.add(messageId);
   setTimeout(() => suppressedDeletions.delete(messageId), 60_000).unref?.();
 }
+
+// Suppress the member-log echo, delete the message, and un-suppress if the delete failed (so the
+// echo isn't wrongly swallowed for a message that's still there). Returns whether it deleted.
+export async function deleteSuppressed(messageId: string, del: () => Promise<unknown>): Promise<boolean> {
+  suppressDeletion(messageId);
+  const ok = await del().then(() => true).catch(() => false);
+  if (!ok) suppressedDeletions.delete(messageId);
+  return ok;
+}

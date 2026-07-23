@@ -13,7 +13,7 @@ export function autobanWipeSeconds(ctx: AppContext, guildId: string): number {
 // guards, and the honeypot. Pure + numeric so it can be exhaustively unit-tested without
 // discord.js. The bot must be in the guild (mePos), the target must be resolvable (targetPos),
 // must not be the owner, must sit strictly below the bot's top role, and the bot must hold the
-// relevant permission. Mirrors the inline gates in automod (index.ts) and guards (index.ts).
+// relevant permission. Callers reach this through applyModAction below rather than gating inline.
 export function canAct(opts: {
   mePos: number | null;
   meHasPerm: boolean;

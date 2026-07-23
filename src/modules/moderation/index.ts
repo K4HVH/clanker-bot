@@ -19,7 +19,7 @@ import { clearCases, listCasesByUser } from "../../db/cases";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
-import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
+import { deleteSuppressed, suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logModAlert } from "../../lib/modlog";
 import { messageMatchesPurge, type PurgeCriteria } from "../../lib/purge";
 import { assertActionable, recordAndAnnounce } from "./shared";
@@ -352,9 +352,7 @@ async function purgeChannel(
     }
     const m = old[i];
     if (!m) continue;
-    suppressDeletion(m.id);
-    if (await m.delete().then(() => true).catch(() => false)) deleted++;
-    else suppressedDeletions.delete(m.id);
+    if (await deleteSuppressed(m.id, () => m.delete())) deleted++;
   }
   return { deleted, oldRemaining };
 }
