@@ -1,10 +1,9 @@
 import type { Guild } from "discord.js";
 
-// A message the honeypot confirmed as bad. Emitted by the honeypot module; the anti-scam module
-// subscribes to seed the signature blocklist. Kept as a tiny in-process seam so the honeypot
-// (detection + action) never has to import the signature machinery (intelligence).
+// A honeypot hit. Emitted by the honeypot module; the anti-scam module subscribes to seed the
+// signature blocklist. An in-process seam so the honeypot doesn't import the signature code.
 export interface HoneypotAttachment {
-  url: string; // cdn.discordapp.com — the ORIGINAL bytes (never proxyURL, which re-encodes)
+  url: string; // cdn.discordapp.com — the original bytes, not proxyURL (which re-encodes)
   size: number;
   width: number | null;
   height: number | null;
@@ -28,8 +27,7 @@ export function onHoneypotHit(handler: Handler): void {
   handlers.push(handler);
 }
 
-// Fire-and-forget dispatch: a slow/throwing subscriber must never block or break the honeypot's
-// own removal + logging path.
+// Fire-and-forget: a slow or throwing subscriber must not block the honeypot's own removal path.
 export function emitHoneypotHit(hit: HoneypotHit): void {
   for (const handler of handlers) {
     Promise.resolve()

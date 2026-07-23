@@ -13,10 +13,9 @@ import { logModAlert } from "../../lib/modlog";
 
 const REASON = "Honeypot: posted in a trap channel";
 
-// A burst into the bait channel dispatches concurrent MessageCreate handlers. Claim the user
-// SYNCHRONOUSLY (before the first await) or five messages become five bans, five cases, five
-// alerts. Automod uses runExclusive() for this, but that lock is module-private, so we keep our
-// own short-lived claim. Restart mid-burst producing a second (no-op) ban is acceptable.
+// A burst into the trap dispatches concurrent MessageCreate handlers. Claim the user before the
+// first await so the burst collapses into one action instead of one per message. Automod's
+// runExclusive() does the same job but is module-private, so we keep a short-lived claim here.
 const claimed = new Map<string, number>();
 const CLAIM_TTL_MS = 30_000;
 
