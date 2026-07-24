@@ -4,7 +4,7 @@ import type { BotModule, Listener } from "../../core/module";
 import { CONFIG_KEYS } from "../../lib/config";
 import { type GuardAction, parseGuardAction, strongerAction } from "../../lib/actions";
 import { matchBlocklist, parseBlocklist } from "../../lib/guards";
-import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
+import { applyModAction, autoWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
 
 const DAY_MS = 86_400_000;
@@ -51,7 +51,7 @@ async function enforce(
       type: effective,
       reason: `Guard: ${summary}`,
       dm,
-      deleteMessageSeconds: effective === "ban" ? autobanWipeSeconds(ctx, guild.id) : undefined,
+      deleteMessageSeconds: effective === "ban" ? autoWipeSeconds(ctx, guild.id) : undefined,
     });
     if (!acted) effective = "flag";
   }

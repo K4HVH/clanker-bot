@@ -16,7 +16,7 @@ export const CONFIG_KEYS = {
   modLogChannelId: "mod_log_channel_id",
   memberLogChannelId: "member_log_channel_id",
   dmOnAction: "dm_on_action",
-  autobanDeleteHours: "autoban_delete_hours",
+  autoWipeHours: "auto_wipe_hours",
   timeoutMinutes: "timeout_minutes",
   automodModerateTickets: "automod_moderate_tickets",
   automodInvites: "automod_invites",
@@ -116,15 +116,16 @@ export interface Category {
 export const CATEGORIES: Category[] = [
   { id: "moderation", label: "Moderation", accentColor: 0x5865f2 },
   { id: "logging", label: "Logging", accentColor: 0x1abc9c },
+  // All the Automod pages sit together, in enforcement order.
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "automod-actions", label: "Automod Actions", accentColor: 0xc0392b },
+  { id: "automod-scam", label: "Automod: Scam", accentColor: 0xd35400 },
+  { id: "automod-scam-seed", label: "Automod: Scam Seeding", accentColor: 0xd35400 },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
-  { id: "automod-scam", label: "Automod: Scam", accentColor: 0xd35400 },
-  { id: "automod-scam-seed", label: "Automod: Scam Seeding", accentColor: 0xd35400 },
 ];
 
 const K = CONFIG_KEYS;
@@ -132,7 +133,7 @@ const K = CONFIG_KEYS;
 export const REGISTRY: Setting[] = [
   // Moderation. The shared punishment magnitudes live here (one each), read by every feature.
   { key: K.dmOnAction, category: "moderation", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/timed out/kicked/banned, telling them the reason." },
-  { key: K.autobanDeleteHours, category: "moderation", type: "int", min: 0, max: 168, default: 24, label: "Auto-ban: wipe last N hours of messages", description: "When the bot bans someone automatically (guards, automod, honeypot, scam matches), delete this many hours of their messages (max 168). 0 keeps them." },
+  { key: K.autoWipeHours, category: "moderation", type: "int", min: 0, max: 168, default: 24, label: "Auto-removal: wipe last N hours of messages", description: "When the bot kicks or bans someone automatically (guards, automod, honeypot, scam), delete this many hours of their messages (max 168). Bans use Discord's native wipe; kicks purge recent messages. 0 keeps them." },
   { key: K.timeoutMinutes, category: "moderation", type: "int", min: 1, max: 40320, default: 10, label: "Auto-timeout length (minutes)", description: "How long any automatic timeout lasts: the automod ladder, a scam signature match, and a spray. Max 28 days." },
   // Logging
   { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
@@ -205,7 +206,7 @@ export const REGISTRY: Setting[] = [
   // Automod: Scam. Confirmed-bad detections run inside automod's scan, before the heuristic rules.
   // A match is decisive (it acts at once, not via the violation ladder) because a seeded signature
   // or a cross-channel spray is a fact, not a guess. Timeout length and ban wipe come from Moderation.
-  { key: K.scamSignatureAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Known scam: action on match", description: "What to do when a message matches a domain or image on the scam signature list (seeded by the honeypot or added with /scam seed). Off and flag watch, delete removes the message without punishing, timeout/kick/ban also penalise. Domains, embeds, filenames and image hashes are all checked." },
+  { key: K.scamSignatureAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Known scam: action on match", description: "What to do when a message matches a domain or image on the scam signature list (seeded by the honeypot or added with /automod seed). Off and flag watch, delete removes the message without punishing, timeout/kick/ban also penalise. Domains, embeds, filenames and image hashes are all checked." },
   { key: K.scamSprayAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Cross-channel spray: action", description: "What to do when one user posts near-identical content across many channels, a hijacked-account tell. Off and flag watch, delete clears the spam without punishing, timeout/kick/ban also penalise." },
   { key: K.scamSprayChannels, category: "automod-scam", type: "int", min: 2, max: 10, default: 3, label: "Spray: distinct channels to trip", description: "How many distinct channels the same content must hit within the window to count as a spray." },
   { key: K.scamSpraySeconds, category: "automod-scam", type: "int", min: 5, max: 300, default: 60, label: "Spray: window (seconds)", description: "The window for counting cross-channel posts. Independent of the automod flood window." },
@@ -228,6 +229,7 @@ export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) =>
 // unless the guild already has a value under the new key.
 const CONFIG_RENAMES: [string, string][] = [
   ["automod_timeout_minutes", "timeout_minutes"],
+  ["autoban_delete_hours", "auto_wipe_hours"],
   ["antiscam_spray_action", "scam_spray_action"],
   ["antiscam_spray_channels", "scam_spray_channels"],
   ["antiscam_spray_seconds", "scam_spray_seconds"],

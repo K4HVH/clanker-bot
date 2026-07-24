@@ -9,8 +9,9 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
-import { applyModAction, autobanWipeSeconds } from "../../lib/mod-action";
+import { applyModAction, autoWipeSeconds } from "../../lib/mod-action";
 import { logModAlert } from "../../lib/modlog";
+import { purgeUserMessages } from "../../lib/purge-user";
 
 const REASON = "Honeypot: posted in a trap channel";
 
@@ -103,9 +104,9 @@ const onCreate: Listener<Events.MessageCreate> = {
 
     let effective: GuardAction = configured;
     let didServerPrune = false;
+    const wipeSeconds = configured === "kick" || configured === "ban" ? autoWipeSeconds(ctx, guild.id) : 0;
 
     if (configured === "kick" || configured === "ban") {
-      const wipeSeconds = configured === "ban" ? autobanWipeSeconds(ctx, guild.id) : 0;
       const dm = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.honeypotDmUser)
         ? dmText(guild.name)
         : undefined;
@@ -142,9 +143,11 @@ const onCreate: Listener<Events.MessageCreate> = {
       }
     }
 
-    // Remove the bait message when we didn't already prune it server-side (kick, or ban with 0h).
-    // Flag = alert only, leave it. suppressDeletion keeps the member-log from echoing the scam.
-    if ((effective === "kick" || effective === "ban") && !didServerPrune) {
+    // Message cleanup: a ban wiped server-side; a kick with a wipe window purges the user's recent
+    // messages (kick's parity with a ban wipe); otherwise remove just the bait. Flag leaves it.
+    if (effective === "kick" && wipeSeconds > 0) {
+      await purgeUserMessages(guild, member.id, Date.now() - wipeSeconds * 1000);
+    } else if ((effective === "kick" || effective === "ban") && !didServerPrune) {
       await deleteSuppressed(message.id, () => message.delete());
     }
 

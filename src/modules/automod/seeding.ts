@@ -1,7 +1,16 @@
-import { Events, MessageFlags, PermissionFlagsBits } from "discord.js";
+import {
+  ApplicationCommandType,
+  ContextMenuCommandBuilder,
+  Events,
+  InteractionContextType,
+  type Message,
+  type MessageContextMenuCommandInteraction,
+  MessageFlags,
+  PermissionFlagsBits,
+} from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
 import type { AppContext } from "../../core/context";
-import type { BotModule, ComponentHandler, Listener } from "../../core/module";
+import type { ComponentHandler, ContextCommand, Listener } from "../../core/module";
 import { evictOldest, removeSignature, type SignatureKind, upsertSignature } from "../../db/scam-signature";
 import { extractHostnames, parseDomainList } from "../../lib/automod";
 import { CONFIG_KEYS } from "../../lib/config";
@@ -9,14 +18,33 @@ import { onHoneypotHit } from "../../lib/honeypot-events";
 import { attachmentTriple, isSeedableDomain } from "../../lib/scam-seed";
 import { invalidateSignatures, sha256Of, takeForgetToken } from "../../lib/scam-signatures";
 
-// The one automated writer of the scam-signature store. It seeds signatures from honeypot hits and
-// the /scam commands; automod reads and enforces them. It never enforces or punishes.
+// Seeding is the one automated writer of the scam-signature store that automod's scam rules read.
+// It lives inside the automod module so scam detection and its intelligence are one feature. It is
+// fed by honeypot hits, the /automod seed command and its right-click menu, and staff DMs.
 
 const DAY_MS = 86_400_000;
 
 interface Evidence {
   content: string;
   attachments: { url: string; size: number; width: number | null; height: number | null; name: string }[];
+}
+
+function evidenceOf(message: Message): Evidence {
+  return {
+    content: message.content,
+    attachments: message.attachments.map((a) => ({
+      url: a.url,
+      size: a.size,
+      width: a.width ?? null,
+      height: a.height ?? null,
+      name: a.name,
+    })),
+  };
+}
+
+// Whether a message plausibly carries a scam sample worth seeding (an attachment or a link).
+function hasSeedable(message: Message): boolean {
+  return message.attachments.size > 0 || extractHostnames({ content: message.content, includeBare: true }).length > 0;
 }
 
 // Add a confirmed-bad message's domains and image signatures to the store. Domains skip anything
@@ -76,9 +104,12 @@ async function seedFromEvidence(
   return added;
 }
 
+const seededReply = (n: number) =>
+  n > 0 ? `Seeded ${n} signature(s).` : "Nothing seedable there (no scam domain or image).";
+
 // Subscribe to honeypot hits once the client is ready, so ctx is captured.
 let subscribed = false;
-const onReady: Listener<Events.ClientReady> = {
+export const seedOnReady: Listener<Events.ClientReady> = {
   event: Events.ClientReady,
   once: true,
   async handle(ctx) {
@@ -98,22 +129,40 @@ const onReady: Listener<Events.ClientReady> = {
   },
 };
 
-const MSG_LINK = /channels\/(\d+)\/(\d+)\/(\d+)/;
+// Seed by DMing the bot an image or link. Staff-only (Manage Server in the guild); silent for
+// anyone else and for chit-chat with nothing seedable.
+export const seedDmListener: Listener<Events.MessageCreate> = {
+  event: Events.MessageCreate,
+  async handle(ctx, message) {
+    if (message.guild || message.author.bot || !hasSeedable(message)) return;
+    const guild =
+      message.client.guilds.cache.get(ctx.env.guildId) ??
+      (await message.client.guilds.fetch(ctx.env.guildId).catch(() => null));
+    if (!guild) return;
+    const member = await guild.members.fetch(message.author.id).catch(() => null);
+    if (!member?.permissions.has(PermissionFlagsBits.ManageGuild)) return;
+    const added = await seedFromEvidence(ctx, guild.id, "manual", evidenceOf(message));
+    await message.reply(seededReply(added)).catch(() => {});
+  },
+};
 
+// /automod seed <message link or id>
+const MSG_LINK = /channels\/(\d+)\/(\d+)\/(\d+)/;
 const seedSub: Subcommand = {
-  description: "Seed scam signatures from an existing message (its domains and image hash).",
+  description: "Seed scam signatures from a message (paste a link or a message ID in this channel).",
   permission: PermissionFlagsBits.ManageGuild,
-  options: (s) => s.addStringOption((o) => o.setName("message").setDescription("A message link").setRequired(true)),
+  options: (s) => s.addStringOption((o) => o.setName("message").setDescription("A message link or ID").setRequired(true)),
   async execute(interaction, ctx) {
     if (!interaction.inGuild() || !interaction.guild) {
       await interaction.reply({ content: "Guild only.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const m = interaction.options.getString("message", true).match(MSG_LINK);
-    const channelId = m?.[2];
-    const messageId = m?.[3];
+    const raw = interaction.options.getString("message", true).trim();
+    const link = raw.match(MSG_LINK);
+    const channelId = link ? link[2] : interaction.channelId;
+    const messageId = link ? link[3] : /^\d{17,20}$/.test(raw) ? raw : null;
     if (!channelId || !messageId) {
-      await interaction.reply({ content: "That doesn't look like a message link.", flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: "Give a message link or a message ID.", flags: MessageFlags.Ephemeral });
       return;
     }
     const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
@@ -122,23 +171,12 @@ const seedSub: Subcommand = {
       await interaction.reply({ content: "Couldn't fetch that message.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const added = await seedFromEvidence(ctx, interaction.guild.id, "manual", {
-      content: target.content,
-      attachments: target.attachments.map((a) => ({
-        url: a.url,
-        size: a.size,
-        width: a.width ?? null,
-        height: a.height ?? null,
-        name: a.name,
-      })),
-    });
-    await interaction.reply({
-      content: added > 0 ? `Seeded ${added} signature(s) from that message.` : "Nothing seedable in that message.",
-      flags: MessageFlags.Ephemeral,
-    });
+    const added = await seedFromEvidence(ctx, interaction.guild.id, "manual", evidenceOf(target));
+    await interaction.reply({ content: seededReply(added), flags: MessageFlags.Ephemeral });
   },
 };
 
+// /automod forget <kind> <value>
 const forgetSub: Subcommand = {
   description: "Remove a signature from the scam list.",
   permission: PermissionFlagsBits.ManageGuild,
@@ -168,9 +206,34 @@ const forgetSub: Subcommand = {
   },
 };
 
+export const automodCommand = featureCommand({
+  name: "automod",
+  description: "Automod scam-signature controls",
+  defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
+  subcommands: { seed: seedSub, forget: forgetSub },
+});
+
+// Right-click a message, Apps, Seed scam signature.
+export const seedContextCommand: ContextCommand = {
+  data: new ContextMenuCommandBuilder()
+    .setName("Seed scam signature")
+    .setType(ApplicationCommandType.Message)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
+  async execute(interaction: MessageContextMenuCommandInteraction, ctx) {
+    if (!interaction.inGuild()) return;
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({ content: "You need Manage Server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const added = await seedFromEvidence(ctx, interaction.guildId, "manual", evidenceOf(interaction.targetMessage));
+    await interaction.reply({ content: seededReply(added), flags: MessageFlags.Ephemeral });
+  },
+};
+
 // The "Not a scam" button automod posts on a match alert. Removing a signature is a write, so it
-// lives with the writer.
-const forgetButtonHandler: ComponentHandler = {
+// lives with the seeder.
+export const forgetButtonHandler: ComponentHandler = {
   customId: "scam:forget",
   type: "button",
   match: "prefix",
@@ -183,7 +246,7 @@ const forgetButtonHandler: ComponentHandler = {
     const target = takeForgetToken(interaction.customId.slice("scam:forget:".length));
     if (!target) {
       await interaction.reply({
-        content: "That correction expired. Use `/scam forget` instead.",
+        content: "That correction expired. Use `/automod forget` instead.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -195,18 +258,4 @@ const forgetButtonHandler: ComponentHandler = {
       flags: MessageFlags.Ephemeral,
     });
   },
-};
-
-export const scamSignaturesModule: BotModule = {
-  name: "scam-signatures",
-  commands: [
-    featureCommand({
-      name: "scam",
-      description: "Scam signature list controls",
-      defaultMemberPermissions: PermissionFlagsBits.ManageGuild,
-      subcommands: { seed: seedSub, forget: forgetSub },
-    }),
-  ],
-  listeners: [onReady] as Listener[],
-  components: [forgetButtonHandler],
 };

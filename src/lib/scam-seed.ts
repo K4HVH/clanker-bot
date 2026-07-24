@@ -1,4 +1,4 @@
-// Pure helpers for deciding what may be promoted into the scam-signature blocklist. Kept separate
+// Pure helpers for deciding what may be promoted into the scam signature list. Kept separate
 // from Discord/DB so the promotion guards can be unit-tested. A wrong entry here auto-fires on
 // innocent members.
 
@@ -28,7 +28,7 @@ function matchesList(host: string, list: Iterable<string>): boolean {
   return false;
 }
 
-// Whether a hostname may be promoted into the blocklist. Rejects non-domains, safe domains and
+// Whether a hostname may be promoted into the scam signature list. Rejects non-domains, safe domains and
 // their subdomains, allowlisted domains, and bare shared-hosting/public-suffix apexes.
 export function isSeedableDomain(host: string, allowlist: string[]): boolean {
   if (!host || !host.includes(".")) return false;

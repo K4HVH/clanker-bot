@@ -7,7 +7,6 @@ import { loggingModule } from "./logging";
 import { memesModule } from "./memes";
 import { moderationModule } from "./moderation";
 import { sayModule } from "./say";
-import { scamSignaturesModule } from "./scam-signatures";
 import { tagsModule } from "./tags";
 import { ticketsModule } from "./tickets";
 import { verificationModule } from "./verification";
@@ -22,7 +21,6 @@ export const modules: BotModule[] = [
   // but registering first also means the honeypot's synchronous claim runs before automod's scan.
   honeypotModule,
   automodModule,
-  scamSignaturesModule,
   verificationModule,
   guardsModule,
   ticketsModule,

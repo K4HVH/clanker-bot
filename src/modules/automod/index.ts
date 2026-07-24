@@ -1,6 +1,13 @@
 import { EmbedBuilder, Events, type GuildMember, type Message, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
+import {
+  automodCommand,
+  forgetButtonHandler,
+  seedContextCommand,
+  seedDmListener,
+  seedOnReady,
+} from "./seeding";
 import { countAutomodViolations, createCase, listAutomodActions } from "../../db/cases";
 import { bumpSignatureHit } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
@@ -12,8 +19,9 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker, SprayTracker } from "../../lib/heat";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
-import { applyModAction, autobanWipeSeconds, autoTimeoutMs } from "../../lib/mod-action";
+import { applyModAction, autoWipeSeconds, autoTimeoutMs } from "../../lib/mod-action";
 import { logCase, logModAlert } from "../../lib/modlog";
+import { purgeUserMessages } from "../../lib/purge-user";
 import { attachmentTriple } from "../../lib/scam-seed";
 import { forgetButton, matchSignatures, type SignatureMatch } from "../../lib/scam-signatures";
 import { inVerifyChannel } from "../../lib/verify-channel";
@@ -145,7 +153,7 @@ async function escalate(
     reason,
     dm: dmEnabled ? `You were ${verb} **${guild.name}** by automod: ${reason}.` : undefined,
     timeoutMs: type === "timeout" ? autoTimeoutMs(ctx, guildId) : undefined,
-    deleteMessageSeconds: type === "ban" ? autobanWipeSeconds(ctx, guildId) : undefined,
+    deleteMessageSeconds: type === "ban" ? autoWipeSeconds(ctx, guildId) : undefined,
   });
   if (!acted) return false; // action failed/skipped; the delete + warn still stand, so allow the warn DM
 
@@ -239,9 +247,9 @@ async function actDecisive(
   const botId = message.client.user.id;
 
   let effective: ScamAction = opts.action;
-  let wiped = false;
+  const wipeSeconds = autoWipeSeconds(ctx, guild.id);
+  let wiped = false; // ban's native server-side wipe happened
   if (opts.action === "timeout" || opts.action === "kick" || opts.action === "ban") {
-    const wipeSeconds = opts.action === "ban" ? autobanWipeSeconds(ctx, guild.id) : 0;
     const acted = await applyModAction({
       guild,
       member,
@@ -271,8 +279,16 @@ async function actDecisive(
     }
   }
 
-  // Remove the offending content for any enforcing action. A ban's wipe already covers it; flag does not remove.
-  if (effective !== "flag" && !wiped) await opts.removeContent();
+  // Message cleanup. A ban wipes the last N hours server-side; a kick can't, so it purges the
+  // user's recent messages to match. timeout, delete, and a wipe-less kick/ban remove the
+  // offending content only. flag removes nothing.
+  if (effective === "ban") {
+    if (!wiped) await opts.removeContent();
+  } else if (effective === "kick" && wipeSeconds > 0) {
+    await purgeUserMessages(guild, userId, Date.now() - wipeSeconds * 1000);
+  } else if (effective !== "flag") {
+    await opts.removeContent();
+  }
 
   await logModAlert(ctx, guild, opts.alert(SCAM_LABEL[effective]), { components: opts.components });
 }
@@ -480,5 +496,8 @@ const onEdit: Listener<Events.MessageUpdate> = {
 
 export const automodModule: BotModule = {
   name: "automod",
-  listeners: [onCreate, onEdit] as Listener[],
+  commands: [automodCommand],
+  contextCommands: [seedContextCommand],
+  listeners: [onCreate, onEdit, seedOnReady, seedDmListener] as Listener[],
+  components: [forgetButtonHandler],
 };

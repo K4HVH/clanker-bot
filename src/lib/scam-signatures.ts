@@ -5,9 +5,9 @@ import { extractHostnames } from "./automod";
 import { CONFIG_KEYS } from "./config";
 import { attachmentTriple } from "./scam-seed";
 
-// The reader side of the scam-signature store, shared between automod (which enforces matches) and
-// the scam-signatures module (which seeds the store). The two must not import each other, so the
-// signature cache and the forget-token map live here.
+// The reader side of the scam-signature store. Shared between automod's scan (index.ts, which
+// enforces matches) and its seeding (seeding.ts, which writes the store); the signature cache and
+// the forget-token map are the state both sides share.
 
 // Per-guild signature sets, reused for CACHE_TTL so the hot path is a Set lookup, not a query per
 // message. Invalidated on a write so a correction takes effect at once.
@@ -105,8 +105,8 @@ export async function matchSignatures(
 
 // "Not a scam" buttons carry a short token, not the (possibly long) signature value, since Discord
 // caps a customId at 100 chars. The token map is in-memory, so a button from before a restart
-// resolves to expired (the /scam forget command still works for those). automod stashes the token
-// when it posts a match alert; the scam-signatures module reads it back when the button is clicked.
+// resolves to expired (the /automod forget command still works for those). automod's scan stashes
+// the token when it posts a match alert; its seeding reads it back when the button is clicked.
 const forgetTargets = new Map<string, { kind: SignatureKind; value: string; at: number }>();
 let forgetSeq = 0;
 const FORGET_TTL = 3_600_000;

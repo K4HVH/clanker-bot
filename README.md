@@ -11,11 +11,11 @@ A self-hosted Discord bot for an ESP32 firmware community: moderation, verificat
 - **Verification** — OCR-resistant image captcha entered by typing the code (DM on join, `/verify me` self-serve, or a `/verify panel` button) → grants a configured role. A bot-owned verify channel is auto-scrubbed; per-verify alt-detection flags (young account, implausibly fast solve, DM bounce). Mods can `/verify user` someone manually.
 - **Join guards** — assess every joiner and take one configured action (off/flag/kick/ban): account-age gate, a username/nickname **blocklist** (substring or `/regex/`, re-checked on nickname change), and a no-avatar flag. Optionally DMs a removed user why. Won't act above its own role, the owner, or without permission (downgrades to a flag).
 - **Honeypot** — a trap channel (`/honeypot panel` posts the warning): anyone who posts there gets one configured action (off/flag/kick/ban), a configurable message wipe, and a mod-log ping. Aimed at compromised accounts that spray every channel, including the image-only posts automod skips. Fails closed on member resolution, exempts the owner/staff/configured roles, and collapses a burst into one action.
-- **Scam defence (inside automod)** — for compromised accounts the join gates (already-verified members) don't cover. Automod runs two **confirmed-bad** rules that act at once (not on the accumulating ladder): a **known scam signature match** (domains + image SHA-256/`size:w:h` fingerprints, checked in content, embeds, filenames and bare-domain form) and a **cross-channel spray** detector (near-identical content across N channels, sees image-only posts). Each takes one configured action (off/flag/delete/timeout/kick/ban). The signature list **self-seeds** from confirmed honeypot hits (its only automated writer) plus a manual `/scam seed`, so a later account posting the same scam is caught too; entries carry a TTL and a one-click "not a scam" correction. Timeout length and ban wipe come from the shared Moderation settings.
+- **Scam defence (inside automod)** — for compromised accounts the join gates (already-verified members) don't cover. Automod runs two **confirmed-bad** rules that act at once (not on the accumulating ladder): a **known scam signature match** (domains + image SHA-256/`size:w:h` fingerprints, checked in content, embeds, filenames and bare-domain form) and a **cross-channel spray** detector (near-identical content across N channels, sees image-only posts). Each takes one configured action (off/flag/delete/timeout/kick/ban). The signature list **self-seeds** from confirmed honeypot hits (its only automated writer), and staff can add samples with `/automod seed <link|id>`, the right-click **Seed scam signature** menu, or by DMing the bot an image/link; entries carry a TTL and a one-click "not a scam" correction. Punishment magnitudes (timeout length, message wipe) come from the shared Moderation settings, so an auto-kick wipes recent messages just like an auto-ban.
 - **Tickets** — `/ticket panel` → button opens a private channel per ticket; add/remove members, safe close (confirm + reason), per-user open limit, optional inactivity auto-close. Opens and closes are logged to the mod-log; on close a **.zip** (transcript + posted images) is saved there and DM'd to the opener, and `/ticket transcript <n>` fetches any past ticket's saved transcript.
 - **Support helpers** — `/tag` canned answers for common questions.
 
-All automod / verification / guard / honeypot / anti-scam features **default OFF** and are enabled via `/config`.
+All automod (including scam) / verification / guard / honeypot features **default OFF** and are enabled via `/config`.
 
 ## Stack
 
@@ -49,7 +49,7 @@ The SQLite database lives on the `./data` bind-mount and persists across redeplo
 
 Run **`/config`** (requires Manage Server) to open an interactive settings panel — a Components-V2 message you drive with dropdowns and buttons. Pick a category from the top dropdown, then flip toggles, choose channels/roles from native pickers, or edit numbers/text in a popup. Changes apply instantly, and every setting is defined once in a registry (`src/lib/config.ts`), so adding one is a single entry.
 
-**Categories** (73 settings): Moderation · Logging · Automod · Automod Actions · Automod: Scam · Automod: Scam Seeding · Guards · Verification · Tickets · Memes · Honeypot — covering the shared punishment magnitudes (DM-on-action, one auto-timeout length, one auto-ban wipe), log channels + per-group logging toggles, the automod content filters + flood/escalation ladder, the two confirmed-bad scam rules and the signature-seeding subsystem, the join guards (age gate + name blocklist + no-avatar, each with an off/flag/kick/ban action), the verify channel + captcha tuning, ticket setup, the @-mention meme commands, and the honeypot trap channel. Every setting shows an inline description in the panel.
+**Categories** (73 settings): Moderation · Logging · Automod · Automod Actions · Automod: Scam · Automod: Scam Seeding · Guards · Verification · Tickets · Memes · Honeypot — covering the shared punishment magnitudes (DM-on-action, one auto-timeout length, one auto-removal message wipe used by kicks and bans alike), log channels + per-group logging toggles, the automod content filters + flood/escalation ladder, the two confirmed-bad scam rules and the signature-seeding subsystem, the join guards (age gate + name blocklist + no-avatar, each with an off/flag/kick/ban action), the verify channel + captcha tuning, ticket setup, the @-mention meme commands, and the honeypot trap channel. Every setting shows an inline description in the panel.
 
 The footer has **Export** (download your config as JSON), **Import** (upload a JSON to restore/migrate — validated against the registry), and **Reset** (revert everything to defaults, behind a confirm). Everything risky defaults OFF. The panel expires ~15 min after your last interaction — just re-run `/config`.
 
@@ -57,7 +57,7 @@ The footer has **Export** (download your config as JSON), **Import** (upload a J
 
 Commands follow one pattern — `/<feature> <action>` (see `src/core/command.ts`):
 
-`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete` · `/honeypot panel` · `/scam seed|forget` · `/say` (+ right-click → **Reply as bot**)
+`/config` (settings panel) · `/mod warn|note|timeout|untimeout|kick|ban|unban|purge|history|clearhistory` · `/verify me|panel|user` · `/ticket panel|close|add|remove|transcript` · `/tag get|list|set|delete` · `/honeypot panel` · `/automod seed|forget` · `/say` (+ right-click → **Reply as bot** / **Seed scam signature**)
 
 ## Development
 
@@ -70,4 +70,4 @@ Layout: `src/core/` (framework), `src/db/` (connection + one query file per tabl
 
 ## Roadmap
 
-Done: moderation, automod, verification, tickets, tags, memes, honeypot, anti-scam. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.
+Done: moderation, automod (incl. scam defence + seeding), verification, tickets, tags, memes, honeypot. Next: self-assign role menus, then commerce (Stripe → license keys + gated firmware downloads). Each feature gets a deep-pass refinement of its behaviours and controls.

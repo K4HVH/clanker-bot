@@ -5,9 +5,10 @@ import { CONFIG_KEYS } from "./config";
 // The two shared punishment magnitudes, read only here. One Moderation setting each, so every
 // automated action uses the same length/wipe regardless of which feature triggered it.
 
-// Seconds of a banned user's messages to wipe. Discord caps deleteMessageSeconds at 604800 (7d).
-export function autobanWipeSeconds(ctx: AppContext, guildId: string): number {
-  return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.autobanDeleteHours) * 3600;
+// Seconds of a removed user's recent messages to wipe (a ban's native deleteMessageSeconds, or the
+// window a kick purges manually). Discord caps deleteMessageSeconds at 604800 (7 days).
+export function autoWipeSeconds(ctx: AppContext, guildId: string): number {
+  return ctx.config.getEffective<number>(guildId, CONFIG_KEYS.autoWipeHours) * 3600;
 }
 
 // Length of any automatic timeout, in ms (used by the automod ladder, signature, and spray).

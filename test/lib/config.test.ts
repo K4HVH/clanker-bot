@@ -14,6 +14,7 @@ test("migrateConfig renames old keys, drops removed ones, and is idempotent", ()
   const db = makeTestDb();
   const cfg = new ConfigService(db);
   cfg.set("g", "automod_timeout_minutes", 30);
+  cfg.set("g", "autoban_delete_hours", 48);
   cfg.set("g", "antiscam_blocklist_action", "ban");
   cfg.set("g", "antiscam_spray_purge", true); // removed key
   cfg.set("g", "honeypot_delete_hours", 12); // removed key
@@ -21,6 +22,8 @@ test("migrateConfig renames old keys, drops removed ones, and is idempotent", ()
   migrateConfig(db);
   expect(cfg.get<number>("g", "timeout_minutes")).toBe(30);
   expect(cfg.get<number>("g", "automod_timeout_minutes")).toBeUndefined();
+  expect(cfg.get<number>("g", "auto_wipe_hours")).toBe(48);
+  expect(cfg.get<number>("g", "autoban_delete_hours")).toBeUndefined();
   expect(cfg.get<string>("g", "scam_signature_action")).toBe("ban");
   expect(cfg.get<string>("g", "antiscam_blocklist_action")).toBeUndefined();
   expect(cfg.get<boolean>("g", "antiscam_spray_purge")).toBeUndefined();

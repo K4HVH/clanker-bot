@@ -31,7 +31,7 @@ function domainOf(raw: string): string {
   }
 }
 
-// Split a comma/newline domain list (an allowlist, or a blocklist allowlist-check) into normalized
+// Split a comma/newline domain list (the link allowlist, or the scam-seed allowlist check) into normalized
 // bare domains: trimmed, lowercased, `www.` stripped, blanks dropped.
 export function parseDomainList(raw: string): string[] {
   return raw
@@ -58,7 +58,7 @@ export function hasUnallowedLink(content: string, allowlist: string): boolean {
 // Common file extensions that look like bare domains in a firmware community (readme.md,
 // build.sh, main.cpp). Never treated as hostnames when extracting BARE, scheme-less candidates.
 // This is a noise filter, not a security boundary: bare candidates are only ever tested against
-// the known-bad blocklist, which holds no filenames. Real scam links use https:// or www. and are
+// the scam signature list, which holds no filenames. Real scam links use https:// or www. and are
 // extracted regardless.
 const FILE_EXT_LIKE = new Set([
   "md", "sh", "txt", "js", "ts", "tsx", "jsx", "json", "yml", "yaml", "toml", "ini", "cfg", "conf",
@@ -82,7 +82,7 @@ function stripFileExt(name: string): string {
 
 // Collect candidate hostnames from a message: scheme'd/www links in the content and any embed
 // text, plus (opt-in) bare scheme-less domains and de-extensioned attachment filenames. Returns
-// deduped, lowercased hostnames. The blocklist check decides what to DO with them — bare domains
+// deduped, lowercased hostnames. The scam signature check decides what to do with them — bare domains
 // are intended to be matched ONLY against the known-bad list, never the allowlist.
 export function extractHostnames(opts: {
   content: string;
