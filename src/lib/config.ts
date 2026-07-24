@@ -73,7 +73,7 @@ export const CONFIG_KEYS = {
   honeypotExemptRoles: "honeypot_exempt_roles",
   honeypotDmUser: "honeypot_dm_user",
   honeypotAlertRoleId: "honeypot_alert_role_id",
-  // Automod: Scam. Confirmed-bad detections enforced by automod, fed by the seeding subsystem.
+  // Automod Scam. Confirmed-bad detections enforced by automod, fed by the seeding subsystem.
   scamSignatureAction: "scam_signature_action",
   scamSprayAction: "scam_spray_action",
   scamSprayChannels: "scam_spray_channels",
@@ -119,8 +119,8 @@ export const CATEGORIES: Category[] = [
   // All the Automod pages sit together, in enforcement order.
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "automod-actions", label: "Automod Actions", accentColor: 0xc0392b },
-  { id: "automod-scam", label: "Automod: Scam", accentColor: 0xd35400 },
-  { id: "automod-scam-seed", label: "Automod: Scam Seeding", accentColor: 0xd35400 },
+  { id: "automod-scam", label: "Automod Scam", accentColor: 0xd35400 },
+  { id: "automod-scam-seed", label: "Automod Scam Seeding", accentColor: 0xd35400 },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
@@ -133,8 +133,8 @@ const K = CONFIG_KEYS;
 export const REGISTRY: Setting[] = [
   // Moderation. The shared punishment magnitudes live here (one each), read by every feature.
   { key: K.dmOnAction, category: "moderation", type: "bool", default: false, label: "DM users when actioned", description: "Send a DM to users when they are warned/timed out/kicked/banned, telling them the reason." },
-  { key: K.autoWipeHours, category: "moderation", type: "int", min: 0, max: 168, default: 24, label: "Auto-removal: wipe last N hours of messages", description: "When the bot kicks or bans someone automatically (guards, automod, honeypot, scam), delete this many hours of their messages (max 168). Bans use Discord's native wipe; kicks purge recent messages. 0 keeps them." },
-  { key: K.timeoutMinutes, category: "moderation", type: "int", min: 1, max: 40320, default: 10, label: "Auto-timeout length (minutes)", description: "How long any automatic timeout lasts: the automod ladder, a scam signature match, and a spray. Max 28 days." },
+  { key: K.autoWipeHours, category: "moderation", type: "int", min: 0, max: 168, default: 24, label: "Auto-wipe: last N hours of messages", description: "When the bot kicks or bans someone automatically (guards, automod, honeypot, scam), delete this many hours of their messages (max 168). Bans use Discord's native wipe; kicks purge recent messages. 0 keeps them." },
+  { key: K.timeoutMinutes, category: "moderation", type: "int", min: 1, max: 40320, default: 10, label: "Auto-timeout: length (minutes)", description: "How long any automatic timeout lasts: the automod ladder, a scam signature match, and a spray. Max 28 days." },
   // Logging
   { key: K.modLogChannelId, category: "logging", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Mod log channel", description: "Moderation actions, alerts, and attributed manual bans/kicks/timeouts." },
   { key: K.memberLogChannelId, category: "logging", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Member log channel", description: "Joins/leaves, nickname/role changes, message edits/deletes, channel/role changes." },
@@ -202,25 +202,25 @@ export const REGISTRY: Setting[] = [
   { key: K.honeypotPanelText, category: "honeypot", type: "text", default: "**Do not post in this channel.** It is a trap for compromised accounts. Posting here removes you from the server automatically.", label: "Honeypot panel text", description: "Message shown by /honeypot panel in the trap channel." },
   { key: K.honeypotExemptRoles, category: "honeypot", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs never actioned, comma/newline separated. The owner and Manage Messages holders are always exempt.", placeholder: "1234567890, 9876543210" },
   { key: K.honeypotDmUser, category: "honeypot", type: "bool", default: true, label: "DM removed users why", description: "Tell a kicked/banned user why (sent before removal), so a hijack victim knows to secure their account." },
-  { key: K.honeypotAlertRoleId, category: "honeypot", type: "role", default: undefined, label: "Alert role", description: "Role pinged in the mod-log whenever the honeypot fires. Needs a mod-log channel set under Logging. A hit can also seed the scam signature list (see Automod: Scam Seeding) when seeding is on." },
-  // Automod: Scam. Confirmed-bad detections run inside automod's scan, before the heuristic rules.
+  { key: K.honeypotAlertRoleId, category: "honeypot", type: "role", default: undefined, label: "Alert role", description: "Role pinged in the mod-log whenever the honeypot fires. Needs a mod-log channel set under Logging. A hit can also seed the scam signature list (see Automod Scam Seeding) when seeding is on." },
+  // Automod Scam. Confirmed-bad detections run inside automod's scan, before the heuristic rules.
   // A match is decisive (it acts at once, not via the violation ladder) because a seeded signature
   // or a cross-channel spray is a fact, not a guess. Timeout length and ban wipe come from Moderation.
-  { key: K.scamSignatureAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Known scam: action on match", description: "What to do when a message matches a domain or image on the scam signature list (seeded by the honeypot or added with /automod seed). Off and flag watch, delete removes the message without punishing, timeout/kick/ban also penalise. Domains, embeds, filenames and image hashes are all checked." },
-  { key: K.scamSprayAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Cross-channel spray: action", description: "What to do when one user posts near-identical content across many channels, a hijacked-account tell. Off and flag watch, delete clears the spam without punishing, timeout/kick/ban also penalise." },
+  { key: K.scamSignatureAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Scam signature: action", description: "What to do when a message matches a domain or image on the scam signature list (seeded by the honeypot or added with /automod seed). Off and flag watch, delete removes the message without punishing, timeout/kick/ban also penalise. Domains, embeds, filenames and image hashes are all checked." },
+  { key: K.scamSprayAction, category: "automod-scam", type: "choice", choices: SCAM_ACTIONS, default: "off", label: "Spray: action", description: "What to do when one user posts near-identical content across many channels, a hijacked-account tell. Off and flag watch, delete clears the spam without punishing, timeout/kick/ban also penalise." },
   { key: K.scamSprayChannels, category: "automod-scam", type: "int", min: 2, max: 10, default: 3, label: "Spray: distinct channels to trip", description: "How many distinct channels the same content must hit within the window to count as a spray." },
   { key: K.scamSpraySeconds, category: "automod-scam", type: "int", min: 5, max: 300, default: 60, label: "Spray: window (seconds)", description: "The window for counting cross-channel posts. Independent of the automod flood window." },
   { key: K.scamSpraySimilarity, category: "automod-scam", type: "int", min: 50, max: 100, default: 85, label: "Spray: text similarity (%)", description: "How similar (percent) two messages must be to count as the same spray. Below 100 catches randomized near-duplicates." },
   { key: K.scamSprayMinChars, category: "automod-scam", type: "int", min: 0, max: 200, default: 15, label: "Spray: ignore text shorter than (chars)", description: "Ignore text shorter than this for similarity, so short messages across channels don't trip it. 0 checks all text." },
   { key: K.scamSprayMatchAttachments, category: "automod-scam", type: "bool", default: true, label: "Spray: match identical attachments", description: "Also count an identical image/file (same size and dimensions) across channels, so image-only sprays trip it too." },
   { key: K.scamSprayExemptStaff, category: "automod-scam", type: "bool", default: false, label: "Spray: exempt staff", description: "Let staff bypass spray detection. Off by default, since a compromised mod account is exactly what this should still catch." },
-  // Automod: Scam Seeding. The one automated writer of the signature list the rules above enforce.
-  { key: K.scamSeedFromHoneypot, category: "automod-scam-seed", type: "bool", default: false, label: "Seed signatures from honeypot hits", description: "When the honeypot catches someone, add their domains and image hash to the signature list, so later accounts posting the same scam are caught by the match action in Automod: Scam. Off by default. Enable once the honeypot runs clean." },
-  { key: K.scamSeedDomains, category: "automod-scam-seed", type: "bool", default: true, label: "Seed domains", description: "Include scam domains when seeding. Skips anything allowlisted or on shared hosting." },
-  { key: K.scamSeedImages, category: "automod-scam-seed", type: "bool", default: true, label: "Seed image hashes", description: "Include a SHA-256 of the scam image when seeding. The image itself is never stored." },
-  { key: K.scamMaxImageMb, category: "automod-scam-seed", type: "int", min: 1, max: 25, default: 8, label: "Max image size to hash (MB)", description: "Images larger than this are matched by size and dimensions only, never downloaded to hash. Used by both seeding and matching." },
-  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out on its own." },
-  { key: K.scamSeedMaxEntries, category: "automod-scam-seed", type: "int", min: 50, max: 5000, default: 500, label: "Max stored signatures", description: "Cap on seeded signatures per kind. The oldest are evicted past this limit." },
+  // Automod Scam Seeding. The one automated writer of the signature list the rules above enforce.
+  { key: K.scamSeedFromHoneypot, category: "automod-scam-seed", type: "bool", default: false, label: "Seed: from honeypot hits", description: "When the honeypot catches someone, add their domains and image hash to the signature list, so later accounts posting the same scam are caught by the match action in Automod Scam. Off by default. Enable once the honeypot runs clean." },
+  { key: K.scamSeedDomains, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: domains", description: "Include scam domains when seeding. Skips anything allowlisted or on shared hosting." },
+  { key: K.scamSeedImages, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: image hashes", description: "Include a SHA-256 of the scam image when seeding. The image itself is never stored." },
+  { key: K.scamMaxImageMb, category: "automod-scam-seed", type: "int", min: 1, max: 25, default: 8, label: "Seed: max image size (MB)", description: "Images larger than this are matched by size and dimensions only, never downloaded to hash. Used by both seeding and matching." },
+  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out on its own." },
+  { key: K.scamSeedMaxEntries, category: "automod-scam-seed", type: "int", min: 50, max: 5000, default: 500, label: "Seed: max stored signatures", description: "Cap on seeded signatures per kind. The oldest are evicted past this limit." },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));
