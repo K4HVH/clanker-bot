@@ -1,13 +1,16 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Message } from "discord.js";
 import type { AppContext } from "../core/context";
-import { loadSignatures, type SignatureKind } from "../db/scam-signature";
-import { extractHostnames } from "./automod";
+import { evictOldest, loadSignatures, type SignatureKind, upsertSignature } from "../db/scam-signature";
+import { extractHostnames, parseDomainList } from "./automod";
 import { CONFIG_KEYS } from "./config";
-import { attachmentTriple } from "./scam-seed";
+import { attachmentTriple, isSeedableDomain } from "./scam-seed";
 
-// The reader side of the scam-signature store. Shared between automod's scan (index.ts, which
-// enforces matches) and its seeding (seeding.ts, which writes the store); the signature cache and
-// the forget-token map are the state both sides share.
+const DAY_MS = 86_400_000;
+
+// The scam-signature service: matching (read), seeding (write), the per-guild cache, and the
+// forget-token map. Consumed by automod's scan (matchSignatures), automod's honeypot subscriber and
+// /mod scamseed (seedFromEvidence), and /mod scamforget (removeSignature). The shared cache and
+// token map are why this is a lib rather than living inside one module.
 
 // Per-guild signature sets, reused for CACHE_TTL so the hot path is a Set lookup, not a query per
 // message. Invalidated on a write so a correction takes effect at once.
@@ -105,8 +108,8 @@ export async function matchSignatures(
 
 // "Not a scam" buttons carry a short token, not the (possibly long) signature value, since Discord
 // caps a customId at 100 chars. The token map is in-memory, so a button from before a restart
-// resolves to expired (the /automod forget command still works for those). automod's scan stashes
-// the token when it posts a match alert; its seeding reads it back when the button is clicked.
+// resolves to expired (the /mod scamforget command still works for those). automod's scan stashes
+// the token when it posts a match alert; the moderation module's button handler reads it back.
 const forgetTargets = new Map<string, { kind: SignatureKind; value: string; at: number }>();
 let forgetSeq = 0;
 const FORGET_TTL = 3_600_000;
@@ -129,4 +132,85 @@ export function takeForgetToken(token: string): { kind: SignatureKind; value: st
   if (!target) return null;
   forgetTargets.delete(token);
   return { kind: target.kind, value: target.value };
+}
+
+// ── Writer: seeding new signatures ───────────────────────────────────────────
+export interface Evidence {
+  content: string;
+  attachments: { url: string; size: number; width: number | null; height: number | null; name: string }[];
+}
+
+// Build seeding evidence from a message (its text + attachments).
+export function evidenceOf(message: Message): Evidence {
+  return {
+    content: message.content,
+    attachments: message.attachments.map((a) => ({
+      url: a.url,
+      size: a.size,
+      width: a.width ?? null,
+      height: a.height ?? null,
+      name: a.name,
+    })),
+  };
+}
+
+export const seededReply = (added: number): string =>
+  added > 0 ? `Seeded ${added} signature(s).` : "Nothing seedable there (no scam domain or image).";
+
+// Add a confirmed-bad message's domains and image signatures to the store. Domains skip anything
+// allowlisted or on shared hosting. Images prefer a byte-exact SHA-256, falling back to a size/
+// dimensions fingerprint only when they can't be hashed, so the two are mutually exclusive per
+// image. Returns how many signatures were added. The store's only writers are the honeypot feed
+// and the /mod scamseed command / context menu.
+export async function seedFromEvidence(
+  ctx: AppContext,
+  guildId: string,
+  source: "honeypot" | "manual",
+  evidence: Evidence,
+): Promise<number> {
+  const now = Date.now();
+  const expiresAt = now + ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSeedTtlDays) * DAY_MS;
+  let added = 0;
+
+  if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.scamSeedDomains)) {
+    const allowlist = parseDomainList(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.automodLinkAllowlist) ?? "");
+    const hosts = extractHostnames({
+      content: evidence.content,
+      filenames: evidence.attachments.map((a) => a.name),
+      includeBare: true,
+    });
+    for (const host of hosts) {
+      if (!isSeedableDomain(host, allowlist)) continue;
+      upsertSignature(ctx.db, { guildId, kind: "domain", value: host, source, expiresAt }, now);
+      added++;
+    }
+  }
+
+  if (ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.scamSeedImages)) {
+    const maxBytes = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamMaxImageMb) * 1_000_000;
+    for (const a of evidence.attachments) {
+      const triple = attachmentTriple(a.size, a.width, a.height);
+      if (!triple) continue;
+      let hashed = false;
+      if (a.size <= maxBytes) {
+        const hash = await sha256Of(a.url, maxBytes);
+        if (hash) {
+          upsertSignature(ctx.db, { guildId, kind: "sha256", value: hash, source, expiresAt }, now);
+          added++;
+          hashed = true;
+        }
+      }
+      if (!hashed) {
+        upsertSignature(ctx.db, { guildId, kind: "triple", value: triple, source, expiresAt }, now);
+        added++;
+      }
+    }
+  }
+
+  if (added > 0) {
+    const cap = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.scamSeedMaxEntries);
+    for (const kind of ["domain", "sha256", "triple"] as SignatureKind[]) evictOldest(ctx.db, guildId, kind, cap);
+    invalidateSignatures(guildId);
+  }
+  return added;
 }

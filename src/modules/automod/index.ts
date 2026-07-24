@@ -1,13 +1,7 @@
 import { EmbedBuilder, Events, type GuildMember, type Message, PermissionFlagsBits } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
-import {
-  automodCommand,
-  forgetButtonHandler,
-  seedContextCommand,
-  seedDmListener,
-  seedOnReady,
-} from "./seeding";
+import { seedOnReady } from "./seeding";
 import { countAutomodViolations, createCase, listAutomodActions } from "../../db/cases";
 import { bumpSignatureHit } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
@@ -496,8 +490,5 @@ const onEdit: Listener<Events.MessageUpdate> = {
 
 export const automodModule: BotModule = {
   name: "automod",
-  commands: [automodCommand],
-  contextCommands: [seedContextCommand],
-  listeners: [onCreate, onEdit, seedOnReady, seedDmListener] as Listener[],
-  components: [forgetButtonHandler],
+  listeners: [onCreate, onEdit, seedOnReady] as Listener[],
 };

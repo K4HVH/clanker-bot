@@ -1,27 +1,39 @@
 import {
   ActionRowBuilder,
+  ApplicationCommandType,
   ButtonBuilder,
   ButtonStyle,
   ChannelSelectMenuBuilder,
   ChannelType,
+  ContextMenuCommandBuilder,
   EmbedBuilder,
   type Guild,
   type GuildBasedChannel,
   type GuildMember,
   type GuildTextBasedChannel,
+  InteractionContextType,
   type Message,
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
-import type { BotModule, ComponentHandler } from "../../core/module";
+import type { BotModule, ComponentHandler, ContextCommand } from "../../core/module";
 import { clearCases, listCasesByUser } from "../../db/cases";
+import { removeSignature, type SignatureKind } from "../../db/scam-signature";
 import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { deleteSuppressed, suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logModAlert } from "../../lib/modlog";
 import { messageMatchesPurge, type PurgeCriteria } from "../../lib/purge";
+import {
+  type Evidence,
+  evidenceOf,
+  invalidateSignatures,
+  seedFromEvidence,
+  seededReply,
+  takeForgetToken,
+} from "../../lib/scam-signatures";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 const warnSub: Subcommand = {
@@ -754,6 +766,128 @@ const historySub: Subcommand = {
   },
 };
 
+// ── Scam signature list (automod data, managed like /mod clearhistory) ────────
+const SCAM_MSG_LINK = /channels\/(\d+)\/(\d+)\/(\d+)/;
+
+const scamSeedSub: Subcommand = {
+  description: "Add a scam signature from a message, some text, or an image.",
+  permission: PermissionFlagsBits.ManageGuild,
+  options: (s) =>
+    s
+      .addStringOption((o) => o.setName("message").setDescription("A message link or ID to take domains + image from"))
+      .addStringOption((o) => o.setName("text").setDescription("A scam domain or text to pull domains from"))
+      .addAttachmentOption((o) => o.setName("image").setDescription("A scam image to hash and block")),
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild() || !interaction.guild) return;
+    const messageRef = interaction.options.getString("message");
+    const text = interaction.options.getString("text");
+    const image = interaction.options.getAttachment("image");
+    if (!messageRef && !text && !image) {
+      await interaction.reply({ content: "Give a message, some text, or an image to seed from.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // Defer before the fetch + image download/hash, which can exceed Discord's 3s ack window.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const evidence: Evidence = { content: text ?? "", attachments: [] };
+    if (image) {
+      evidence.attachments.push({
+        url: image.url,
+        size: image.size,
+        width: image.width ?? null,
+        height: image.height ?? null,
+        name: image.name,
+      });
+    }
+    if (messageRef) {
+      const m = messageRef.match(SCAM_MSG_LINK);
+      const channelId = m ? m[2] : interaction.channelId;
+      const messageId = m ? m[3] : /^\d{17,20}$/.test(messageRef.trim()) ? messageRef.trim() : null;
+      if (!channelId || !messageId) {
+        await interaction.editReply("The message reference wasn't a link or an ID.");
+        return;
+      }
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      const target = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
+      if (!target) {
+        await interaction.editReply("Couldn't fetch that message.");
+        return;
+      }
+      const e = evidenceOf(target);
+      evidence.content = `${evidence.content} ${e.content}`.trim();
+      evidence.attachments.push(...e.attachments);
+    }
+    const added = await seedFromEvidence(ctx, interaction.guild.id, "manual", evidence);
+    await interaction.editReply(seededReply(added));
+  },
+};
+
+const scamForgetSub: Subcommand = {
+  description: "Remove a scam signature from the list.",
+  permission: PermissionFlagsBits.ManageGuild,
+  options: (s) =>
+    s
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Signature kind")
+          .setRequired(true)
+          .addChoices({ name: "domain", value: "domain" }, { name: "sha256", value: "sha256" }, { name: "triple", value: "triple" }),
+      )
+      .addStringOption((o) => o.setName("value").setDescription("The exact value to remove").setRequired(true)),
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild()) return;
+    const kind = interaction.options.getString("kind", true) as SignatureKind;
+    const value = interaction.options.getString("value", true);
+    const removed = removeSignature(ctx.db, interaction.guildId, kind, value);
+    invalidateSignatures(interaction.guildId);
+    await interaction.reply({ content: removed > 0 ? "Removed." : "No matching signature.", flags: MessageFlags.Ephemeral });
+  },
+};
+
+// Right-click a message, Apps, Seed scam signature.
+const scamSeedContext: ContextCommand = {
+  data: new ContextMenuCommandBuilder()
+    .setName("Seed scam signature")
+    .setType(ApplicationCommandType.Message)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
+  async execute(interaction, ctx) {
+    if (!interaction.inGuild()) return;
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({ content: "You need Manage Server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const added = await seedFromEvidence(ctx, interaction.guildId, "manual", evidenceOf(interaction.targetMessage));
+    await interaction.editReply(seededReply(added));
+  },
+};
+
+// The "Not a scam" button automod posts on a match alert.
+const scamForgetButtonHandler: ComponentHandler = {
+  customId: "scam:forget",
+  type: "button",
+  match: "prefix",
+  async handle(interaction, ctx) {
+    if (!interaction.inGuild() || !interaction.guildId) return;
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({ content: "You don't have permission.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const target = takeForgetToken(interaction.customId.slice("scam:forget:".length));
+    if (!target) {
+      await interaction.reply({ content: "That correction expired. Use `/mod scamforget` instead.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const removed = removeSignature(ctx.db, interaction.guildId, target.kind, target.value);
+    invalidateSignatures(interaction.guildId);
+    await interaction.reply({
+      content: removed > 0 ? `Removed \`${target.kind}\` from the scam list.` : "That signature was already gone.",
+      flags: MessageFlags.Ephemeral,
+    });
+  },
+};
+
 export const moderationModule: BotModule = {
   name: "moderation",
   commands: [
@@ -774,8 +908,11 @@ export const moderationModule: BotModule = {
         purge: purgeSub,
         history: historySub,
         clearhistory: clearHistorySub,
+        scamseed: scamSeedSub,
+        scamforget: scamForgetSub,
       },
     }),
   ],
-  components: purgeComponents,
+  contextCommands: [scamSeedContext],
+  components: [...purgeComponents, scamForgetButtonHandler],
 };
