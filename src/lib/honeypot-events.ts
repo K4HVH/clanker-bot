@@ -1,7 +1,7 @@
 import type { Guild } from "discord.js";
 
-// A honeypot hit. Emitted by the honeypot module; the scam-signatures module subscribes to seed the
-// signature list. An in-process seam so the honeypot doesn't import the signature code.
+// A honeypot hit. Emitted by the honeypot module; the automod module's seeding subscribes to seed
+// the signature list. An in-process seam so the honeypot doesn't import the signature code.
 export interface HoneypotAttachment {
   url: string; // cdn.discordapp.com, the original bytes (not proxyURL, which re-encodes)
   size: number;

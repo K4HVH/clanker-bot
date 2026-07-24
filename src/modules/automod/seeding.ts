@@ -165,14 +165,16 @@ const seedSub: Subcommand = {
       await interaction.reply({ content: "Give a message link or a message ID.", flags: MessageFlags.Ephemeral });
       return;
     }
+    // Defer before the fetch + download/hash, which can exceed Discord's 3s ack window.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
     const target = channel?.isTextBased() ? await channel.messages.fetch(messageId).catch(() => null) : null;
     if (!target) {
-      await interaction.reply({ content: "Couldn't fetch that message.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply("Couldn't fetch that message.");
       return;
     }
     const added = await seedFromEvidence(ctx, interaction.guild.id, "manual", evidenceOf(target));
-    await interaction.reply({ content: seededReply(added), flags: MessageFlags.Ephemeral });
+    await interaction.editReply(seededReply(added));
   },
 };
 
@@ -226,8 +228,10 @@ export const seedContextCommand: ContextCommand = {
       await interaction.reply({ content: "You need Manage Server.", flags: MessageFlags.Ephemeral });
       return;
     }
+    // Defer before the download/hash, which can exceed Discord's 3s ack window.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const added = await seedFromEvidence(ctx, interaction.guildId, "manual", evidenceOf(interaction.targetMessage));
-    await interaction.reply({ content: seededReply(added), flags: MessageFlags.Ephemeral });
+    await interaction.editReply(seededReply(added));
   },
 };
 
