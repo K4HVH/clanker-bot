@@ -60,7 +60,8 @@ function leavingMember(guild: Guild, partial: boolean): GuildMember {
     guild,
     partial,
     user: { id: "u1", createdTimestamp: 1_600_000_000_000 },
-    joinedTimestamp: partial ? null : 1_700_000_000_000,
+    // Tenure is measured against the leave, so pin the join relative to now.
+    joinedTimestamp: partial ? null : Date.now() - (3 * 86_400_000 + 4 * 3_600_000),
     // @everyone shares the guild's id and is filtered out of the logged role list.
     roles: {
       cache: new Collection([
@@ -89,7 +90,7 @@ test("logs a cached member's leave with their tenure and roles", async () => {
   expect(sent).toHaveLength(1);
   expect(sent[0]?.title).toBe("Member left");
   const fields = fieldsOf(sent[0]);
-  expect(fields["Joined server"]).toBe("<t:1700000000:D> (<t:1700000000:R>)");
+  expect(fields["Time in server"]).toBe("3 days, 4 hours");
   expect(fields["Roles held"]).toBe("<@&r1>");
 });
 
@@ -102,6 +103,7 @@ test("logs an uncached member's leave, marking what was never known as unknown",
   expect(fields.User).toContain("u1");
   expect(fields["Account created"]).toBe("<t:1600000000:R>");
   expect(fields["Joined server"]).toBe("*unknown*");
+  expect(fields["Time in server"]).toBe("*unknown*");
   expect(fields["Roles held"]).toBe("*unknown*");
 });
 

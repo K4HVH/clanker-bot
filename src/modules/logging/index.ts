@@ -122,6 +122,7 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
       userId,
       createdAt: member.user.createdTimestamp,
       joinedAt: member.partial ? undefined : member.joinedTimestamp,
+      leftAt: Date.now(),
       roleIds: member.partial
         ? undefined
         : member.roles.cache.filter((role) => role.id !== guild.id).map((role) => role.id),

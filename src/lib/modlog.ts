@@ -2,6 +2,7 @@ import { EmbedBuilder, type Guild, type MessageCreateOptions } from "discord.js"
 import type { AppContext } from "../core/context";
 import type { CaseRecord } from "../db/cases";
 import { CONFIG_KEYS } from "./config";
+import { formatElapsed } from "./duration";
 
 const ACTION_META: Record<string, { emoji: string; label: string; color: number }> = {
   warn: { emoji: "⚠️", label: "Warn", color: 0xf1c40f },
@@ -81,6 +82,7 @@ export function buildMemberLeaveEmbed(a: {
   userId: string;
   createdAt?: number;
   joinedAt?: number | null;
+  leftAt?: number;
   roleIds?: string[];
 }): EmbedBuilder {
   const embed = new EmbedBuilder()
@@ -93,10 +95,16 @@ export function buildMemberLeaveEmbed(a: {
       value: `<t:${Math.floor(a.createdAt / 1000)}:R>`,
     });
   }
-  const joined = Math.floor((a.joinedAt ?? 0) / 1000);
   embed.addFields({
     name: "Joined server",
-    value: a.joinedAt ? `<t:${joined}:D> (<t:${joined}:R>)` : "*unknown*",
+    value: a.joinedAt ? `<t:${Math.floor(a.joinedAt / 1000)}:D>` : "*unknown*",
+  });
+  // How long they stayed, not how long ago they arrived — measured to the moment they left
+  // rather than to now, since the log line is written after a short delay.
+  embed.addFields({
+    name: "Time in server",
+    value:
+      a.joinedAt && a.leftAt ? formatElapsed(a.leftAt - a.joinedAt) : "*unknown*",
   });
   embed.addFields({
     name: "Roles held",

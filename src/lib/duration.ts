@@ -30,3 +30,26 @@ export function formatDuration(ms: number): string {
   }
   return `${Math.round(ms / 1000)}s`;
 }
+
+// A span of time as prose, for reading rather than re-entering as input (formatDuration's
+// compact "3d" only survives round numbers). Keeps the two largest non-zero units, which is
+// enough to judge a span without a wall of trailing precision. No months: their length
+// varies, so any single figure for one would be a rounding fiction.
+export function formatElapsed(ms: number): string {
+  const units: [string, number][] = [
+    ["year", 31_536_000_000],
+    ["day", 86_400_000],
+    ["hour", 3_600_000],
+    ["minute", 60_000],
+  ];
+  if (ms < 60_000) return "less than a minute";
+  const parts: string[] = [];
+  let rest = ms;
+  for (const [label, size] of units) {
+    const count = Math.floor(rest / size);
+    rest -= count * size;
+    if (count > 0) parts.push(`${count} ${label}${count === 1 ? "" : "s"}`);
+    if (parts.length === 2) break;
+  }
+  return parts.join(", ");
+}

@@ -46,13 +46,23 @@ test("member leave embed reports tenure and the roles they held", () => {
       userId: "u9",
       createdAt: 1_600_000_000_000,
       joinedAt: 1_700_000_000_000,
+      leftAt: 1_700_000_000_000 + 3 * 86_400_000 + 4 * 3_600_000,
       roleIds: ["r1", "r2"],
     }),
   );
   expect(fields.User).toContain("u9");
   expect(fields["Account created"]).toBe("<t:1600000000:R>");
-  expect(fields["Joined server"]).toBe("<t:1700000000:D> (<t:1700000000:R>)");
+  expect(fields["Joined server"]).toBe("<t:1700000000:D>");
+  expect(fields["Time in server"]).toBe("3 days, 4 hours");
   expect(fields["Roles held"]).toBe("<@&r1> <@&r2>");
+});
+
+test("member leave embed cannot state a tenure without both ends of it", () => {
+  // Join known but the leave moment missing, or the reverse: neither yields a real span.
+  const noLeft = fieldsOf(buildMemberLeaveEmbed({ userId: "u9", joinedAt: 1_700_000_000_000 }));
+  expect(noLeft["Time in server"]).toBe("*unknown*");
+  const noJoin = fieldsOf(buildMemberLeaveEmbed({ userId: "u9", leftAt: 1_700_000_000_000 }));
+  expect(noJoin["Time in server"]).toBe("*unknown*");
 });
 
 test("member leave embed distinguishes no roles from unknown roles", () => {
@@ -63,6 +73,7 @@ test("member leave embed distinguishes no roles from unknown roles", () => {
   const unknown = fieldsOf(buildMemberLeaveEmbed({ userId: "u9" }));
   expect(unknown["Roles held"]).toBe("*unknown*");
   expect(unknown["Joined server"]).toBe("*unknown*");
+  expect(unknown["Time in server"]).toBe("*unknown*");
 });
 
 test("a configured log channel that cannot be posted to warns instead of dropping silently", async () => {
