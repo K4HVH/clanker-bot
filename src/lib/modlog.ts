@@ -148,13 +148,29 @@ async function sendToConfigured(
   extra?: ExtraSend,
 ): Promise<void> {
   const channelId = ctx.config.get<string>(guild.id, key);
-  if (!channelId) return;
+  if (!channelId) return; // unset is a deliberate opt-out, not a failure
   const channel =
     guild.channels.cache.get(channelId) ??
     (await guild.channels.fetch(channelId).catch(() => null));
-  if (channel?.isTextBased()) {
-    await channel.send({ embeds: [embed], ...extra }).catch(() => {});
+  // Past this point the operator has asked for these logs, so a drop is a fault worth
+  // surfacing: a silent one is indistinguishable from "nothing happened", which makes a
+  // missing log line impossible to diagnose from the outside.
+  if (!channel?.isTextBased()) {
+    ctx.logger.warn("log channel is missing or not text-based — dropped a log line", {
+      guildId: guild.id,
+      setting: key,
+      channelId,
+    });
+    return;
   }
+  await channel.send({ embeds: [embed], ...extra }).catch((error: unknown) => {
+    ctx.logger.warn("could not post to the log channel — dropped a log line", {
+      guildId: guild.id,
+      setting: key,
+      channelId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 export async function logCase(ctx: AppContext, guild: Guild, c: CaseRecord): Promise<void> {

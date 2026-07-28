@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import type { CaseRecord } from "../../src/db/cases";
-import { buildCaseEmbed, buildMemberJoinEmbed, buildMemberLeaveEmbed } from "../../src/lib/modlog";
+import type { Guild } from "discord.js";
+import type { AppContext } from "../../src/core/context";
+import { CONFIG_KEYS } from "../../src/lib/config";
+import {
+  buildCaseEmbed,
+  buildMemberJoinEmbed,
+  buildMemberLeaveEmbed,
+  logMemberEvent,
+} from "../../src/lib/modlog";
+import { silentContext } from "../helpers/fakes";
 
 function fieldsOf(embed: { data: { fields?: { name: string; value: string }[] } }) {
   return Object.fromEntries((embed.data.fields ?? []).map((f) => [f.name, f.value]));
@@ -54,4 +63,32 @@ test("member leave embed distinguishes no roles from unknown roles", () => {
   const unknown = fieldsOf(buildMemberLeaveEmbed({ userId: "u9" }));
   expect(unknown["Roles held"]).toBe("*unknown*");
   expect(unknown["Joined server"]).toBe("*unknown*");
+});
+
+test("a configured log channel that cannot be posted to warns instead of dropping silently", async () => {
+  const warnings: string[] = [];
+  const ctx = silentContext();
+  ctx.logger = { ...ctx.logger, warn: (msg: string) => warnings.push(msg) } as AppContext["logger"];
+  ctx.config.set("g1", CONFIG_KEYS.memberLogChannelId, "c-log");
+  const guild = {
+    id: "g1",
+    channels: {
+      cache: new Map([
+        ["c-log", { isTextBased: () => true, send: async () => Promise.reject(new Error("Missing Permissions")) }],
+      ]),
+    },
+  } as unknown as Guild;
+
+  await logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId: "u9" }));
+  expect(warnings).toEqual(["could not post to the log channel — dropped a log line"]);
+});
+
+test("an unset log channel stays silent — opting out is not a fault", async () => {
+  const warnings: string[] = [];
+  const ctx = silentContext();
+  ctx.logger = { ...ctx.logger, warn: (msg: string) => warnings.push(msg) } as AppContext["logger"];
+  const guild = { id: "g1", channels: { cache: new Map() } } as unknown as Guild;
+
+  await logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId: "u9" }));
+  expect(warnings).toEqual([]);
 });
