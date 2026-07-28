@@ -73,11 +73,40 @@ export function buildMemberJoinEmbed(a: { userId: string; createdAt: number }): 
     );
 }
 
-export function buildMemberLeaveEmbed(a: { userId: string }): EmbedBuilder {
-  return new EmbedBuilder()
+// Tenure and roles are only knowable while the departing member is still resolvable — a member
+// who has left can't be fetched afterwards, and an uncached one arrives with the user alone.
+// Those fields are therefore optional, and render as "unknown" rather than being quietly omitted:
+// an absent field would read as "no roles" when it means "we couldn't tell".
+export function buildMemberLeaveEmbed(a: {
+  userId: string;
+  createdAt?: number;
+  joinedAt?: number | null;
+  roleIds?: string[];
+}): EmbedBuilder {
+  const embed = new EmbedBuilder()
     .setColor(0x95a5a6)
     .setTitle("Member left")
     .addFields({ name: "User", value: `<@${a.userId}> (${a.userId})` });
+  if (a.createdAt !== undefined) {
+    embed.addFields({
+      name: "Account created",
+      value: `<t:${Math.floor(a.createdAt / 1000)}:R>`,
+    });
+  }
+  const joined = Math.floor((a.joinedAt ?? 0) / 1000);
+  embed.addFields({
+    name: "Joined server",
+    value: a.joinedAt ? `<t:${joined}:D> (<t:${joined}:R>)` : "*unknown*",
+  });
+  embed.addFields({
+    name: "Roles held",
+    value: a.roleIds
+      ? a.roleIds.length > 0
+        ? truncate(a.roleIds.map((id) => `<@&${id}>`).join(" "))
+        : "*none*"
+      : "*unknown*",
+  });
+  return embed.setTimestamp(new Date());
 }
 
 export function buildBulkDeleteEmbed(a: { channelId: string; count: number }): EmbedBuilder {

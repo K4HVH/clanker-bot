@@ -117,6 +117,10 @@ const onNickChange: Listener<Events.GuildMemberUpdate> = {
   event: Events.GuildMemberUpdate,
   async handle(ctx, oldMember, newMember) {
     if (exempt(newMember)) return;
+    // An uncached member's "before" carries no nickname, so every unrelated update (roles,
+    // avatar, timeout) would look like a rename and re-enforce against a name that hasn't
+    // changed. Without a real prior nickname there is no edit to react to.
+    if (oldMember.partial) return;
     if (oldMember.nickname === newMember.nickname) return; // only nickname edits
     const gid = newMember.guild.id;
     const nameAction = actionOf(ctx, gid, CONFIG_KEYS.nameGuardAction);

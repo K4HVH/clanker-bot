@@ -114,13 +114,25 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
     if (!logEnabled(ctx, member.guild.id, CONFIG_KEYS.logMemberEvents)) return;
     const { guild } = member;
     const userId = member.id;
+    // Snapshot the member now: they're dropped from the cache as this event fires and the log
+    // is deferred, so reading any of it later would find nothing. A member the bot never had
+    // cached arrives partial — no join date or roles ever existed to read, and leaving those
+    // undefined is what makes the embed say "unknown" instead of inventing "none".
+    const details = {
+      userId,
+      createdAt: member.user.createdTimestamp,
+      joinedAt: member.partial ? undefined : member.joinedTimestamp,
+      roleIds: member.partial
+        ? undefined
+        : member.roles.cache.filter((role) => role.id !== guild.id).map((role) => role.id),
+    };
     // Wait for a possible kick/ban audit entry to arrive, then only log a plain "left" if
     // this wasn't a mod/bot removal (those are logged elsewhere: an attributed mod-log line
     // for a human, or a case for the bot's own). Runs outside the listener error boundary,
     // so guard the promise itself.
     setTimeout(() => {
       if (wasModRemoved(userId)) return;
-      void logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId })).catch(() => {});
+      void logMemberEvent(ctx, guild, buildMemberLeaveEmbed(details)).catch(() => {});
     }, LEAVE_DEFER_MS).unref?.();
   },
 };
@@ -129,6 +141,10 @@ const onMemberUpdate: Listener<Events.GuildMemberUpdate> = {
   event: Events.GuildMemberUpdate,
   async handle(ctx, oldMember, newMember) {
     if (!logEnabled(ctx, newMember.guild.id, CONFIG_KEYS.logMemberEvents)) return;
+    // An uncached member's "before" is synthesised from the gateway payload's user alone, so
+    // its nickname is null regardless of the real one — comparing against it would report a
+    // nickname set on every role/timeout change. We can't know the old nickname, so say nothing.
+    if (oldMember.partial) return;
     // Only nickname changes here — role and timeout changes are attributed via the audit stream.
     const before = oldMember.nickname ?? null;
     const after = newMember.nickname ?? null;
