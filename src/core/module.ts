@@ -17,7 +17,7 @@ export interface SlashCommand {
   execute(interaction: ChatInputCommandInteraction, ctx: AppContext): Promise<void>;
 }
 
-// A right-click (message) context-menu command — "Apps → …" on a message.
+// A right-click (message) context-menu command: "Apps → …" on a message.
 export interface ContextCommand {
   data: Pick<ContextMenuCommandBuilder, "name" | "toJSON">;
   execute(interaction: MessageContextMenuCommandInteraction, ctx: AppContext): Promise<void>;

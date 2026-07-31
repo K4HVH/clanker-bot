@@ -141,8 +141,8 @@ export const REGISTRY: Setting[] = [
   { key: K.logMessageEvents, category: "logging", type: "bool", default: true, label: "Log message edits/deletes", description: "Edited, deleted, and bulk-deleted messages (member log)." },
   { key: K.logMemberEvents, category: "logging", type: "bool", default: true, label: "Log member events", description: "Joins, leaves, nickname changes, and role grants/removes (member log)." },
   { key: K.logModActions, category: "logging", type: "bool", default: true, label: "Log manual mod actions", description: "Bans/unbans/kicks/timeouts done outside the bot, with who and why (mod log)." },
-  { key: K.logServerEvents, category: "logging", type: "bool", default: false, label: "Log server structure changes", description: "Channel and role create/delete/edit, with who (member log). Off by default — chatty." },
-  // Automod — content filters (each fires a "violation": delete + record; see Automod Actions
+  { key: K.logServerEvents, category: "logging", type: "bool", default: false, label: "Log server structure changes", description: "Channel and role create/delete/edit, with who (member log). Off by default (chatty)." },
+  // Automod: content filters (each fires a "violation": delete + record; see Automod Actions
   // for what accumulated violations do). All off by default; re-checked on message edits too.
   { key: K.automodModerateTickets, category: "automod", type: "bool", default: false, label: "Also moderate ticket channels", description: "By default automod ignores ticket channels (private support). Turn on to enforce there too." },
   { key: K.automodInvites, category: "automod", type: "bool", default: false, label: "Block invite links", description: "Delete messages with a Discord invite (discord.gg, discord.com/invite, discord.new, dsc.gg)." },
@@ -153,7 +153,7 @@ export const REGISTRY: Setting[] = [
   { key: K.automodMassMention, category: "automod", type: "bool", default: false, label: "Block @everyone / @here", description: "Delete a message that pings @everyone or @here (from a non-staff member)." },
   { key: K.automodCaps, category: "automod", type: "bool", default: false, label: "Block excessive caps", description: "Delete a longer message (24+ letters) that is mostly UPPERCASE." },
   { key: K.automodDuplicates, category: "automod", type: "bool", default: false, label: "Block duplicate spam", description: "Delete a message identical to one the same user just sent (within the flood window)." },
-  // Automod Actions — the flood rule + what accumulated violations trigger.
+  // Automod Actions: the flood rule + what accumulated violations trigger.
   { key: K.automodFlood, category: "automod-actions", type: "bool", default: false, label: "Flood filter", description: "Treat sending too many messages too fast (below) as a violation." },
   { key: K.automodFloodMessages, category: "automod-actions", type: "int", min: 2, max: 30, default: 5, label: "Flood: messages", description: "How many messages within the window count as a flood." },
   { key: K.automodFloodSeconds, category: "automod-actions", type: "int", min: 1, max: 60, default: 7, label: "Flood: window (seconds)", description: "The sliding window for the flood + duplicate checks." },
@@ -163,20 +163,20 @@ export const REGISTRY: Setting[] = [
   { key: K.automodBanAt, category: "automod-actions", type: "int", min: 0, max: 100, default: 0, label: "Ban at N violations (0=off)", description: "Ban a user once they hit this many violations. Off by default." },
   // Guards
   { key: K.minAccountAgeDays, category: "guards", type: "int", min: 0, max: 3650, default: 0, label: "Min account age (days, 0=off)", description: "Accounts newer than this trip the age gate. 0 disables it." },
-  { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag — pick kick/ban to auto-remove." },
+  { key: K.accountAgeGateAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "flag", label: "Age gate: action", description: "What to do with an account younger than the minimum. Defaults to flag: pick kick/ban to auto-remove." },
   { key: K.nameBlocklist, category: "guards", type: "text", default: "", label: "Name blocklist", description: "Banned name patterns, ONE PER LINE. A line is either a word (matched anywhere in the name, case-insensitive, 3+ chars) or a /regex/. Commas also separate words on a line. Only acts when 'Name guard: action' is above Off.", placeholder: "scam, free nitro\n/^(mod|admin|staff)$/" },
   { key: K.nameGuardAction, category: "guards", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Name guard: action", description: "What to do when a username/nickname matches the blocklist." },
   { key: K.flagNoAvatar, category: "guards", type: "bool", default: false, label: "Flag no-avatar joins", description: "Alert the mod-log when a joiner has the default avatar (a common bot tell)." },
   { key: K.guardDmOnRemoval, category: "guards", type: "bool", default: false, label: "DM removed users why", description: "Tell a kicked/banned joiner why (e.g. account too new), so a legit one can come back." },
   // Verification
-  { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role", description: "Role granted once a member passes verification — gate your channels behind it. Required for verification to work." },
+  { key: K.verifiedRoleId, category: "verification", type: "role", default: undefined, label: "Verified role", description: "Role granted once a member passes verification. Gate your channels behind it. Required for verification to work." },
   { key: K.verificationChannelId, category: "verification", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Verify channel (kept clear)", description: "Optional channel the bot auto-scrubs (deletes every non-staff message) so members can type their code in it." },
   { key: K.verificationChallengeMinutes, category: "verification", type: "int", min: 1, max: 60, default: 10, label: "Captcha TTL (minutes)", description: "How long a captcha code stays valid before it expires." },
   { key: K.verificationCodeLength, category: "verification", type: "int", min: 4, max: 8, default: 6, label: "Captcha length", description: "Number of characters in the captcha code." },
   { key: K.verificationPanelText, category: "verification", type: "text", default: "Click **Verify** to prove you're human and unlock the server.", label: "Verify panel text", description: "Message shown on the /verify panel above the Verify button." },
   { key: K.verificationDmOnJoin, category: "verification", type: "bool", default: true, label: "DM captcha on join", description: "DM a new member their captcha as soon as they join." },
   { key: K.verificationMaxAttempts, category: "verification", type: "int", min: 1, max: 10, default: 4, label: "Max captcha attempts", description: "Wrong tries allowed before the captcha is voided (shared across DM + channel)." },
-  { key: K.verificationDifficulty, category: "verification", type: "int", min: 1, max: 5, default: 3, label: "Captcha difficulty (1-5)", description: "Distortion level — higher is harder for bots (and for humans)." },
+  { key: K.verificationDifficulty, category: "verification", type: "int", min: 1, max: 5, default: 3, label: "Captcha difficulty (1-5)", description: "Distortion level: higher is harder for bots (and for humans)." },
   { key: K.verificationFlagYoungDays, category: "verification", type: "int", min: 0, max: 3650, default: 7, label: "Flag verifiers younger than (days, 0=off)", description: "Alert the mod-log when an account younger than this passes verification. 0 = off." },
   // Tickets
   { key: K.ticketCategoryId, category: "tickets", type: "channel", channelTypes: [ChannelType.GuildCategory], default: undefined, label: "Ticket category", description: "Category that new ticket channels are created under." },
@@ -187,8 +187,8 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketDmTranscript, category: "tickets", type: "bool", default: true, label: "DM the transcript to the opener on close", description: "DM the transcript to the ticket opener when it closes." },
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
-  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket — only staff can." },
-  // Memes — @-mention moderation ("@bot ban @user"). Runs the real mod pipeline for people who
+  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket. Only staff can." },
+  // Memes: @-mention moderation ("@bot ban @user"). Runs the real mod pipeline for people who
   // hold the permission; snarks at those who don't. All replies pull a random line from the lists
   // (blank = built-in defaults). Placeholders: {mod}, {target}, {action}.
   { key: K.memesEnabled, category: "memes", type: "bool", default: false, label: "@-mention commands", description: "Let people @ the bot to moderate (\"@bot ban @user\"). It obeys those with the permission and snarks at those without. Off by default." },

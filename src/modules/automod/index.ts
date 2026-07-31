@@ -26,13 +26,13 @@ const repeats = new RepeatTracker();
 
 // A message SENT within this window of a user's last action takes no new action, so a burst
 // collapses into one action instead of a stack. It's measured against the message's send time
-// (not our processing time), so it can be short without a slow backlog leaking a second action —
+// (not our processing time), so it can be short without a slow backlog leaking a second action:
 // just long enough to absorb a burst + minor clock skew. New violations sent later climb normally.
 const ESCALATION_COOLDOWN_MS = 5_000;
 
 const RANK: Record<string, number> = { timeout: 1, kick: 2, ban: 3 };
 
-// Serialize each user's violation handling so a burst is processed one message at a time — the
+// Serialize each user's violation handling so a burst is processed one message at a time: the
 // warn is written and counted before the next message's escalation reads the count. Without this,
 // discord.js dispatches burst handlers concurrently and their interleaved counts can jump a user
 // past a tier (straight to kick from zero). Different users still run concurrently.
@@ -97,7 +97,7 @@ function enabledTiers(ctx: AppContext, guildId: string): Tier[] {
 // one action per burst). Ladder state (how far the user has climbed, when they were last actioned)
 // is derived from the DB so it survives restarts + history clears. Returns true when the caller
 // should suppress the "message removed" DM (we acted, or we're mid-burst after an action). Won't
-// touch the owner, a member above the bot, or act without the permission — the delete + warn stand.
+// touch the owner, a member above the bot, or act without the permission: the delete + warn stand.
 async function escalate(
   ctx: AppContext,
   message: Message,
@@ -125,7 +125,7 @@ async function escalate(
     tiers,
     appliedRank,
     lastActionAt,
-    // On an edit use the edit time, not the original send time — otherwise editing an old
+    // On an edit use the edit time, not the original send time. Otherwise editing an old
     // (pre-action) message into a fresh violation looks like a straggler and never escalates.
     messageSentAt: message.editedTimestamp ?? message.createdTimestamp,
     cooldownMs: ESCALATION_COOLDOWN_MS,
@@ -152,7 +152,7 @@ async function escalate(
   if (!acted) return false; // action failed/skipped; the delete + warn still stand, so allow the warn DM
 
   // Record the action so the ladder advances. Guard the write: the action already happened, so a
-  // failed insert should be logged, not thrown — a throw here would skip recording AND could let
+  // failed insert should be logged, not thrown: a throw here would skip recording AND could let
   // the next burst message re-act (it derives the cooldown from this row).
   try {
     await logCase(ctx, guild, createCase(ctx.db, { guildId, userId, moderatorId: botId, type, reason }));
@@ -425,7 +425,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     rules,
   );
 
-  // Stateful rules only on new messages — an edit doesn't add to flood/duplicate history.
+  // Stateful rules only on new messages: an edit doesn't add to flood/duplicate history.
   if (!violation && !isEdit) {
     const windowMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodFloodSeconds) * 1000;
     const now = Date.now();
@@ -444,7 +444,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   // (the mod-log automod entry is the record; don't reprint the removed content).
   const deleted = await deleteSuppressed(message.id, () => message.delete());
   if (!deleted) {
-    // Couldn't remove it (no ManageMessages here, or it's already gone) — don't record a warn,
+    // Couldn't remove it (no ManageMessages here, or it's already gone), don't record a warn,
     // escalate, or tell the user it was "removed" while it's still sitting in the channel.
     return;
   }
@@ -464,7 +464,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     const suppressWarnDm = await escalate(ctx, message, member, botId);
     if (!suppressWarnDm && ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.dmOnAction)) {
       await message.author
-        .send(`Your message in **${guild.name}** was removed by automod — ${label}.`)
+        .send(`Your message in **${guild.name}** was removed by automod: ${label}.`)
         .catch(() => {});
     }
   });
@@ -480,7 +480,7 @@ const onCreate: Listener<Events.MessageCreate> = {
 const onEdit: Listener<Events.MessageUpdate> = {
   event: Events.MessageUpdate,
   async handle(ctx, oldMessage, newMessage) {
-    // MessageUpdate also fires for embed loads, pins, etc. — only re-scan when the CONTENT
+    // MessageUpdate also fires for embed loads, pins, etc. Only re-scan when the CONTENT
     // actually changed, or we'd re-punish (and race the create-scan's delete) on every embed.
     if (!oldMessage.partial && oldMessage.content === newMessage.content) return;
     const msg = newMessage.partial ? await newMessage.fetch().catch(() => null) : newMessage;

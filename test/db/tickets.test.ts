@@ -16,7 +16,7 @@ test("getTicketByNumber finds a ticket (incl. closed) for transcript retrieval",
   createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "help" });
   createTicket(db, { guildId: "other", channelId: "c9", openerId: "u", subject: "elsewhere" });
 
-  // Scoped per guild — #1 in "g" is not #1 in "other".
+  // Scoped per guild: #1 in "g" is not #1 in "other".
   expect(getTicketByNumber(db, "g", 1)?.channelId).toBe("c1");
   expect(getTicketByNumber(db, "g", 2)).toBeUndefined();
 
@@ -36,7 +36,7 @@ test("ticket numbers increment per guild; close is atomic and persists a transcr
   expect(b.ticketNumber).toBe(2);
   expect(getTicketByChannel(db, "c1")?.status).toBe("open");
 
-  // beginClose claims the close exactly once — a concurrent second trigger loses.
+  // beginClose claims the close exactly once: a concurrent second trigger loses.
   expect(beginClose(db, "c1", "mod", "done", 999)).toBe(true);
   expect(beginClose(db, "c1", "mod2", "again", 1000)).toBe(false);
   setTicketTranscript(db, "c1", "hello world");

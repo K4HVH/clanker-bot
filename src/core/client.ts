@@ -47,7 +47,7 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
     for (const listener of module.listeners ?? []) {
       // Wrap every listener in an error boundary so a throw/rejection in one
       // handler (e.g. a failed captcha render on join) is logged, not an
-      // unhandled rejection — mirroring how ComponentRouter guards components.
+      // unhandled rejection (mirroring how ComponentRouter guards components).
       const handle = listener.handle as (
         ctx: AppContext,
         ...a: unknown[]
@@ -70,11 +70,11 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
   client.once(Events.ClientReady, (c) => {
     ctx.logger.info("logged in", { tag: c.user.tag });
     // Fill the member cache once: GUILD_CREATE only ships a slice of the member list, and a
-    // member who isn't cached leaves as a partial — the leave log then has no join date or
+    // member who isn't cached leaves as a partial: the leave log then has no join date or
     // roles to report. Joins and member updates keep the cache current from here on.
     for (const guild of c.guilds.cache.values()) {
       void guild.members.fetch().catch((error: unknown) => {
-        ctx.logger.warn("member cache warm-up failed — leaves may log without roles or tenure", {
+        ctx.logger.warn("member cache warm-up failed: leaves may log without roles or tenure", {
           guildId: guild.id,
           error: error instanceof Error ? error.message : String(error),
         });

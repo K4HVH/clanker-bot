@@ -43,7 +43,7 @@ export function generateCode(length = 6): string {
 
 // Difficulty 1 (easiest) … 5 (brutal). Higher levels overlap the glyphs more,
 // warp them harder (rotation/skew/scale), ride a taller sine baseline, and lay
-// more same-colour strokes through the text — all aimed at breaking the free
+// more same-colour strokes through the text: all aimed at breaking the free
 // per-glyph segmentation that makes clean captchas trivial to OCR.
 export type CaptchaDifficulty = 1 | 2 | 3 | 4 | 5;
 interface Profile {
@@ -70,7 +70,7 @@ const HEIGHT = 100;
 const FONT_SIZE = 46;
 
 // Canvas width grows with the code length (configurable up to 8) so glyphs never
-// clip off the right edge. It's an UPPER bound — glyphs are overlapped and centred
+// clip off the right edge. It's an UPPER bound: glyphs are overlapped and centred
 // inside it, so extra room is just margin that absorbs rotation/skew overflow.
 export function captchaWidth(length: number): number {
   return LEFT + length * STEP_MAX + RIGHT_PAD;
@@ -113,7 +113,7 @@ function buildSvg(code: string, difficulty: CaptchaDifficulty): string {
   }
 
   // Occlusion: medium strokes in the glyph colour that snake across the text band,
-  // so they touch/cross the letters and merge with them — this is what actually
+  // so they touch/cross the letters and merge with them: this is what actually
   // defeats naive segmentation, far more than the old faint lines behind the text.
   let front = "";
   for (let i = 0; i < p.occlude; i++) {

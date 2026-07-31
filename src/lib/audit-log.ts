@@ -10,7 +10,7 @@ export interface AuditLogPlan {
   destination: "mod" | "member";
   toggle: LogToggle;
   embed: EmbedBuilder;
-  // A kick/ban target — lets the plain "left" line skip them (the attributed action is logged).
+  // A kick/ban target: lets the plain "left" line skip them (the attributed action is logged).
   removedMemberId?: string;
 }
 
@@ -46,7 +46,7 @@ const ACTIONS: Partial<Record<AuditLogEvent, Info>> = {
   [AuditLogEvent.RoleUpdate]: { title: "Role updated", color: 0xf1c40f, destination: "member", toggle: CONFIG_KEYS.logServerEvents },
 };
 
-// The user id removed by a ban/kick (regardless of who did it), else null — used to suppress
+// The user id removed by a ban/kick (regardless of who did it), else null, used to suppress
 // the duplicate "Member left" line for a member the bot or a mod just removed.
 export function removalTargetId(entry: GuildAuditLogsEntry): string | null {
   if (entry.action === AuditLogEvent.MemberKick || entry.action === AuditLogEvent.MemberBanAdd) {
@@ -100,7 +100,7 @@ function roleMentions(entry: GuildAuditLogsEntry, key: "$add" | "$remove"): stri
 }
 
 // Turn an audit-log entry into a log plan, or null to ignore it. The bot's OWN actions are
-// dropped — they're already logged as cases (/mod) or are routine (a verification role grant,
+// dropped: they're already logged as cases (/mod) or are routine (a verification role grant,
 // a ticket channel). So this only surfaces things done by a human outside the bot.
 export function planAuditEntry(entry: GuildAuditLogsEntry, botId: string): AuditLogPlan | null {
   if (entry.executorId === botId) return null;
@@ -109,7 +109,7 @@ export function planAuditEntry(entry: GuildAuditLogsEntry, botId: string): Audit
   // already-past timestamp as "removed" (some clients clear a timeout by writing the past).
   if (entry.action === AuditLogEvent.MemberUpdate) {
     const change = entry.changes.find((c) => c.key === "communication_disabled_until");
-    if (!change) return null; // some other member edit (e.g. deafen) — not ours to log
+    if (!change) return null; // some other member edit (e.g. deafen): not ours to log
     const untilRaw = (change.new as string | undefined) ?? null;
     const untilMs = untilRaw ? new Date(untilRaw).getTime() : 0;
     const active = untilMs > Date.now();

@@ -20,7 +20,7 @@ function logEnabled(ctx: AppContext, guildId: string, key: string): boolean {
   return ctx.config.getEffective<boolean>(guildId, key);
 }
 
-// A member removed by a mod (kick/ban) very recently: the plain "left" line skips them —
+// A member removed by a mod (kick/ban) very recently: the plain "left" line skips them:
 // the attributed kick/ban goes to the mod-log instead. The leave log defers a few seconds so
 // the audit-log event can land first regardless of gateway ordering.
 const modRemoved = new Map<string, number>();
@@ -116,7 +116,7 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
     const userId = member.id;
     // Snapshot the member now: they're dropped from the cache as this event fires and the log
     // is deferred, so reading any of it later would find nothing. A member the bot never had
-    // cached arrives partial — no join date or roles ever existed to read, and leaving those
+    // cached arrives partial: no join date or roles ever existed to read, and leaving those
     // undefined is what makes the embed say "unknown" instead of inventing "none".
     const details = {
       userId,
@@ -143,10 +143,10 @@ const onMemberUpdate: Listener<Events.GuildMemberUpdate> = {
   async handle(ctx, oldMember, newMember) {
     if (!logEnabled(ctx, newMember.guild.id, CONFIG_KEYS.logMemberEvents)) return;
     // An uncached member's "before" is synthesised from the gateway payload's user alone, so
-    // its nickname is null regardless of the real one — comparing against it would report a
+    // its nickname is null regardless of the real one: comparing against it would report a
     // nickname set on every role/timeout change. We can't know the old nickname, so say nothing.
     if (oldMember.partial) return;
-    // Only nickname changes here — role and timeout changes are attributed via the audit stream.
+    // Only nickname changes here: role and timeout changes are attributed via the audit stream.
     const before = oldMember.nickname ?? null;
     const after = newMember.nickname ?? null;
     if (before === after) return;
@@ -161,7 +161,7 @@ const onAudit: Listener<Events.GuildAuditLogEntryCreate> = {
   async handle(ctx, entry, guild) {
     const botId = guild.client.user.id;
 
-    // The bot's OWN ban/kick is already logged as a case — don't re-log it, but DO suppress
+    // The bot's OWN ban/kick is already logged as a case: don't re-log it, but DO suppress
     // the duplicate "Member left" it would otherwise produce in the member-log.
     if (entry.executorId === botId) {
       const removed = removalTargetId(entry);
@@ -171,7 +171,7 @@ const onAudit: Listener<Events.GuildAuditLogEntryCreate> = {
 
     const plan = planAuditEntry(entry, botId);
     if (!plan) return;
-    // Opted out of this event group — don't log it. For a removal, we also leave the plain
+    // Opted out of this event group: don't log it. For a removal, we also leave the plain
     // "left" line to stand (unmarked) so the departure isn't invisible.
     if (!logEnabled(ctx, guild.id, plan.toggle)) return;
     // We're logging the attributed removal, so suppress the plain "left" for it.
@@ -191,7 +191,7 @@ const onReady: Listener<Events.ClientReady> = {
       const me = guild.members.me ?? (await guild.members.fetchMe().catch(() => null));
       if (me && !me.permissions.has(PermissionFlagsBits.ViewAuditLog)) {
         ctx.logger.warn(
-          "logging: missing View Audit Log — manual bans/kicks/timeouts/role/channel changes won't be attributed",
+          "logging: missing View Audit Log: manual bans/kicks/timeouts/role/channel changes won't be attributed",
           { guildId: guild.id },
         );
       }

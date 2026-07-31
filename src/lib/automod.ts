@@ -5,7 +5,7 @@ import { matchBlocklist, parseBlocklist } from "./guards";
 export const INVITE_REGEX =
   /(?:discord(?:app)?\.com\/invite|discord\.gg|discord\.new|dsc\.gg|invite\.gg)\/\s*[a-z0-9-]+/i;
 
-// Matches http(s):// and www. links. Deliberately NOT bare "domain.tld" — that false-positives
+// Matches http(s):// and www. links. Deliberately NOT bare "domain.tld": that false-positives
 // on filenames like readme.md / script.sh, which are common in a firmware community.
 const URL_REGEX = /(?:https?:\/\/|www\.)[^\s]+/gi;
 
@@ -82,7 +82,7 @@ function stripFileExt(name: string): string {
 
 // Collect candidate hostnames from a message: scheme'd/www links in the content and any embed
 // text, plus (opt-in) bare scheme-less domains and de-extensioned attachment filenames. Returns
-// deduped, lowercased hostnames. The scam signature check decides what to do with them — bare domains
+// deduped, lowercased hostnames. The scam signature check decides what to do with them: bare domains
 // are intended to be matched ONLY against the known-bad list, never the allowlist.
 export function extractHostnames(opts: {
   content: string;
@@ -113,7 +113,7 @@ export function extractHostnames(opts: {
 }
 
 // A high floor so short shouted acronym lists (GPIO, UART, I2C, SPI…) common in a firmware
-// community don't trip it — only a genuinely long, mostly-uppercase message does.
+// community don't trip it. Only a genuinely long, mostly-uppercase message does.
 export function isCapsSpam(content: string): boolean {
   const letters = content.replace(/[^a-zA-Z]/g, "");
   if (letters.length < 24) return false;
@@ -121,7 +121,7 @@ export function isCapsSpam(content: string): boolean {
   return upper / letters.length >= 0.7;
 }
 
-// Content-based checks — pure, so they run identically on a new OR an edited message. Returns
+// Content-based checks (pure, so they run identically on a new OR an edited message). Returns
 // a short violation label, or null. `massMention` is the gateway's real @everyone/@here PING
 // flag (not a text match). Flood + duplicate are stateful and handled in the listener.
 export function checkContent(
@@ -161,10 +161,10 @@ export interface EscalationDecision {
 // wrapper (perm checks, Discord calls, DMs) stays thin and this can be exhaustively tested.
 //
 // Two guarantees the live bug reports demanded:
-//   1. One tier at a time — a hard burst that jumps the count can never skip a tier (e.g. go
+//   1. One tier at a time: a hard burst that jumps the count can never skip a tier (e.g. go
 //      straight to kick from zero). We climb at most one enabled tier above what's already been
 //      applied, and re-apply the top tier for repeat offenders.
-//   2. One action per burst — a message SENT within cooldownMs of the last action (or before it,
+//   2. One action per burst: a message SENT within cooldownMs of the last action (or before it,
 //      a straggler from the same burst) takes no new action. Keying off the message's send time,
 //      not our processing time, means a slow-to-drain backlog can't leak a second action.
 export function decideEscalation(opts: {
@@ -179,7 +179,7 @@ export function decideEscalation(opts: {
   if (tiers.length === 0) return { action: null, suppressWarnDm: false };
 
   // One action per burst, measured by SEND time: a message sent within cooldownMs after the last
-  // action — or before it (a straggler) — takes no new action and stays quiet (already punished).
+  // action, or before it (a straggler), takes no new action and stays quiet (already punished).
   if (lastActionAt > 0 && messageSentAt - lastActionAt < cooldownMs) return { action: null, suppressWarnDm: true };
 
   // Highest enabled tier the count qualifies for; -1 if still below the lowest threshold.
@@ -193,7 +193,7 @@ export function decideEscalation(opts: {
 
   // Ratchet: climb at most one enabled tier past what's applied (never skip UP), but never drop
   // below it either. If older warns aged out so the count only qualifies for a milder tier
-  // (targetPos < appliedPos), re-apply the top tier already reached rather than downgrading — a
+  // (targetPos < appliedPos), re-apply the top tier already reached rather than downgrading: a
   // repeat offender within the window is re-punished at their highest tier, not let off lighter.
   const applyPos = Math.min(appliedPos + 1, Math.max(targetPos, appliedPos));
   const action = tiers[applyPos] ?? null;

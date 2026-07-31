@@ -44,7 +44,7 @@ function fieldsOf(embed: EmbedData | undefined) {
   return Object.fromEntries((embed?.fields ?? []).map((f) => [f.name, f.value]));
 }
 
-// The logged send is fired from a deferred timer, not awaited by the handler — let its
+// The logged send is fired from a deferred timer, not awaited by the handler: let its
 // promise chain settle before asserting.
 async function flush(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();

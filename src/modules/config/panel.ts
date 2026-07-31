@@ -21,7 +21,7 @@ function truncate(text: string, max = 80): string {
 }
 
 // A setting's description as a Discord "subtext" line (small, muted) appended to the SAME
-// text block as its label — folding it in rather than adding a component keeps a big category
+// text block as its label: folding it in rather than adding a component keeps a big category
 // under the 40-component message cap.
 function descLine(s: Setting): string {
   return s.description ? `\n-# ${s.description}` : "";

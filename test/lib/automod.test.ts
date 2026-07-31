@@ -34,7 +34,7 @@ test("mentions: limit (0=off) and @everyone/@here via the ping flag", () => {
     "excessive mentions",
   );
   expect(checkContent("hi", { mentionCount: 6, massMention: false }, { ...base, mentionLimit: 0 })).toBeNull();
-  // Uses the real ping flag, not text — "@everyone" in a code block (flag false) is NOT flagged.
+  // Uses the real ping flag, not text: "@everyone" in a code block (flag false) is NOT flagged.
   expect(checkContent("real ping", { mentionCount: 0, massMention: true }, { ...base, massMention: true })).toBe(
     "@everyone / @here",
   );
@@ -66,7 +66,7 @@ test("hasUnallowedLink normalizes www + punctuation; caps has a high floor", () 
   expect(hasUnallowedLink("go to www.evil.com now", "github.com")).toBe(true);
 
   expect(isCapsSpam("THIS IS COMPLETELY UNACCEPTABLE BEHAVIOUR")).toBe(true);
-  expect(isCapsSpam("GPIO UART I2C SPI ADC")).toBe(false); // short acronym list — under the floor
+  expect(isCapsSpam("GPIO UART I2C SPI ADC")).toBe(false); // short acronym list: under the floor
   expect(isCapsSpam("normal message")).toBe(false);
 });
 
@@ -138,20 +138,20 @@ test("escalation: a clean user hitting the timeout threshold is timed out", () =
   expect(d.suppressWarnDm).toBe(true);
 });
 
-test("escalation: a hard burst can NOT skip a tier — count jumping past kick/ban still only times out", () => {
+test("escalation: a hard burst can NOT skip a tier: count jumping past kick/ban still only times out", () => {
   // The reported bug: spamming hard enough jumped straight to kick from zero.
   expect(decide(9, 0, 0).action?.type).toBe("timeout"); // count past the BAN threshold, applied=0
   expect(decide(5, 0, 0).action?.type).toBe("timeout"); // count at the KICK threshold, applied=0
 });
 
-test("escalation: only one action per burst — within cooldown it stays quiet", () => {
+test("escalation: only one action per burst: within cooldown it stays quiet", () => {
   const d = decide(9, 1 /* already timed out */, NOW - 1_000 /* 1s ago */);
   expect(d.action).toBeNull();
   expect(d.suppressWarnDm).toBe(true); // suppress the removal DM too, so a burst isn't noisy
 });
 
 test("escalation: a straggler sent BEFORE the action (processed late) takes no new action", () => {
-  // messageSentAt (NOW) is earlier than lastActionAt — i.e. this queued message predates the
+  // messageSentAt (NOW) is earlier than lastActionAt: i.e. this queued message predates the
   // action that already fired. It must not push the ladder further, no matter how late we drain it.
   const actionAfterThisMessage = NOW + 10_000;
   const d = decide(9, 1, actionAfterThisMessage);
@@ -165,7 +165,7 @@ test("escalation: climbs one tier per burst once the cooldown passes", () => {
   expect(decide(8, 2, afterCooldown).action?.type).toBe("ban"); // kick→ban at the ban threshold
 });
 
-test("escalation: the ladder never drops a tier — a kicked user re-offending is re-kicked, not timed out", () => {
+test("escalation: the ladder never drops a tier: a kicked user re-offending is re-kicked, not timed out", () => {
   // Older warns aged out so the count only qualifies for the timeout tier, but a kick was already
   // applied (appliedRank=2). It must re-apply the kick, not downgrade to a timeout.
   const d = decide(3, 2, NOW - COOLDOWN - 1);
@@ -183,7 +183,7 @@ test("escalation: a disabled middle tier steps to the next ENABLED tier, not a g
   const timeoutThenBan = [TIMEOUT, BAN]; // kick disabled
   // Applied timeout, count well past ban threshold, cooldown passed → next enabled tier is ban.
   expect(decide(9, 1, NOW - COOLDOWN - 1, timeoutThenBan).action?.type).toBe("ban");
-  // But from zero it still can't skip to ban — one step lands on timeout.
+  // But from zero it still can't skip to ban: one step lands on timeout.
   expect(decide(9, 0, 0, timeoutThenBan).action?.type).toBe("timeout");
 });
 

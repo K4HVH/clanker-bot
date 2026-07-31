@@ -258,7 +258,7 @@ const PURGE_TIME_BUDGET_MS = 10 * 60_000; // overall wall-clock cap, safely unde
 const PENDING_TTL_MS = 5 * 60_000;
 
 // A confirm/pick flow in progress. Keyed by the originating interaction id (which also rides in
-// the component customIds). Kept in memory only — a lost one just means "run the command again".
+// the component customIds). Kept in memory only: a lost one just means "run the command again".
 interface PendingPurge {
   requesterId: string;
   count: number;
@@ -285,7 +285,7 @@ function botHasPurgePerms(guild: Guild, channel: GuildBasedChannel): boolean {
   );
 }
 
-// A text/announcement channel the bot can act in — the set eligible for a multi-channel purge.
+// A text/announcement channel the bot can act in: the set eligible for a multi-channel purge.
 function botCanPurge(guild: Guild, channel: GuildBasedChannel): channel is GuildTextBasedChannel {
   if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return false;
   return botHasPurgePerms(guild, channel);
@@ -294,7 +294,7 @@ function purgeableChannels(guild: Guild): GuildTextBasedChannel[] {
   return [...guild.channels.cache.values()].filter((c): c is GuildTextBasedChannel => botCanPurge(guild, c));
 }
 
-// The INVOKER's own Manage Messages in a specific channel — so a channel-scoped moderator can't
+// The INVOKER's own Manage Messages in a specific channel, so a channel-scoped moderator can't
 // borrow the bot's reach to purge channels they can't normally moderate.
 function memberCanManage(channel: GuildBasedChannel, member: GuildMember): boolean {
   return channel.permissionsFor(member)?.has(PermissionFlagsBits.ManageMessages) ?? false;
@@ -344,7 +344,7 @@ async function purgeChannel(
     // Suppress every id up front (don't re-surface purged content in the member-log). Suppress the
     // whole slice, not just the lone-message branch: bulkDelete's own 14-day filter can trim a
     // 2+ slice down to one, at which point discord.js falls back to a single DELETE that fires a
-    // per-message MessageDelete — which would otherwise be echoed.
+    // per-message MessageDelete, which would otherwise be echoed.
     for (const m of slice) suppressDeletion(m.id);
     if (slice.length === 1 && one) {
       // Discord's bulk endpoint needs 2+; a lone message is deleted directly.
@@ -402,9 +402,9 @@ function purgeSummary(res: PurgeResult): string {
   const across = res.channelsHit > 1 ? ` across ${res.channelsHit} channels` : "";
   let s = `🧹 Deleted **${res.deleted}** message${res.deleted === 1 ? "" : "s"}${across}.`;
   if (res.oldRemaining > 0) {
-    s += `\n-# ${res.oldRemaining} message${res.oldRemaining === 1 ? "" : "s"} older than 14 days couldn't be finished in time (rate limits) — re-run to continue.`;
+    s += `\n-# ${res.oldRemaining} message${res.oldRemaining === 1 ? "" : "s"} older than 14 days couldn't be finished in time (rate limits): re-run to continue.`;
   } else if (res.timedOut) {
-    s += "\n-# Stopped at the time limit before every channel was covered — re-run to continue.";
+    s += "\n-# Stopped at the time limit before every channel was covered: re-run to continue.";
   }
   return s;
 }
@@ -417,7 +417,7 @@ function confirmText(count: number, userId: string | null, filter: string | null
   const who = userId ? `<@${userId}>'s messages` : "messages";
   const filt = filter ? ` (${filter})` : "";
   return (
-    `⚠️ Purge **${who}${filt}** — scanning up to **${count}** per channel — across **${channelCount}** ` +
+    `⚠️ Purge **${who}${filt}**, scanning up to **${count}** per channel, across **${channelCount}** ` +
     `channel${channelCount === 1 ? "" : "s"}?\nMessages older than 14 days are deleted one-by-one (slower). **This can't be undone.**`
   );
 }
@@ -481,7 +481,7 @@ async function logPurge(
 }
 
 const purgeSub: Subcommand = {
-  description: "Delete messages — here, across channels, or clean up one user server-wide.",
+  description: "Delete messages: here, across channels, or clean up one user server-wide.",
   permission: PermissionFlagsBits.ManageMessages,
   options: (s) =>
     s
@@ -538,7 +538,7 @@ const purgeSub: Subcommand = {
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const res = await runPurge([channel as GuildTextBasedChannel], criteria, count, async () => {});
-      // Audit-log independent of the reply edit — a failed editReply mustn't lose the record.
+      // Audit-log independent of the reply edit: a failed editReply mustn't lose the record.
       await interaction.editReply(purgeSummary(res)).catch(() => {});
       if (res.deleted > 0) await logPurge(ctx, interaction.guild, interaction.user.id, res, user?.id ?? null, filter, [channel.id]);
       return;
@@ -548,14 +548,14 @@ const purgeSub: Subcommand = {
       if (!user) {
         await interaction.reply({
           content:
-            "A server-wide purge needs a **user** target (safety — so it can't wipe every channel for everyone). Add `user:`, or use **Pick channels** to purge whole channels.",
+            "A server-wide purge needs a **user** target (safety, so it can't wipe every channel for everyone). Add `user:`, or use **Pick channels** to purge whole channels.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
       const invoker = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
       if (!invoker) {
-        await interaction.reply({ content: "Couldn't resolve your permissions — try again.", flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: "Couldn't resolve your permissions. Try again.", flags: MessageFlags.Ephemeral });
         return;
       }
       const channels = purgeableChannels(interaction.guild).filter((c) => memberCanManage(c, invoker));
@@ -608,7 +608,7 @@ const purgePickHandler: ComponentHandler = {
     const pending = pendingPurges.get(token);
     if (!pending || pending.requesterId !== interaction.user.id || Date.now() - pending.createdAt > PENDING_TTL_MS) {
       pendingPurges.delete(token);
-      await interaction.update({ content: "This purge selection expired — run `/mod purge` again.", components: [] });
+      await interaction.update({ content: "This purge selection expired. Run `/mod purge` again.", components: [] });
       return;
     }
     pending.channelIds = [...interaction.values];
@@ -630,7 +630,7 @@ const purgeConfirmHandler: ComponentHandler = {
     const pending = pendingPurges.get(token);
     if (!pending || pending.requesterId !== interaction.user.id || Date.now() - pending.createdAt > PENDING_TTL_MS) {
       pendingPurges.delete(token);
-      await interaction.update({ content: "This purge expired or isn't yours — run `/mod purge` again.", components: [] });
+      await interaction.update({ content: "This purge expired or isn't yours. Run `/mod purge` again.", components: [] });
       return;
     }
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
@@ -646,7 +646,7 @@ const purgeConfirmHandler: ComponentHandler = {
       .filter((c): c is GuildTextBasedChannel => !!c && botCanPurge(guild, c) && !!invoker && memberCanManage(c, invoker));
     if (channels.length === 0) {
       await interaction.update({
-        content: "None of those channels are purgeable — either I lack Manage Messages there, or you do.",
+        content: "None of those channels are purgeable: either I lack Manage Messages there, or you do.",
         components: [],
       });
       return;
@@ -749,7 +749,7 @@ const historySub: Subcommand = {
     const lines: string[] = [];
     let used = 0;
     for (const r of records) {
-      const line = `\`${r.type}\` · <t:${Math.floor(r.createdAt / 1000)}:d> — ${trunc(r.reason, 180)}`;
+      const line = `\`${r.type}\` · <t:${Math.floor(r.createdAt / 1000)}:d>: ${trunc(r.reason, 180)}`;
       if (used + line.length + 1 > 3900) {
         lines.push(`…and ${records.length - lines.length} more`);
         break;
@@ -759,7 +759,7 @@ const historySub: Subcommand = {
     }
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
-      .setTitle(`Moderation history — ${user.tag}`)
+      .setTitle(`Moderation history: ${user.tag}`)
       .setDescription(lines.join("\n"))
       .setFooter({ text: `${records.length} most recent` });
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });

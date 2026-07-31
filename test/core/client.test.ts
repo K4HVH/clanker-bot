@@ -28,7 +28,7 @@ function stubGuild(client: Client, id: string) {
   return guild;
 }
 
-// `client.actions` is internal to discord.js; reaching for it is deliberate — it is the real
+// `client.actions` is internal to discord.js; reaching for it is deliberate: it is the real
 // gateway-dispatch entry point, and the behaviour under test is its resolution of the member.
 function guildMemberRemoveAction(client: Client) {
   return (
@@ -51,7 +51,7 @@ test("a leave by a member who is not in the member cache still fires GuildMember
   const seen: string[] = [];
   const client = createClient([{ name: "t", listeners: [leaveListener(seen)] }], silentContext());
   try {
-    stubGuild(client, "g1"); // note: member cache left empty — a lurker the bot never cached
+    stubGuild(client, "g1"); // note: member cache left empty: a lurker the bot never cached
     guildMemberRemoveAction(client).handle(
       { guild_id: "g1", user: { id: "alt-1", username: "alt" } },
       { status: Status.Ready },

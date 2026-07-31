@@ -18,7 +18,7 @@ function truncate(text: string, max = 1024): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-// A single moderation action, for the mod-log. No case number — the action speaks for itself.
+// A single moderation action, for the mod-log. No case number. The action speaks for itself.
 export function buildCaseEmbed(c: CaseRecord): EmbedBuilder {
   const m = ACTION_META[c.type] ?? { emoji: "•", label: c.type, color: 0x95a5a6 };
   return new EmbedBuilder()
@@ -74,7 +74,7 @@ export function buildMemberJoinEmbed(a: { userId: string; createdAt: number }): 
     );
 }
 
-// Tenure and roles are only knowable while the departing member is still resolvable — a member
+// Tenure and roles are only knowable while the departing member is still resolvable: a member
 // who has left can't be fetched afterwards, and an uncached one arrives with the user alone.
 // Those fields are therefore optional, and render as "unknown" rather than being quietly omitted:
 // an absent field would read as "no roles" when it means "we couldn't tell".
@@ -99,7 +99,7 @@ export function buildMemberLeaveEmbed(a: {
     name: "Joined server",
     value: a.joinedAt ? `<t:${Math.floor(a.joinedAt / 1000)}:D>` : "*unknown*",
   });
-  // How long they stayed, not how long ago they arrived — measured to the moment they left
+  // How long they stayed, not how long ago they arrived, measured to the moment they left
   // rather than to now, since the log line is written after a short delay.
   embed.addFields({
     name: "Time in server",
@@ -164,7 +164,7 @@ async function sendToConfigured(
   // surfacing: a silent one is indistinguishable from "nothing happened", which makes a
   // missing log line impossible to diagnose from the outside.
   if (!channel?.isTextBased()) {
-    ctx.logger.warn("log channel is missing or not text-based — dropped a log line", {
+    ctx.logger.warn("log channel is missing or not text-based: dropped a log line", {
       guildId: guild.id,
       setting: key,
       channelId,
@@ -172,7 +172,7 @@ async function sendToConfigured(
     return;
   }
   await channel.send({ embeds: [embed], ...extra }).catch((error: unknown) => {
-    ctx.logger.warn("could not post to the log channel — dropped a log line", {
+    ctx.logger.warn("could not post to the log channel: dropped a log line", {
       guildId: guild.id,
       setting: key,
       channelId,

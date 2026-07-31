@@ -77,7 +77,7 @@ const sayCommand: SlashCommand = {
     await interaction.reply({
       content: sent
         ? `✅ Sent to <#${channel.id}>.`
-        : "Couldn't send there — check I have permission to post in that channel.",
+        : "Couldn't send there. Check I have permission to post in that channel.",
       flags: MessageFlags.Ephemeral,
     });
   },

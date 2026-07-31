@@ -8,7 +8,7 @@ import { applyTemplate, detectMemeAction, extractDuration, type MemeAction, repl
 import { checkActionable } from "../../lib/moderation";
 import { logCase } from "../../lib/modlog";
 
-// Clean, funny defaults — the user can override every line in /config (and spice them up however
+// Clean, funny defaults: the user can override every line in /config (and spice them up however
 // they like). Placeholders: {mod} = requester, {target} = victim, {action} = the verb.
 const DEFAULT_SUCCESS = [
   "done.",
@@ -126,9 +126,9 @@ async function handleMention(ctx: AppContext, message: Message): Promise<void> {
     return;
   }
 
-  // Permission gate — the whole point: obey those who have it, snark at those who don't. Use the
+  // Permission gate, the whole point: obey those who have it, snark at those who don't. Use the
   // CHANNEL-aware permissions (like /mod's interaction.memberPermissions) so a channel overwrite
-  // that revokes the permission here is respected — no borrowing a perm you lack in this channel.
+  // that revokes the permission here is respected: no borrowing a perm you lack in this channel.
   const member = message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
   const perms = member
     ? "permissionsFor" in message.channel

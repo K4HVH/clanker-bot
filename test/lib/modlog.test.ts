@@ -91,10 +91,10 @@ test("a configured log channel that cannot be posted to warns instead of droppin
   } as unknown as Guild;
 
   await logMemberEvent(ctx, guild, buildMemberLeaveEmbed({ userId: "u9" }));
-  expect(warnings).toEqual(["could not post to the log channel — dropped a log line"]);
+  expect(warnings).toEqual(["could not post to the log channel: dropped a log line"]);
 });
 
-test("an unset log channel stays silent — opting out is not a fault", async () => {
+test("an unset log channel stays silent: opting out is not a fault", async () => {
   const warnings: string[] = [];
   const ctx = silentContext();
   ctx.logger = { ...ctx.logger, warn: (msg: string) => warnings.push(msg) } as AppContext["logger"];

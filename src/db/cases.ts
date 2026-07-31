@@ -1,7 +1,7 @@
 import { type BotDatabase, many, one, runChanges } from "../db/index";
 
 // Delete a user's moderation history. automodOnly restricts to the bot-authored warns (automod
-// violations) — resets the escalation ladder without wiping manual actions. Returns the count.
+// violations). This resets the escalation ladder without wiping manual actions. Returns the count.
 export function clearCases(
   db: BotDatabase,
   guildId: string,
@@ -20,7 +20,7 @@ export function clearCases(
   return runChanges(db, "DELETE FROM cases WHERE guild_id = ? AND user_id = ?", guildId, userId);
 }
 
-// Count a user's automod violations (bot-authored warns — the only bot-created warns) since a
+// Count a user's automod violations (bot-authored warns, the only bot-created warns) since a
 // cutoff, for automod's escalation ladder.
 export function countAutomodViolations(
   db: BotDatabase,
@@ -89,7 +89,7 @@ const COLUMNS = `id, guild_id AS guildId, case_number AS caseNumber, user_id AS 
   moderator_id AS moderatorId, type, reason, created_at AS createdAt`;
 
 // Record one moderation action against a user. case_number is an internal per-guild sequence
-// (kept for stable ordering); it isn't surfaced — the user-facing view is just the history.
+// (kept for stable ordering); it isn't surfaced: the user-facing view is just the history.
 export function createCase(db: BotDatabase, input: NewCase): CaseRecord {
   const insert = db.transaction((i: NewCase): CaseRecord => {
     const row = one<{ max: number | null }>(

@@ -47,7 +47,7 @@ test("dm_message_id: persists, survives code rotation, and clears on delete", ()
   setChallengeDmMessage(db, "g", "u", "555000111222333444");
   expect(getChallenge(db, "g", "u")?.dmMessageId).toBe("555000111222333444");
 
-  // Rotating the code (wrong guess / New Code) MUST NOT clobber the anchor — the fix that
+  // Rotating the code (wrong guess / New Code) MUST NOT clobber the anchor: the fix that
   // revives a DM after a restart depends on this surviving every rotation.
   setChallenge(db, "g", "u", "XYZ789", 100, 1);
   const rotated = getChallenge(db, "g", "u");

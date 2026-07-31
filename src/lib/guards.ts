@@ -20,7 +20,7 @@ function compileRegex(entry: string): NamePattern | null {
     const re = new RegExp(m[1], flags);
     return { source: entry, test: (name) => re.test(name) };
   } catch {
-    return null; // invalid regex — skip it rather than break the whole guard
+    return null; // invalid regex: skip it rather than break the whole guard
   }
 }
 
@@ -36,7 +36,7 @@ function substringPattern(entry: string, wholeWord: boolean): NamePattern | null
 }
 
 // Parse a blocklist. Each LINE is one entry; a line wrapped in /slashes/ is a regex (forced
-// case-insensitive) and is kept whole — so it may contain commas (e.g. /ab{1,3}/). A non-regex
+// case-insensitive) and is kept whole, so it may contain commas (e.g. /ab{1,3}/). A non-regex
 // line is split on commas into case-insensitive terms. Blanks, too-short terms, and invalid
 // regexes are skipped. `wholeWord` matches plain terms on word boundaries (for message
 // filtering) instead of anywhere in the string (names).

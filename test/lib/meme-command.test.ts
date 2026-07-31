@@ -22,11 +22,11 @@ test("detectMemeAction: no leading verb → null (bare mention stays quiet)", ()
   expect(detectMemeAction("")).toBeNull();
 });
 
-test("detectMemeAction: only the FIRST word counts — negations and mid-sentence verbs don't fire", () => {
+test("detectMemeAction: only the FIRST word counts: negations and mid-sentence verbs don't fire", () => {
   expect(detectMemeAction("don't ban him")).toBeNull(); // first word "dont"
   expect(detectMemeAction("do not kick anyone")).toBeNull(); // first word "do"
   expect(detectMemeAction("warn @2, next time it's a ban")).toBe("warn"); // "warn" wins, not "ban"
-  expect(detectMemeAction("please ban @2")).toBeNull(); // "please" first — not a command
+  expect(detectMemeAction("please ban @2")).toBeNull(); // "please" first: not a command
 });
 
 test("detectMemeAction: leading punctuation is tolerated, substrings aren't", () => {

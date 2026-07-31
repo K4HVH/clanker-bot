@@ -5,7 +5,7 @@ import { makeTestDb } from "../helpers/db";
 
 // Discord Components V2 caps a message at 40 total components and 4000 characters of text.
 // Descriptions are folded into existing text blocks (no extra component) precisely so a full
-// category stays under the component cap — guard both so a new setting can't silently break
+// category stays under the component cap, guard both so a new setting can't silently break
 // a category's panel (it just fails to send at runtime otherwise).
 function counts(json: unknown): { components: number; chars: number } {
   let components = 0;

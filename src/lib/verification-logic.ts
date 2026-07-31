@@ -5,11 +5,11 @@ export type ChallengeMode = "reuse" | "rotate" | "new";
 
 // Decide what to do with a user's captcha challenge on a fresh render request.
 //  - reuse : a live code exists and we're just re-displaying it (e.g. the panel
-//            button after an on-join DM) — show the SAME code so either surface works.
+//            button after an on-join DM), show the SAME code so either surface works.
 //  - rotate: a live code exists but we want a fresh one within the SAME deadline
 //            (a wrong guess, or "New Code"). Keeping expiresAt stable lets one
 //            message collector cover the whole session without realignment.
-//  - new   : no live challenge — start one with a fresh TTL.
+//  - new   : no live challenge, start one with a fresh TTL.
 export function challengeMode(
   existing: { expiresAt: number } | undefined,
   now: number,
@@ -38,7 +38,7 @@ export function verifyFlags(ageDays: number, flagYoungDays: number, solveMs: num
   };
 }
 
-// The captcha alphabet — single source of truth, shared with the renderer.
+// The captcha alphabet: single source of truth, shared with the renderer.
 export const CAPTCHA_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ3479";
 const CHARSET_SET = new Set(CAPTCHA_CHARSET);
 

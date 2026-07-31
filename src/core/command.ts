@@ -9,7 +9,7 @@ import type { AppContext } from "./context";
 import type { SlashCommand } from "./module";
 
 // One action under a feature command. Discord only supports a command-level default
-// permission, so `permission` is enforced at RUNTIME per subcommand — that's what lets
+// permission, so `permission` is enforced at RUNTIME per subcommand: that's what lets
 // a single `/mod` carry per-verb gates (ban→BanMembers, warn→ModerateMembers, …).
 export interface Subcommand {
   description: string;

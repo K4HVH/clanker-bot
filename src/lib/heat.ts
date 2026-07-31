@@ -64,7 +64,7 @@ function spraysMatch(a: SprayEntry, b: SprayEntry, minChars: number, similarity:
   return false;
 }
 
-// Detects a hijacked account spraying near-identical content across many channels — the shape
+// Detects a hijacked account spraying near-identical content across many channels: the shape
 // automod's flood/duplicate rules miss (they're per-window and blind to image-only posts). Keyed
 // per user; records EVERY message including image-only ones (unlike RepeatTracker). Returns true
 // when the current message matches enough distinct channels within the window.

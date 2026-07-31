@@ -7,7 +7,7 @@ export type BotDatabase = Database;
 const SCHEMA_PATH = "./schema.sql";
 
 // Additive schema evolution: SQLite has no `ADD COLUMN IF NOT EXISTS`, so add any
-// declared column an existing table is missing. This is NOT a migration framework —
+// declared column an existing table is missing. This is NOT a migration framework:
 // just enough to let a live-data table (e.g. tickets with real records) gain columns
 // without dropping it. schema.sql stays the source of truth for fresh installs.
 function ensureColumns(db: Database, table: string, columns: Record<string, string>): void {

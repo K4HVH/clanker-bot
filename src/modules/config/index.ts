@@ -100,7 +100,7 @@ async function handleImport(
     const attachment = msg.attachments.first();
     if (!attachment || !/\.json$/i.test(attachment.name)) {
       await interaction.followUp({
-        content: "No `.json` file attached — nothing imported.",
+        content: "No `.json` file attached: nothing imported.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -138,7 +138,7 @@ async function handleImport(
     }
     await msg.delete().catch(() => {});
     await interaction.followUp({
-      content: `Import complete — **${applied}** applied, **${skipped}** skipped (unknown or invalid). Reopen \`/config\` to see the changes.`,
+      content: `Import complete: **${applied}** applied, **${skipped}** skipped (unknown or invalid). Reopen \`/config\` to see the changes.`,
       flags: MessageFlags.Ephemeral,
     });
   });
@@ -146,7 +146,7 @@ async function handleImport(
   collector.on("end", (collected) => {
     if (collected.size === 0) {
       void interaction
-        .followUp({ content: "Import timed out — nothing changed.", flags: MessageFlags.Ephemeral })
+        .followUp({ content: "Import timed out: nothing changed.", flags: MessageFlags.Ephemeral })
         .catch(() => {});
     }
   });
@@ -290,7 +290,7 @@ const modalHandler: ComponentHandler = {
       const parsed = Number.parseInt(raw.trim(), 10);
       if (!validateSetting(setting, parsed)) {
         await modal.reply({
-          content: `Invalid value — must be a whole number between ${setting.min} and ${setting.max}.`,
+          content: `Invalid value: must be a whole number between ${setting.min} and ${setting.max}.`,
           flags: MessageFlags.Ephemeral,
         });
         return;

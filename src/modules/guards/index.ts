@@ -25,7 +25,7 @@ function blocklistHit(ctx: AppContext, guildId: string, names: Array<string | nu
 
 // Carry out the strongest tripped action against a member, alerting the mod-log with the
 // reasons. Downgrades a kick/ban to a flag (alert only) when it can't actually be carried out
-// — the owner, a member above the bot, or a missing permission — so the alert never lies.
+// (the owner, a member above the bot, or a missing permission), so the alert never lies.
 async function enforce(
   ctx: AppContext,
   member: GuildMember,
@@ -38,7 +38,7 @@ async function enforce(
   let effective = action;
 
   // Carry out a removal via the shared helper (gate + DM-before-removal + act). If it can't be
-  // done — owner, a member above the bot, missing permission, or an API failure — downgrade to a
+  // done (owner, a member above the bot, missing permission, or an API failure), downgrade to a
   // flag so the alert reports what actually happened, not just what we intended.
   if (effective === "kick" || effective === "ban") {
     const dm = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.guardDmOnRemoval)
@@ -74,7 +74,7 @@ async function enforce(
 
 // One assessment per join: gather every tripped signal (age / no-avatar / bad name), then take
 // the single strongest action with a consolidated alert.
-// Staff and bots are never guarded — a moderator named "Mod" must not be auto-removed by the
+// Staff and bots are never guarded: a moderator named "Mod" must not be auto-removed by the
 // name guard, and bots are added deliberately by an admin.
 function exempt(member: GuildMember): boolean {
   return member.user.bot || member.permissions.has(PermissionFlagsBits.ManageGuild);

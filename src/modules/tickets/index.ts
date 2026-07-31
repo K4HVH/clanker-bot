@@ -56,8 +56,8 @@ const opening = new Set<string>();
 const MAX_TRANSCRIPT_MESSAGES = 2000;
 
 // Fetch the WHOLE ticket conversation OLDEST-first (paginating past Discord's 100/fetch cap).
-// If it exceeds the safety ceiling we keep the OLDEST messages — the problem statement and how
-// it unfolded — and report truncation, rather than silently dropping the start.
+// If it exceeds the safety ceiling we keep the OLDEST messages (the problem statement and how
+// it unfolded) and report truncation, rather than silently dropping the start.
 async function fetchAllMessages(
   channel: GuildTextBasedChannel,
 ): Promise<{ messages: Message[]; truncated: boolean }> {
@@ -67,7 +67,7 @@ async function fetchAllMessages(
   while (true) {
     const batch = await channel.messages.fetch({ limit: 100, after }).catch(() => null);
     if (!batch || batch.size === 0) break;
-    // `after` responses aren't guaranteed ordered — sort oldest-first by snowflake.
+    // `after` responses aren't guaranteed ordered: sort oldest-first by snowflake.
     const arr = [...batch.values()].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
     out.push(...arr);
     const newest = arr[arr.length - 1];
@@ -159,7 +159,7 @@ async function closeTicketFlow(
       : new AttachmentBuilder(Buffer.from(text, "utf8"), { name: `ticket-${num}.txt` });
 
   // DM the transcript to the opener first (if enabled) so the mod-log can report whether it
-  // actually reached them — a closed-DM opener would otherwise fail completely silently.
+  // actually reached them: a closed-DM opener would otherwise fail completely silently.
   let dmStatus: string | null = null;
   if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketDmTranscript)) {
     const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
@@ -286,7 +286,7 @@ const removeSub: Subcommand = {
   },
 };
 
-// Retrieve a (usually closed) ticket's transcript by number — the channel is gone after
+// Retrieve a (usually closed) ticket's transcript by number: the channel is gone after
 // close, so this is the way back to it. Text-only: posted images aren't retained past close.
 const transcriptSub: Subcommand = {
   description: "Fetch a ticket's saved transcript by number (staff).",
@@ -313,14 +313,14 @@ const transcriptSub: Subcommand = {
       await interaction.reply({
         content:
           ticket.status === "open"
-            ? `Ticket #${number} is still open — no transcript until it's closed.`
+            ? `Ticket #${number} is still open: no transcript until it's closed.`
             : `Ticket #${number} has no saved transcript.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
     await interaction.reply({
-      content: `Transcript for ticket **#${number}** — text only (images aren't retained after close).`,
+      content: `Transcript for ticket **#${number}**: text only (images aren't retained after close).`,
       files: [new AttachmentBuilder(Buffer.from(ticket.transcript, "utf8"), { name: `ticket-${number}.txt` })],
       flags: MessageFlags.Ephemeral,
     });
@@ -371,7 +371,7 @@ const modalHandler: ComponentHandler = {
     const guildId = modal.guild.id;
     const lock = `${guildId}:${modal.user.id}`;
     if (opening.has(lock)) {
-      await modal.editReply({ content: "You're already opening a ticket — hang on." });
+      await modal.editReply({ content: "You're already opening a ticket. Hang on." });
       return;
     }
     opening.add(lock);
@@ -408,14 +408,14 @@ const modalHandler: ComponentHandler = {
           subject,
         });
       } catch (error) {
-        // The channel exists but the row didn't land — roll it back so we don't orphan a
+        // The channel exists but the row didn't land: roll it back so we don't orphan a
         // ticket channel with no record (untracked, invisible to auto-close and the quota).
         await channel.delete("ticket row insert failed").catch(() => {});
         ctx.logger.error("ticket: failed to persist ticket row; rolled back channel", {
           guildId,
           error: error instanceof Error ? error.message : String(error),
         });
-        await modal.editReply({ content: "Something went wrong opening your ticket — please try again." });
+        await modal.editReply({ content: "Something went wrong opening your ticket. Please try again." });
         return;
       }
       openTicketChannels.add(channel.id);
@@ -524,7 +524,7 @@ async function requireTicketButton(
 
 // ── Listeners ────────────────────────────────────────────────────────────────
 
-// A ticket channel is gone (deleted directly, or missing on startup) — close the row
+// A ticket channel is gone (deleted directly, or missing on startup), close the row
 // so it stops consuming the opener's open-quota and dangling as a dead link.
 function reconcileGone(ctx: AppContext, channelId: string, botId: string, now: number): void {
   if (beginClose(ctx.db, channelId, botId, "channel deleted", now)) {
@@ -610,7 +610,7 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
       warnedTickets.add(ticket.channelId);
       const closeAt = Math.floor((now + (closeAfter - idle)) / 1000);
       await channel
-        .send(`⏳ This ticket has gone quiet — it'll auto-close <t:${closeAt}:R> unless there's a reply.`)
+        .send(`⏳ This ticket has gone quiet: it'll auto-close <t:${closeAt}:R> unless there's a reply.`)
         .catch(() => {});
     }
   }
