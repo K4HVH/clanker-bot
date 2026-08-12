@@ -7,6 +7,7 @@ import {
   getTicketByChannel,
   getTicketByNumber,
   listOpenTickets,
+  setTicketHold,
   setTicketTranscript,
 } from "../../src/db/tickets";
 import { makeTestDb } from "../helpers/db";
@@ -46,6 +47,45 @@ test("ticket numbers increment per guild; close is atomic and persists a transcr
   expect(closed?.transcript).toBe("hello world");
   expect(closed?.closedBy).toBe("mod");
   expect(closed?.closeReason).toBe("done");
+});
+
+test("auto-close hold is off by default, toggles, and is inert once closed", () => {
+  const db = makeTestDb();
+  createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "slow burner" });
+  expect(getTicketByChannel(db, "c1")?.autoCloseHold).toBe(0);
+
+  setTicketHold(db, "c1", true);
+  expect(getTicketByChannel(db, "c1")?.autoCloseHold).toBe(1);
+  setTicketHold(db, "c1", false);
+  expect(getTicketByChannel(db, "c1")?.autoCloseHold).toBe(0);
+
+  // A closed ticket can't be held: the row is finished.
+  setTicketHold(db, "c1", true);
+  beginClose(db, "c1", "mod", null, 1);
+  setTicketHold(db, "c1", false);
+  expect(getTicketByChannel(db, "c1")?.autoCloseHold).toBe(1);
+});
+
+test("the auto-close claim loses to a hold applied since the scan read the row", () => {
+  const db = makeTestDb();
+  createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "waiting on a part" });
+
+  // The inactivity scan works from a snapshot, then does slow per-ticket archiving: staff
+  // can hold a ticket in the gap. The auto-close claim must lose that race...
+  setTicketHold(db, "c1", true);
+  expect(beginClose(db, "c1", "bot", "Auto-closed after 24h of inactivity", 5, { unlessHeld: true })).toBe(false);
+  expect(getTicketByChannel(db, "c1")?.status).toBe("open");
+
+  // ...while a deliberate close still goes through: a hold isn't a lock.
+  expect(beginClose(db, "c1", "mod", "done", 6)).toBe(true);
+  expect(getTicketByChannel(db, "c1")?.status).toBe("closed");
+});
+
+test("a ticket can be opened with no subject", () => {
+  const db = makeTestDb();
+  const t = createTicket(db, { guildId: "g", channelId: "c1", openerId: "u", subject: "" });
+  expect(t.subject).toBe("");
+  expect(getTicketByChannel(db, "c1")?.subject).toBe("");
 });
 
 test("open-ticket queries: count, first, list", () => {

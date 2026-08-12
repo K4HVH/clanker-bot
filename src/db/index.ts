@@ -34,6 +34,7 @@ export function createDatabase(path: string): BotDatabase {
     last_activity_at: "INTEGER",
     closed_by: "TEXT",
     close_reason: "TEXT",
+    auto_close_hold: "INTEGER NOT NULL DEFAULT 0",
   });
   ensureColumns(db, "verification_challenges", {
     attempts: "INTEGER NOT NULL DEFAULT 0",

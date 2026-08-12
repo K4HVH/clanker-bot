@@ -6,6 +6,7 @@ export interface TicketRecord {
   ticketNumber: number;
   channelId: string;
   openerId: string;
+  // May be empty: opening a ticket without saying why is allowed.
   subject: string;
   status: string;
   transcript: string | null;
@@ -14,11 +15,14 @@ export interface TicketRecord {
   lastActivityAt: number | null;
   closedBy: string | null;
   closeReason: string | null;
+  // 1 while this ticket is exempt from the inactivity auto-close (SQLite has no bool).
+  autoCloseHold: number;
 }
 
 const COLUMNS = `id, guild_id AS guildId, ticket_number AS ticketNumber, channel_id AS channelId,
   opener_id AS openerId, subject, status, transcript, created_at AS createdAt, closed_at AS closedAt,
-  last_activity_at AS lastActivityAt, closed_by AS closedBy, close_reason AS closeReason`;
+  last_activity_at AS lastActivityAt, closed_by AS closedBy, close_reason AS closeReason,
+  auto_close_hold AS autoCloseHold`;
 
 export function createTicket(
   db: BotDatabase,
@@ -102,6 +106,19 @@ export function listOpenTickets(db: BotDatabase): TicketRecord[] {
   return many<TicketRecord>(db, `SELECT ${COLUMNS} FROM tickets WHERE status = 'open'`);
 }
 
+// Hold a ticket open: while set, the inactivity scan skips it entirely (no warning,
+// no auto-close). Only meaningful while open, so a closed row is left alone.
+export function setTicketHold(db: BotDatabase, channelId: string, hold: boolean): boolean {
+  return (
+    runChanges(
+      db,
+      "UPDATE tickets SET auto_close_hold = ? WHERE channel_id = ? AND status = 'open'",
+      hold ? 1 : 0,
+      channelId,
+    ) > 0
+  );
+}
+
 // Update the last-activity clock (only for open tickets, so a closed one is inert).
 export function touchTicketActivity(db: BotDatabase, channelId: string, at: number): void {
   run(
@@ -122,12 +139,18 @@ export function beginClose(
   closedBy: string,
   reason: string | null,
   closedAt: number,
+  // Set by the inactivity auto-close only: it decides from a snapshot of the open
+  // tickets and then does slow per-ticket work, so staff can hold a ticket open in the
+  // window between that read and this claim. Testing the flag HERE, inside the same
+  // conditional UPDATE, is what makes the hold beat that race. A manual close ignores
+  // the flag: holding a ticket open shouldn't stop anyone closing it deliberately.
+  opts: { unlessHeld?: boolean } = {},
 ): boolean {
   return (
     runChanges(
       db,
       `UPDATE tickets SET status = 'closed', closed_by = ?, close_reason = ?, closed_at = ?
-       WHERE channel_id = ? AND status = 'open'`,
+       WHERE channel_id = ? AND status = 'open'${opts.unlessHeld ? " AND auto_close_hold = 0" : ""}`,
       closedBy,
       reason,
       closedAt,

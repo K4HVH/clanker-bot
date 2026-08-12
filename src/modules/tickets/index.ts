@@ -20,6 +20,7 @@ import {
   type TextChannel,
   TextInputBuilder,
   TextInputStyle,
+  type User,
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
 import type { AppContext } from "../../core/context";
@@ -32,6 +33,7 @@ import {
   getTicketByChannel,
   getTicketByNumber,
   listOpenTickets,
+  setTicketHold,
   setTicketTranscript,
   type TicketRecord,
   touchTicketActivity,
@@ -54,6 +56,14 @@ const warnedTickets = new Set<string>();
 const opening = new Set<string>();
 
 const MAX_TRANSCRIPT_MESSAGES = 2000;
+const SUBJECT_MAX = 300;
+
+// A subject is optional, so it's stored as "" when skipped. Everywhere one is DISPLAYED
+// goes through here: embed fields and descriptions reject empty strings outright, and the
+// placeholder stays a display concern rather than baked into rows we can't reword later.
+function subjectLine(subject: string): string {
+  return subject.trim() || "(no subject)";
+}
 
 // Fetch the WHOLE ticket conversation OLDEST-first (paginating past Discord's 100/fetch cap).
 // If it exceeds the safety ceiling we keep the OLDEST messages (the problem statement and how
@@ -131,9 +141,11 @@ async function closeTicketFlow(
   ticket: TicketRecord,
   closedBy: string,
   reason: string | null,
+  opts: { unlessHeld?: boolean } = {},
 ): Promise<void> {
-  // Claim the close atomically; if another trigger already won, do nothing.
-  if (!beginClose(ctx.db, channel.id, closedBy, reason, Date.now())) return;
+  // Claim the close atomically; if another trigger already won (or the auto-close lost
+  // to a hold applied since the scan read the row), do nothing.
+  if (!beginClose(ctx.db, channel.id, closedBy, reason, Date.now(), opts)) return;
   openTicketChannels.delete(channel.id);
   warnedTickets.delete(channel.id);
 
@@ -142,7 +154,7 @@ async function closeTicketFlow(
   const { text, zipBytes } = await buildTicketArchive(
     {
       ticketNumber: ticket.ticketNumber,
-      subject: ticket.subject,
+      subject: subjectLine(ticket.subject),
       openerId: `<@${ticket.openerId}>`,
       closedBy: `<@${closedBy}>`,
       reason,
@@ -178,13 +190,168 @@ async function closeTicketFlow(
     .addFields(
       { name: "Opened by", value: `<@${ticket.openerId}>` },
       { name: "Closed by", value: `<@${closedBy}>` },
-      { name: "Subject", value: ticket.subject },
+      { name: "Subject", value: subjectLine(ticket.subject) },
     );
   if (reason) embed.addFields({ name: "Reason", value: reason });
   if (dmStatus) embed.addFields({ name: "Transcript DM", value: dmStatus });
   await sendToModLog(ctx, guild, { embeds: [embed], files: [file()] });
 
   await channel.delete(`Ticket #${num} closed`).catch(() => {});
+}
+
+// Whether `openerId` is out of ticket slots, as a message to show whoever asked. `via` is
+// set when staff are opening on that member's behalf, so the wording addresses them about
+// someone else. Shared by the panel button's pre-check and the open flow itself.
+function quotaDenial(
+  ctx: AppContext,
+  guildId: string,
+  openerId: string,
+  via: boolean,
+): string | null {
+  const max = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.ticketMaxOpenPerUser);
+  const open = countOpenTicketsByUser(ctx.db, guildId, openerId);
+  if (open < max) return null;
+  const who = via ? `<@${openerId}> already has` : "You already have";
+  const what = open === 1 ? "an open ticket" : `${open} open tickets`;
+  const first = firstOpenTicketByUser(ctx.db, guildId, openerId);
+  return first
+    ? `${who} ${what} (max ${max}), starting with <#${first.channelId}>.`
+    : `${who} ${what} (max ${max}).`;
+}
+
+// Shared open: enforce the per-user quota, create the private channel, persist the row
+// (rolling the channel back if that fails), post the opening message and audit it to the
+// mod-log. Used by the panel modal and /ticket open. `via` is set when staff opened this
+// on someone else's behalf: the ticket belongs to `opener` either way, and `via` only
+// records who pressed the button. Returns the channel id, or a message to show the caller.
+async function openTicketFlow(
+  ctx: AppContext,
+  guild: Guild,
+  opener: User,
+  subject: string,
+  via: User | null,
+): Promise<{ ok: true; channelId: string } | { ok: false; message: string }> {
+  const guildId = guild.id;
+  // Serialize per opener so concurrent submits can't each pass the limit check and
+  // mass-create channels before any row commits.
+  const lock = `${guildId}:${opener.id}`;
+  if (opening.has(lock)) {
+    return {
+      ok: false,
+      message: via
+        ? `A ticket for <@${opener.id}> is already being opened. Hang on.`
+        : "You're already opening a ticket. Hang on.",
+    };
+  }
+  opening.add(lock);
+  try {
+    const denial = quotaDenial(ctx, guildId, opener.id, via !== null);
+    if (denial) return { ok: false, message: denial };
+
+    const categoryId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketCategoryId);
+    const staffRoleId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketStaffRoleId);
+
+    const overwrites: OverwriteResolvable[] = [
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel], type: OverwriteType.Role },
+      { id: opener.id, allow: ACCESS, type: OverwriteType.Member },
+    ];
+    if (staffRoleId) overwrites.push({ id: staffRoleId, allow: ACCESS, type: OverwriteType.Role });
+    // Whoever opened this for someone else may not hold the staff role (a ManageGuild admin,
+    // say), so grant them access explicitly rather than create a channel they can't see.
+    if (via) overwrites.push({ id: via.id, allow: ACCESS, type: OverwriteType.Member });
+    // And us: the @everyone deny above applies to the bot too, and a channel overwrite beats
+    // a guild-level permission, so without this we couldn't post in the ticket we just made
+    // unless we happen to be running as Administrator.
+    const meId = guild.members.me?.id ?? guild.client.user?.id;
+    if (meId) overwrites.push({ id: meId, allow: ACCESS, type: OverwriteType.Member });
+
+    // Creation fails for reasons an admin can fix (no Manage Channels, a deleted ticket
+    // category, the 500-channel guild cap), so say so instead of letting it throw: the
+    // panel-modal caller has already deferred, and its router won't answer a modal submit,
+    // which would leave the member on a "thinking…" spinner that never resolves.
+    const channel = await guild.channels
+      .create({
+        name: `ticket-${opener.username}`.slice(0, 90),
+        type: ChannelType.GuildText,
+        parent: categoryId ?? undefined,
+        permissionOverwrites: overwrites,
+      })
+      .catch((error: unknown) => {
+        ctx.logger.error("ticket: could not create the ticket channel", {
+          guildId,
+          categoryId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+    if (!channel) {
+      return {
+        ok: false,
+        message:
+          "I couldn't create the ticket channel. Check that I have **Manage Channels** and that the configured ticket category still exists.",
+      };
+    }
+
+    let record: TicketRecord;
+    try {
+      record = createTicket(ctx.db, { guildId, channelId: channel.id, openerId: opener.id, subject });
+    } catch (error) {
+      // The channel exists but the row didn't land: roll it back so we don't orphan a
+      // ticket channel with no record (untracked, invisible to auto-close and the quota).
+      await channel.delete("ticket row insert failed").catch(() => {});
+      ctx.logger.error("ticket: failed to persist ticket row; rolled back channel", {
+        guildId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { ok: false, message: "Something went wrong opening the ticket. Please try again." };
+    }
+    openTicketChannels.add(channel.id);
+    // Rename with the authoritative ticket number now that we have it, e.g. "10-kenny".
+    await channel.setName(`${record.ticketNumber}-${opener.username}`.slice(0, 90)).catch(() => {});
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Ticket #${record.ticketNumber}`)
+      .setDescription(subjectLine(subject))
+      .addFields({ name: "Opened by", value: `<@${opener.id}>` });
+    // Ping the opener too when someone else opened it for them: it's their ticket, and
+    // otherwise the first they'd know of it is stumbling into the channel.
+    if (via) embed.addFields({ name: "Opened via", value: `<@${via.id}>` });
+    const mentions = [staffRoleId ? `<@&${staffRoleId}>` : null, via ? `<@${opener.id}>` : null]
+      .filter((m): m is string => m !== null)
+      .join(" ");
+    // Past this point the row is committed and the ticket exists, so a failure here must
+    // not be reported as "opening failed": the member would retry and burn another slot of
+    // their quota on a ticket that's already open. Log it and hand back the channel.
+    await channel
+      .send({ content: mentions || undefined, embeds: [embed], components: [ticketButtons()] })
+      .catch((error: unknown) => {
+        ctx.logger.error("ticket: opened, but couldn't post the opening message", {
+          guildId,
+          channelId: channel.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    // Audit the open to the mod-log (previously only closes were logged there).
+    const logEmbed = new EmbedBuilder()
+      .setColor(0x2ecc71)
+      .setTitle(`Ticket #${record.ticketNumber} opened`)
+      .addFields({ name: "Opened by", value: `<@${opener.id}>` });
+    if (via) logEmbed.addFields({ name: "Opened via", value: `<@${via.id}>` });
+    logEmbed
+      .addFields(
+        // Mention (a live link while open) + the name, so the entry still reads after the
+        // channel is deleted on close (the mention would become "#unknown").
+        { name: "Channel", value: `<#${channel.id}> (\`${channel.name}\`)` },
+        { name: "Subject", value: subjectLine(subject) },
+      )
+      .setTimestamp(new Date());
+    await sendToModLog(ctx, guild, { embeds: [logEmbed] });
+
+    return { ok: true, channelId: channel.id };
+  } finally {
+    opening.delete(lock);
+  }
 }
 
 // ── Subcommands ──────────────────────────────────────────────────────────────
@@ -225,6 +392,129 @@ async function requireTicket(
   }
   return { guild: interaction.guild, channel, ticket };
 }
+
+// Open a ticket without the panel button. Staff can open one on someone else's behalf
+// with `for`: the ticket is then THEIRS (their quota, their name on the channel, theirs
+// to close) and the runner is recorded as who opened it.
+const openSub: Subcommand = {
+  description: "Open a support ticket.",
+  options: (s) =>
+    s
+      .addStringOption((o) =>
+        o.setName("subject").setDescription("What you need help with").setMaxLength(SUBJECT_MAX),
+      )
+      .addUserOption((o) =>
+        o.setName("for").setDescription("Open it on this member's behalf (staff only)"),
+      ),
+  async execute(interaction, ctx) {
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.reply({ content: "Run this in the server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // Tickets are opt-in per guild: the panel button only exists once an admin posts one,
+    // so without a gate of its own this command would be live in every guild the bot joins,
+    // including ones that never configured tickets (where it creates a root-level channel
+    // nobody but the opener can see, and no staff role to answer it).
+    const configured =
+      !!ctx.config.get<string>(guild.id, CONFIG_KEYS.ticketCategoryId) ||
+      !!ctx.config.get<string>(guild.id, CONFIG_KEYS.ticketStaffRoleId);
+    if (!configured) {
+      await interaction.reply({
+        content: "Tickets aren't set up in this server yet.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const target = interaction.options.getUser("for");
+    let opener = interaction.user;
+    let via: User | null = null;
+    if (target && target.id !== interaction.user.id) {
+      if (!(await isTicketStaff(guild, interaction.user.id, ctx))) {
+        await interaction.reply({
+          content: "Only staff can open tickets for someone else.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      if (target.bot) {
+        await interaction.reply({ content: "Bots don't get tickets.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      // Must be a member: a non-member can't be given channel access, and the ticket
+      // would sit there with nobody able to answer it.
+      const member = await guild.members.fetch(target.id).catch(() => null);
+      if (!member) {
+        await interaction.reply({
+          content: `<@${target.id}> isn't in this server.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      opener = target;
+      via = interaction.user;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const subject = interaction.options.getString("subject") ?? "";
+    const result = await openTicketFlow(ctx, guild, opener, subject, via);
+    if (!result.ok) {
+      await interaction.editReply({ content: result.message });
+      return;
+    }
+    await interaction.editReply({
+      content: via
+        ? `Ticket opened for <@${opener.id}>: <#${result.channelId}>`
+        : `Ticket opened: <#${result.channelId}>`,
+    });
+  },
+};
+
+// Exempt one ticket from the inactivity auto-close, so a slow-burning one (waiting on a
+// part, a repro, a vendor) doesn't need keep-alive chatter to survive.
+const holdSub: Subcommand = {
+  description: "Hold this ticket open, exempt from inactivity auto-close (staff).",
+  options: (s) =>
+    s.addBooleanOption((o) =>
+      o.setName("on").setDescription("On to hold, off to release. Omit to toggle."),
+    ),
+  async execute(interaction, ctx) {
+    const t = await requireTicket(interaction, ctx);
+    if (!t) return;
+    if (!(await isTicketStaff(t.guild, interaction.user.id, ctx))) {
+      await interaction.reply({
+        content: "Only staff can hold tickets open.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const hold = interaction.options.getBoolean("on") ?? !t.ticket.autoCloseHold;
+    // Only open tickets can be held, and one can close between requireTicket and here.
+    if (!setTicketHold(ctx.db, t.channel.id, hold)) {
+      await interaction.reply({
+        content: "This ticket just closed.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    // Releasing restarts the idle clock: the held stretch shouldn't count against the
+    // ticket, or a week-long hold would auto-close it the moment it's let go.
+    if (hold) warnedTickets.delete(t.channel.id);
+    else touchTicketActivity(ctx.db, t.channel.id, Date.now());
+
+    const hours = ctx.config.getEffective<number>(t.guild.id, CONFIG_KEYS.ticketInactivityHours);
+    const by = `<@${interaction.user.id}>`;
+    const message = hold
+      ? hours > 0
+        ? `🔒 Held open by ${by}: inactivity auto-close is paused for this ticket.`
+        : `🔒 Held open by ${by}: auto-close is off server-wide anyway, so this only matters if it's turned on later.`
+      : hours > 0
+        ? `⏱️ Hold released by ${by}: this ticket auto-closes after ${hours}h idle again, counting from now.`
+        : `⏱️ Hold released by ${by}: auto-close is off server-wide, so it stays open regardless.`;
+    await interaction.reply({ content: message });
+  },
+};
 
 const closeSub: Subcommand = {
   description: "Close the current ticket (opener or staff).",
@@ -335,24 +625,20 @@ const openHandler: ComponentHandler = {
   async handle(interaction, ctx) {
     const button = interaction as ButtonInteraction;
     if (!button.guild) return;
-    const max = ctx.config.getEffective<number>(button.guild.id, CONFIG_KEYS.ticketMaxOpenPerUser);
-    if (countOpenTicketsByUser(ctx.db, button.guild.id, button.user.id) >= max) {
-      const first = firstOpenTicketByUser(ctx.db, button.guild.id, button.user.id);
-      await button.reply({
-        content: first
-          ? `You already have an open ticket: <#${first.channelId}> (max ${max}).`
-          : `You've reached the max of ${max} open tickets.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    // Pre-check so someone at their limit gets told before filling in a modal. The flow
+    // re-checks under its lock: this is a courtesy, not the enforcement.
+    const denial = quotaDenial(ctx, button.guild.id, button.user.id, false);
+    if (denial) {
+      await button.reply({ content: denial, flags: MessageFlags.Ephemeral });
       return;
     }
     const modal = new ModalBuilder().setCustomId("ticket_modal").setTitle("Open a ticket");
     const subject = new TextInputBuilder()
       .setCustomId("subject")
-      .setLabel("What do you need help with?")
+      .setLabel("What do you need help with? (optional)")
       .setStyle(TextInputStyle.Paragraph)
-      .setMaxLength(300)
-      .setRequired(true);
+      .setMaxLength(SUBJECT_MAX)
+      .setRequired(false);
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(subject));
     await button.showModal(modal);
   },
@@ -365,94 +651,15 @@ const modalHandler: ComponentHandler = {
     const modal = interaction as ModalSubmitInteraction;
     if (!modal.guild) return;
     await modal.deferReply({ flags: MessageFlags.Ephemeral });
-
-    // Serialize per-user so concurrent modal submits can't each pass the limit check
-    // and mass-create channels before any row commits.
-    const guildId = modal.guild.id;
-    const lock = `${guildId}:${modal.user.id}`;
-    if (opening.has(lock)) {
-      await modal.editReply({ content: "You're already opening a ticket. Hang on." });
-      return;
-    }
-    opening.add(lock);
-    try {
-      const max = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.ticketMaxOpenPerUser);
-      if (countOpenTicketsByUser(ctx.db, guildId, modal.user.id) >= max) {
-        await modal.editReply({ content: `You've reached the max of ${max} open tickets.` });
-        return;
-      }
-
-      const subject = modal.fields.getTextInputValue("subject");
-      const categoryId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketCategoryId);
-      const staffRoleId = ctx.config.get<string>(guildId, CONFIG_KEYS.ticketStaffRoleId);
-
-      const overwrites: OverwriteResolvable[] = [
-        { id: modal.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel], type: OverwriteType.Role },
-        { id: modal.user.id, allow: ACCESS, type: OverwriteType.Member },
-      ];
-      if (staffRoleId) overwrites.push({ id: staffRoleId, allow: ACCESS, type: OverwriteType.Role });
-
-      const channel = await modal.guild.channels.create({
-        name: `ticket-${modal.user.username}`.slice(0, 90),
-        type: ChannelType.GuildText,
-        parent: categoryId ?? undefined,
-        permissionOverwrites: overwrites,
-      });
-
-      let record: TicketRecord;
-      try {
-        record = createTicket(ctx.db, {
-          guildId,
-          channelId: channel.id,
-          openerId: modal.user.id,
-          subject,
-        });
-      } catch (error) {
-        // The channel exists but the row didn't land: roll it back so we don't orphan a
-        // ticket channel with no record (untracked, invisible to auto-close and the quota).
-        await channel.delete("ticket row insert failed").catch(() => {});
-        ctx.logger.error("ticket: failed to persist ticket row; rolled back channel", {
-          guildId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        await modal.editReply({ content: "Something went wrong opening your ticket. Please try again." });
-        return;
-      }
-      openTicketChannels.add(channel.id);
-      // Rename with the authoritative ticket number now that we have it, e.g. "10-kenny".
-      await channel.setName(`${record.ticketNumber}-${modal.user.username}`.slice(0, 90)).catch(() => {});
-
-      const embed = new EmbedBuilder()
-        .setTitle(`Ticket #${record.ticketNumber}`)
-        .setDescription(subject)
-        .addFields({ name: "Opened by", value: `<@${modal.user.id}>` });
-      await channel.send({
-        content: staffRoleId ? `<@&${staffRoleId}>` : undefined,
-        embeds: [embed],
-        components: [ticketButtons()],
-      });
-
-      // Audit the open to the mod-log (previously only closes were logged there).
-      await sendToModLog(ctx, modal.guild, {
-        embeds: [
-          new EmbedBuilder()
-            .setColor(0x2ecc71)
-            .setTitle(`Ticket #${record.ticketNumber} opened`)
-            .addFields(
-              { name: "Opened by", value: `<@${modal.user.id}>` },
-              // Mention (a live link while open) + the name, so the entry still reads after the
-              // channel is deleted on close (the mention would become "#unknown").
-              { name: "Channel", value: `<#${channel.id}> (\`${channel.name}\`)` },
-              { name: "Subject", value: subject },
-            )
-            .setTimestamp(new Date()),
-        ],
-      });
-
-      await modal.editReply({ content: `Ticket opened: <#${channel.id}>` });
-    } finally {
-      opening.delete(lock);
-    }
+    // The subject input is optional, so Discord may send it back empty (or, in principle,
+    // not at all: getTextInputValue throws on a missing field). Both mean "no subject".
+    const subject = modal.fields.fields.has("subject")
+      ? modal.fields.getTextInputValue("subject")
+      : "";
+    const result = await openTicketFlow(ctx, modal.guild, modal.user, subject, null);
+    await modal.editReply({
+      content: result.ok ? `Ticket opened: <#${result.channelId}>` : result.message,
+    });
   },
 };
 
@@ -597,6 +804,15 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
       continue;
     }
 
+    // Held open by staff (/ticket hold): no warning, no close, however long it sits. This
+    // sits BELOW the channel-existence check on purpose: a held ticket whose channel was
+    // deleted must still be reconciled, or its row stays open forever and permanently eats
+    // a slot of the opener's quota.
+    if (ticket.autoCloseHold) {
+      warnedTickets.delete(ticket.channelId);
+      continue;
+    }
+
     if (idle >= closeAfter) {
       await closeTicketFlow(
         ctx,
@@ -605,6 +821,8 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
         ticket,
         client.user?.id ?? "system",
         `Auto-closed after ${hours}h of inactivity`,
+        // Staff can hold this ticket while we're archiving an earlier one in the same pass.
+        { unlessHeld: true },
       );
     } else if (!warnedTickets.has(ticket.channelId)) {
       warnedTickets.add(ticket.channelId);
@@ -624,7 +842,9 @@ export const ticketsModule: BotModule = {
       description: "Support tickets.",
       subcommands: {
         panel: panelSub,
+        open: openSub,
         close: closeSub,
+        hold: holdSub,
         add: addSub,
         remove: removeSub,
         transcript: transcriptSub,

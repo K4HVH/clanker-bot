@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   closed_at        INTEGER,
   last_activity_at INTEGER,
   closed_by        TEXT,
-  close_reason     TEXT
+  close_reason     TEXT,
+  auto_close_hold  INTEGER NOT NULL DEFAULT 0  -- 1 = exempt from the inactivity auto-close
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tickets_channel_idx ON tickets (channel_id);
 
