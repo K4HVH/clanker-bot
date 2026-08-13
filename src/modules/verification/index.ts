@@ -18,7 +18,7 @@ import type { BotModule, ComponentHandler, Listener, SlashCommand } from "../../
 import { type CaptchaDifficulty, ensureWasm, generateCode, renderCaptcha } from "../../lib/captcha";
 import { CONFIG_KEYS } from "../../lib/config";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
-import { logMemberEvent, logModAlert } from "../../lib/modlog";
+import { logMemberEvent, logModAlert, userValue } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
 import {
   type ChallengeMode,
@@ -278,7 +278,7 @@ async function logVerified(
   const solveMs = issuedAt !== undefined ? now - issuedAt : undefined;
 
   const fields = [
-    { name: "User", value: `<@${user.id}> (${user.id})` },
+    { name: "User", value: userValue(user.id, user.username) },
     { name: "Account created", value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>` },
     { name: "Account age", value: `${ageDays}d`, inline: true },
   ];
@@ -302,7 +302,7 @@ async function logVerified(
         .setColor(0xe67e22)
         .setTitle("🚩 Suspicious verification")
         .addFields(
-          { name: "User", value: `<@${user.id}> (${user.id})` },
+          { name: "User", value: userValue(user.id, user.username) },
           { name: "Why", value: reasons.join("\n") },
         ),
     );
@@ -540,7 +540,7 @@ const onMessage: Listener<Events.MessageCreate> = {
               .setColor(0xe74c3c)
               .setTitle("⚠️ Verification grant failed")
               .setDescription(result.msg)
-              .addFields({ name: "User", value: `<@${userId}> (${userId})` }),
+              .addFields({ name: "User", value: userValue(userId, user.username) }),
           );
           return;
         }
@@ -581,7 +581,7 @@ const onMessage: Listener<Events.MessageCreate> = {
             .setColor(0xe74c3c)
             .setTitle("🚩 Captcha attempts exhausted")
             .addFields(
-              { name: "User", value: `<@${userId}> (${userId})` },
+              { name: "User", value: userValue(userId, user.username) },
               { name: "Attempts", value: `${attempts}` },
             ),
         );
@@ -757,7 +757,7 @@ const userSub: Subcommand = {
         .setColor(0x2ecc71)
         .setTitle("Member manually verified")
         .addFields(
-          { name: "User", value: `<@${target.id}> (${target.id})` },
+          { name: "User", value: userValue(target.id, target.username) },
           { name: "By", value: `<@${interaction.user.id}>` },
         )
         .setTimestamp(new Date()),
@@ -812,7 +812,7 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
             .setColor(0xe67e22)
             .setTitle("⚠️ Couldn't DM verification")
             .setDescription("Their DMs are closed. They can verify with `/verify` in the server.")
-            .addFields({ name: "User", value: `<@${member.id}> (${member.id})` }),
+            .addFields({ name: "User", value: userValue(member.id, member.user.username) }),
         );
       } else {
         ctx.logger.warn("verification DM failed", {

@@ -18,14 +18,24 @@ function truncate(text: string, max = 1024): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+// A user, for a log field. Discord only renders `<@id>` inside an EMBED when the reader's
+// own client already has that user cached, which for a lurker or someone who just left it
+// usually doesn't: the mention degrades to raw text and the profile is unreachable. So carry
+// the name, and link it to discord.com/users/<id>, which the client opens as a profile card
+// no matter what it has cached. The bare id stays for copy-paste into /mod commands.
+export function userValue(id: string, name?: string | null): string {
+  const label = name ? `**${name}**` : "profile";
+  return `[${label}](https://discord.com/users/${id}) (${id})`;
+}
+
 // A single moderation action, for the mod-log. No case number. The action speaks for itself.
-export function buildCaseEmbed(c: CaseRecord): EmbedBuilder {
+export function buildCaseEmbed(c: CaseRecord, name?: string | null): EmbedBuilder {
   const m = ACTION_META[c.type] ?? { emoji: "•", label: c.type, color: 0x95a5a6 };
   return new EmbedBuilder()
     .setColor(m.color)
     .setTitle(`${m.emoji} ${m.label}`)
     .addFields(
-      { name: "User", value: `<@${c.userId}> (${c.userId})` },
+      { name: "User", value: userValue(c.userId, name) },
       { name: "Moderator", value: `<@${c.moderatorId}>` },
       { name: "Reason", value: truncate(c.reason) },
     )
@@ -34,6 +44,7 @@ export function buildCaseEmbed(c: CaseRecord): EmbedBuilder {
 
 export function buildMessageDeleteEmbed(a: {
   authorId?: string;
+  authorName?: string;
   channelId: string;
   content: string;
 }): EmbedBuilder {
@@ -41,7 +52,7 @@ export function buildMessageDeleteEmbed(a: {
     .setColor(0xe74c3c)
     .setTitle("Message deleted")
     .addFields(
-      { name: "Author", value: a.authorId ? `<@${a.authorId}>` : "*(unknown)*" },
+      { name: "Author", value: a.authorId ? userValue(a.authorId, a.authorName) : "*(unknown)*" },
       { name: "Channel", value: `<#${a.channelId}>` },
       { name: "Content", value: truncate(a.content) },
     );
@@ -49,6 +60,7 @@ export function buildMessageDeleteEmbed(a: {
 
 export function buildMessageUpdateEmbed(a: {
   authorId?: string;
+  authorName?: string;
   channelId: string;
   before: string;
   after: string;
@@ -57,19 +69,19 @@ export function buildMessageUpdateEmbed(a: {
     .setColor(0xf1c40f)
     .setTitle("Message edited")
     .addFields(
-      { name: "Author", value: a.authorId ? `<@${a.authorId}>` : "*(unknown)*" },
+      { name: "Author", value: a.authorId ? userValue(a.authorId, a.authorName) : "*(unknown)*" },
       { name: "Channel", value: `<#${a.channelId}>` },
       { name: "Before", value: truncate(a.before) },
       { name: "After", value: truncate(a.after) },
     );
 }
 
-export function buildMemberJoinEmbed(a: { userId: string; createdAt: number }): EmbedBuilder {
+export function buildMemberJoinEmbed(a: { userId: string; name?: string; createdAt: number }): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x2ecc71)
     .setTitle("Member joined")
     .addFields(
-      { name: "User", value: `<@${a.userId}> (${a.userId})` },
+      { name: "User", value: userValue(a.userId, a.name) },
       { name: "Account created", value: `<t:${Math.floor(a.createdAt / 1000)}:R>` },
     );
 }
@@ -80,6 +92,7 @@ export function buildMemberJoinEmbed(a: { userId: string; createdAt: number }): 
 // an absent field would read as "no roles" when it means "we couldn't tell".
 export function buildMemberLeaveEmbed(a: {
   userId: string;
+  name?: string;
   createdAt?: number;
   joinedAt?: number | null;
   leftAt?: number;
@@ -88,7 +101,7 @@ export function buildMemberLeaveEmbed(a: {
   const embed = new EmbedBuilder()
     .setColor(0x95a5a6)
     .setTitle("Member left")
-    .addFields({ name: "User", value: `<@${a.userId}> (${a.userId})` });
+    .addFields({ name: "User", value: userValue(a.userId, a.name) });
   if (a.createdAt !== undefined) {
     embed.addFields({
       name: "Account created",
@@ -129,6 +142,7 @@ export function buildBulkDeleteEmbed(a: { channelId: string; count: number }): E
 
 export function buildNicknameEmbed(a: {
   userId: string;
+  name?: string;
   before: string | null;
   after: string | null;
 }): EmbedBuilder {
@@ -136,7 +150,7 @@ export function buildNicknameEmbed(a: {
     .setColor(0xf1c40f)
     .setTitle("Nickname changed")
     .addFields(
-      { name: "User", value: `<@${a.userId}> (${a.userId})` },
+      { name: "User", value: userValue(a.userId, a.name) },
       { name: "Before", value: a.before ?? "*(none)*" },
       { name: "After", value: a.after ?? "*(none)*" },
     );
@@ -182,7 +196,11 @@ async function sendToConfigured(
 }
 
 export async function logCase(ctx: AppContext, guild: Guild, c: CaseRecord): Promise<void> {
-  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, buildCaseEmbed(c));
+  // A case carries only the target's id (it outlives their membership), so resolve the name
+  // here rather than at every call site. Cached after the first lookup, and a failure just
+  // falls back to the bare mention.
+  const user = await guild.client.users.fetch(c.userId).catch(() => null);
+  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, buildCaseEmbed(c, user?.username));
 }
 
 export async function logMemberEvent(

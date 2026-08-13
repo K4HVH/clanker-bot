@@ -8,6 +8,7 @@ import {
   buildMemberJoinEmbed,
   buildMemberLeaveEmbed,
   logMemberEvent,
+  userValue,
 } from "../../src/lib/modlog";
 import { silentContext } from "../helpers/fakes";
 
@@ -38,6 +39,17 @@ test("member join embed references the user", () => {
   const data = buildMemberJoinEmbed({ userId: "u9", createdAt: 1_700_000_000_000 }).data;
   expect(data.title).toBe("Member joined");
   expect((data.fields ?? [])[0]?.value).toContain("u9");
+});
+
+// A mention inside an embed only renders for a user the READER's client has cached, so the
+// name and a profile link have to be in the value itself or the log line identifies nobody.
+test("a user field names the user and links to a profile that always opens", () => {
+  expect(userValue("238378901599027200", "kenny")).toBe(
+    "[**kenny**](https://discord.com/users/238378901599027200) (238378901599027200)",
+  );
+  // Name unknown (an uncached author, a case whose target has left): still clickable.
+  expect(userValue("u9")).toBe("[profile](https://discord.com/users/u9) (u9)");
+  expect(userValue("u9", null)).toContain("discord.com/users/u9");
 });
 
 test("member leave embed reports tenure and the roles they held", () => {

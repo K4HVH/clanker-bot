@@ -10,7 +10,7 @@ import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-eve
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
 import { applyModAction, autoWipeSeconds } from "../../lib/mod-action";
-import { logModAlert } from "../../lib/modlog";
+import { logModAlert, userValue } from "../../lib/modlog";
 import { purgeUserMessages } from "../../lib/purge-user";
 
 const REASON = "Honeypot: posted in a trap channel";
@@ -39,14 +39,20 @@ function dmText(guildName: string): string {
   );
 }
 
-function alertEmbed(a: { userId: string; channelId: string; bait: string; effective: GuardAction }): EmbedBuilder {
+function alertEmbed(a: {
+  userId: string;
+  name: string;
+  channelId: string;
+  bait: string;
+  effective: GuardAction;
+}): EmbedBuilder {
   const actionLabel =
     a.effective === "ban" ? "Banned" : a.effective === "kick" ? "Kicked" : "Flagged (no removal)";
   return new EmbedBuilder()
     .setColor(a.effective === "flag" ? 0xe67e22 : 0x992d22)
     .setTitle("🍯 Honeypot trip")
     .addFields(
-      { name: "User", value: `<@${a.userId}> (${a.userId})` },
+      { name: "User", value: userValue(a.userId, a.name) },
       { name: "Channel", value: `<#${a.channelId}>` },
       { name: "Action", value: actionLabel },
       { name: "Posted", value: a.bait },
@@ -154,7 +160,13 @@ const onCreate: Listener<Events.MessageCreate> = {
     await logModAlert(
       ctx,
       guild,
-      alertEmbed({ userId: member.id, channelId: message.channelId, bait, effective }),
+      alertEmbed({
+        userId: member.id,
+        name: member.user.username,
+        channelId: message.channelId,
+        bait,
+        effective,
+      }),
       { pingRoleId: ctx.config.get<string>(guild.id, CONFIG_KEYS.honeypotAlertRoleId) },
     );
 

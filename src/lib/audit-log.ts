@@ -1,5 +1,6 @@
 import { AuditLogEvent, EmbedBuilder, type GuildAuditLogsEntry } from "discord.js";
 import { CONFIG_KEYS } from "./config";
+import { userValue } from "./modlog";
 
 export type LogToggle =
   | typeof CONFIG_KEYS.logModActions
@@ -81,7 +82,9 @@ function targetField(entry: GuildAuditLogsEntry): { name: string; value: string 
         : `<@&${id}>`;
     return { name: "Role", value };
   }
-  return { name: "User", value: `<@${id}> (${id})` };
+  // discord.js resolves a member-action target to a User when it can; take the name from it
+  // so the line still identifies who this was if the reader's client can't render the mention.
+  return { name: "User", value: userValue(id, (entry.target as { username?: string } | null)?.username) };
 }
 
 function baseEmbed(title: string, color: number, entry: GuildAuditLogsEntry): EmbedBuilder {

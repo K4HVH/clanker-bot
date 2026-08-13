@@ -56,6 +56,7 @@ const onDelete: Listener<Events.MessageDelete> = {
       message.guild,
       buildMessageDeleteEmbed({
         authorId: message.author?.id,
+        authorName: message.author?.username,
         channelId: message.channelId,
         content: message.content?.trim() ? message.content : "*(uncached or empty)*",
       }),
@@ -77,6 +78,7 @@ const onUpdate: Listener<Events.MessageUpdate> = {
       newMessage.guild,
       buildMessageUpdateEmbed({
         authorId: newMessage.author?.id,
+        authorName: newMessage.author?.username,
         channelId: newMessage.channelId,
         before: before.trim() ? before : "*(uncached or empty)*",
         after: after.trim() ? after : "*(empty)*",
@@ -103,7 +105,11 @@ const onJoin: Listener<Events.GuildMemberAdd> = {
     await logMemberEvent(
       ctx,
       member.guild,
-      buildMemberJoinEmbed({ userId: member.id, createdAt: member.user.createdTimestamp }),
+      buildMemberJoinEmbed({
+        userId: member.id,
+        name: member.user?.username,
+        createdAt: member.user.createdTimestamp,
+      }),
     );
   },
 };
@@ -120,6 +126,7 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
     // undefined is what makes the embed say "unknown" instead of inventing "none".
     const details = {
       userId,
+      name: member.user?.username,
       createdAt: member.user.createdTimestamp,
       joinedAt: member.partial ? undefined : member.joinedTimestamp,
       leftAt: Date.now(),
@@ -150,7 +157,7 @@ const onMemberUpdate: Listener<Events.GuildMemberUpdate> = {
     const before = oldMember.nickname ?? null;
     const after = newMember.nickname ?? null;
     if (before === after) return;
-    await logMemberEvent(ctx, newMember.guild, buildNicknameEmbed({ userId: newMember.id, before, after }));
+    await logMemberEvent(ctx, newMember.guild, buildNicknameEmbed({ userId: newMember.id, name: newMember.user?.username, before, after }));
   },
 };
 

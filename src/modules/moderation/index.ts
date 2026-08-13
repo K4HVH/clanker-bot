@@ -24,7 +24,7 @@ import { scheduleAction } from "../../db/scheduled";
 import { CONFIG_KEYS } from "../../lib/config";
 import { formatDuration, MAX_TIMEOUT_MS, parseDuration } from "../../lib/duration";
 import { deleteSuppressed, suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
-import { logModAlert } from "../../lib/modlog";
+import { logModAlert, userValue } from "../../lib/modlog";
 import { messageMatchesPurge, type PurgeCriteria } from "../../lib/purge";
 import {
   type Evidence,
@@ -717,7 +717,7 @@ const clearHistorySub: Subcommand = {
           .setColor(0x95a5a6)
           .setTitle("🧹 Moderation history cleared")
           .addFields(
-            { name: "User", value: `<@${user.id}> (${user.id})` },
+            { name: "User", value: userValue(user.id, user.username) },
             { name: "By", value: `<@${interaction.user.id}>` },
             { name: "Cleared", value: `${n} ${automodOnly ? "automod violation(s)" : "history entr(ies)"}` },
           )

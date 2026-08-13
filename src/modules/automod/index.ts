@@ -14,7 +14,7 @@ import { HeatTracker, RepeatTracker, SprayTracker } from "../../lib/heat";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
 import { applyModAction, autoWipeSeconds, autoTimeoutMs } from "../../lib/mod-action";
-import { logCase, logModAlert } from "../../lib/modlog";
+import { logCase, logModAlert, userValue } from "../../lib/modlog";
 import { purgeUserMessages } from "../../lib/purge-user";
 import { attachmentTriple } from "../../lib/scam-seed";
 import { forgetButton, matchSignatures, type SignatureMatch } from "../../lib/scam-signatures";
@@ -289,12 +289,17 @@ async function actDecisive(
 
 type ActionRowLike = ReturnType<typeof forgetButton>;
 
-function signatureAlert(userId: string, channelId: string, match: SignatureMatch, label: string): EmbedBuilder {
+function signatureAlert(
+  user: { id: string; username: string },
+  channelId: string,
+  match: SignatureMatch,
+  label: string,
+): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xd35400)
     .setTitle("🛑 Known scam signature matched")
     .addFields(
-      { name: "User", value: `<@${userId}> (${userId})` },
+      { name: "User", value: userValue(user.id, user.username) },
       { name: "Channel", value: `<#${channelId}>` },
       { name: "Matched", value: `\`${match.kind}\`: \`${match.value.slice(0, 200)}\`` },
       { name: "Action", value: label },
@@ -302,12 +307,12 @@ function signatureAlert(userId: string, channelId: string, match: SignatureMatch
     .setTimestamp(new Date());
 }
 
-function sprayAlert(userId: string, label: string): EmbedBuilder {
+function sprayAlert(user: { id: string; username: string }, label: string): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xd35400)
     .setTitle("🚿 Cross-channel spray detected")
     .addFields(
-      { name: "User", value: `<@${userId}> (${userId})` },
+      { name: "User", value: userValue(user.id, user.username) },
       { name: "Action", value: label },
     )
     .setTimestamp(new Date());
@@ -359,7 +364,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
           : undefined,
         onClaimed: () => bumpSignatureHit(ctx.db, guildId, match.kind, match.value, now),
         removeContent: () => deleteSuppressed(message.id, () => message.delete()).then(() => {}),
-        alert: (label) => signatureAlert(message.author.id, message.channelId, match, label),
+        alert: (label) => signatureAlert(message.author, message.channelId, match, label),
         components: [forgetButton(match.kind, match.value)],
       });
       return;
@@ -392,7 +397,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
           ? `You were actioned in **${guild.name}** for posting the same message across many channels. If this wasn't you, your account may be compromised.`
           : undefined,
         removeContent: () => purgeSpray(guild, key),
-        alert: (label) => sprayAlert(message.author.id, label),
+        alert: (label) => sprayAlert(message.author, label),
       });
       return;
     }

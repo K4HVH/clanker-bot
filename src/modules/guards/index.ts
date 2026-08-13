@@ -5,7 +5,7 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { type GuardAction, parseGuardAction, strongerAction } from "../../lib/actions";
 import { matchBlocklist, parseBlocklist } from "../../lib/guards";
 import { applyModAction, autoWipeSeconds } from "../../lib/mod-action";
-import { logModAlert } from "../../lib/modlog";
+import { logModAlert, userValue } from "../../lib/modlog";
 
 const DAY_MS = 86_400_000;
 
@@ -65,7 +65,7 @@ async function enforce(
         effective === "flag" ? "🚩 Guard: flagged" : effective === "ban" ? "🔨 Guard: banned" : "👢 Guard: kicked",
       )
       .addFields(
-        { name: "User", value: `<@${member.id}> (${member.id})` },
+        { name: "User", value: userValue(member.id, member.user.username) },
         { name: "Reason", value: summary.slice(0, 1024) },
       )
       .setTimestamp(new Date()),
