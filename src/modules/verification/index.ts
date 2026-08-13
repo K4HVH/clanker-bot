@@ -758,7 +758,7 @@ const userSub: Subcommand = {
         .setTitle("Member manually verified")
         .addFields(
           { name: "User", value: userValue(target.id, target.username) },
-          { name: "By", value: `<@${interaction.user.id}>` },
+          { name: "By", value: userValue(interaction.user.id, interaction.user.username) },
         )
         .setTimestamp(new Date()),
     );

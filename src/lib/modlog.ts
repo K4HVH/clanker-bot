@@ -29,14 +29,18 @@ export function userValue(id: string, name?: string | null): string {
 }
 
 // A single moderation action, for the mod-log. No case number. The action speaks for itself.
-export function buildCaseEmbed(c: CaseRecord, name?: string | null): EmbedBuilder {
+export function buildCaseEmbed(
+  c: CaseRecord,
+  name?: string | null,
+  moderatorName?: string | null,
+): EmbedBuilder {
   const m = ACTION_META[c.type] ?? { emoji: "•", label: c.type, color: 0x95a5a6 };
   return new EmbedBuilder()
     .setColor(m.color)
     .setTitle(`${m.emoji} ${m.label}`)
     .addFields(
       { name: "User", value: userValue(c.userId, name) },
-      { name: "Moderator", value: `<@${c.moderatorId}>` },
+      { name: "Moderator", value: userValue(c.moderatorId, moderatorName) },
       { name: "Reason", value: truncate(c.reason) },
     )
     .setTimestamp(new Date(c.createdAt));
@@ -199,8 +203,12 @@ export async function logCase(ctx: AppContext, guild: Guild, c: CaseRecord): Pro
   // A case carries only the target's id (it outlives their membership), so resolve the name
   // here rather than at every call site. Cached after the first lookup, and a failure just
   // falls back to the bare mention.
-  const user = await guild.client.users.fetch(c.userId).catch(() => null);
-  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, buildCaseEmbed(c, user?.username));
+  const [user, moderator] = await Promise.all([
+    guild.client.users.fetch(c.userId).catch(() => null),
+    guild.client.users.fetch(c.moderatorId).catch(() => null),
+  ]);
+  const embed = buildCaseEmbed(c, user?.username, moderator?.username);
+  await sendToConfigured(ctx, guild, CONFIG_KEYS.modLogChannelId, embed);
 }
 
 export async function logMemberEvent(

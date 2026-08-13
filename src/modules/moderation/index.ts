@@ -409,8 +409,10 @@ function purgeSummary(res: PurgeResult): string {
   return s;
 }
 
-function purgeDetail(userId: string | null, filter: string | null): string {
-  return [userId ? `from <@${userId}>` : null, filter ? `(${filter})` : null].filter(Boolean).join(" ");
+function purgeDetail(userId: string | null, filter: string | null, name?: string | null): string {
+  return [userId ? `from ${userValue(userId, name)}` : null, filter ? `(${filter})` : null]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function confirmText(count: number, userId: string | null, filter: string | null, channelCount: number): string {
@@ -461,7 +463,13 @@ async function logPurge(
   channelIds: string[],
 ): Promise<void> {
   const scope = channelIds.length === 1 && channelIds[0] ? `<#${channelIds[0]}>` : `${channelIds.length} channels`;
-  const detail = purgeDetail(userId, filter);
+  // Both are ids by the time they reach here (the confirm path stores them), so resolve the
+  // names once for the log line: cached lookups, and a failure just leaves the bare link.
+  const [by, target] = await Promise.all([
+    guild.client.users.fetch(byId).catch(() => null),
+    userId ? guild.client.users.fetch(userId).catch(() => null) : null,
+  ]);
+  const detail = purgeDetail(userId, filter, target?.username);
   await logModAlert(
     ctx,
     guild,
@@ -470,7 +478,7 @@ async function logPurge(
       .setTitle("🧹 Messages purged")
       .addFields(
         { name: "Scope", value: scope },
-        { name: "By", value: `<@${byId}>` },
+        { name: "By", value: userValue(byId, by?.username) },
         {
           name: "Deleted",
           value: `${res.deleted}${detail ? ` ${detail}` : ""}${res.oldRemaining ? ` (+${res.oldRemaining} older left)` : ""}`,
@@ -718,7 +726,7 @@ const clearHistorySub: Subcommand = {
           .setTitle("🧹 Moderation history cleared")
           .addFields(
             { name: "User", value: userValue(user.id, user.username) },
-            { name: "By", value: `<@${interaction.user.id}>` },
+            { name: "By", value: userValue(interaction.user.id, interaction.user.username) },
             { name: "Cleared", value: `${n} ${automodOnly ? "automod violation(s)" : "history entr(ies)"}` },
           )
           .setTimestamp(new Date()),

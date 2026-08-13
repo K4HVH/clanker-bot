@@ -39,6 +39,7 @@ import {
   touchTicketActivity,
 } from "../../db/tickets";
 import { CONFIG_KEYS } from "../../lib/config";
+import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
 
 const ACCESS = [
@@ -57,6 +58,11 @@ const opening = new Set<string>();
 
 const MAX_TRANSCRIPT_MESSAGES = 2000;
 const SUBJECT_MAX = 300;
+
+// Plain-text form, for the transcript file: markdown and mentions are both dead weight there.
+function nameAndId(id: string, name?: string | null): string {
+  return name ? `${name} (${id})` : id;
+}
 
 // A subject is optional, so it's stored as "" when skipped. Everywhere one is DISPLAYED
 // goes through here: embed fields and descriptions reject empty strings outright, and the
@@ -149,14 +155,20 @@ async function closeTicketFlow(
   openTicketChannels.delete(channel.id);
   warnedTickets.delete(channel.id);
 
+  // Who this was, by name. The transcript is a plain .txt, where a mention is just raw
+  // "<@id>" text, and in an embed it only renders for a reader whose client has them cached.
+  const [opener, closer] = await Promise.all([
+    guild.client.users.fetch(ticket.openerId).catch(() => null),
+    guild.client.users.fetch(closedBy).catch(() => null),
+  ]);
   const withImages = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketArchiveImages);
   const { messages, truncated } = await fetchAllMessages(channel);
   const { text, zipBytes } = await buildTicketArchive(
     {
       ticketNumber: ticket.ticketNumber,
       subject: subjectLine(ticket.subject),
-      openerId: `<@${ticket.openerId}>`,
-      closedBy: `<@${closedBy}>`,
+      openerId: nameAndId(ticket.openerId, opener?.username),
+      closedBy: nameAndId(closedBy, closer?.username),
       reason,
     },
     messages,
@@ -174,7 +186,6 @@ async function closeTicketFlow(
   // actually reached them: a closed-DM opener would otherwise fail completely silently.
   let dmStatus: string | null = null;
   if (ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketDmTranscript)) {
-    const opener = await guild.client.users.fetch(ticket.openerId).catch(() => null);
     const delivered = opener
       ? await opener
           .send({ content: `Your ticket **#${num}** in **${guild.name}** was closed.`, files: [file()] })
@@ -188,8 +199,8 @@ async function closeTicketFlow(
     .setColor(0x95a5a6)
     .setTitle(`Ticket #${num} closed`)
     .addFields(
-      { name: "Opened by", value: `<@${ticket.openerId}>` },
-      { name: "Closed by", value: `<@${closedBy}>` },
+      { name: "Opened by", value: userValue(ticket.openerId, opener?.username) },
+      { name: "Closed by", value: userValue(closedBy, closer?.username) },
       { name: "Subject", value: subjectLine(ticket.subject) },
     );
   if (reason) embed.addFields({ name: "Reason", value: reason });
@@ -312,10 +323,10 @@ async function openTicketFlow(
     const embed = new EmbedBuilder()
       .setTitle(`Ticket #${record.ticketNumber}`)
       .setDescription(subjectLine(subject))
-      .addFields({ name: "Opened by", value: `<@${opener.id}>` });
+      .addFields({ name: "Opened by", value: userValue(opener.id, opener.username) });
     // Ping the opener too when someone else opened it for them: it's their ticket, and
     // otherwise the first they'd know of it is stumbling into the channel.
-    if (via) embed.addFields({ name: "Opened via", value: `<@${via.id}>` });
+    if (via) embed.addFields({ name: "Opened via", value: userValue(via.id, via.username) });
     const mentions = [staffRoleId ? `<@&${staffRoleId}>` : null, via ? `<@${opener.id}>` : null]
       .filter((m): m is string => m !== null)
       .join(" ");
@@ -336,8 +347,8 @@ async function openTicketFlow(
     const logEmbed = new EmbedBuilder()
       .setColor(0x2ecc71)
       .setTitle(`Ticket #${record.ticketNumber} opened`)
-      .addFields({ name: "Opened by", value: `<@${opener.id}>` });
-    if (via) logEmbed.addFields({ name: "Opened via", value: `<@${via.id}>` });
+      .addFields({ name: "Opened by", value: userValue(opener.id, opener.username) });
+    if (via) logEmbed.addFields({ name: "Opened via", value: userValue(via.id, via.username) });
     logEmbed
       .addFields(
         // Mention (a live link while open) + the name, so the entry still reads after the

@@ -91,7 +91,9 @@ function baseEmbed(title: string, color: number, entry: GuildAuditLogsEntry): Em
   const embed = new EmbedBuilder().setColor(color).setTitle(title).setTimestamp(new Date());
   const target = targetField(entry);
   if (target) embed.addFields(target);
-  if (entry.executorId) embed.addFields({ name: "By", value: `<@${entry.executorId}>` });
+  if (entry.executorId) {
+    embed.addFields({ name: "By", value: userValue(entry.executorId, entry.executor?.username) });
+  }
   if (entry.reason) embed.addFields({ name: "Reason", value: entry.reason.slice(0, 1024) });
   return embed;
 }
