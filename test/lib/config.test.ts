@@ -219,7 +219,10 @@ test("coerceSetting brings an older export's values up to the current shape", ()
     "123456789012345678",
     "987654321098765432",
   ]);
-  expect(coerceSetting(roles, "nonsense")).toEqual([]);
+  // Junk is left alone rather than coerced to an empty list, so validation refuses it and
+  // the admin is told, instead of the setting being quietly emptied.
+  expect(coerceSetting(roles, "nonsense")).toBe("nonsense");
+  expect(validateSetting(roles, coerceSetting(roles, "nonsense"))).toBe(false);
 
   const cats = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckCategories)!;
   expect(coerceSetting(cats, "reasoning")).toEqual(["reasoning"]);
@@ -240,4 +243,74 @@ test("an older export now survives the round trip that import puts it through", 
   const legacy = "123456789012345678, 987654321098765432";
   expect(validateSetting(roles, legacy)).toBe(false); // why it was being dropped
   expect(validateSetting(roles, coerceSetting(roles, legacy))).toBe(true);
+});
+
+// ── defects found by adversarial review ─────────────────────────────────────
+
+// One unreadable row used to abort the whole transaction, rolling back unrelated renames
+// and throwing at boot, which the entry point does not catch.
+test("migrateConfig survives a row it cannot parse", () => {
+  const db = makeTestDb();
+  db.query("INSERT INTO guild_config (guild_id,key,value,updated_at) VALUES (?,?,?,?)").run(
+    "g",
+    CONFIG_KEYS.honeypotExemptRoles,
+    "not json",
+    1,
+  );
+  db.query("INSERT INTO guild_config (guild_id,key,value,updated_at) VALUES (?,?,?,?)").run(
+    "g",
+    "antiscam_spray_action",
+    '"kick"',
+    1,
+  );
+  expect(() => migrateConfig(db)).not.toThrow();
+  // The unrelated rename still lands.
+  expect(new ConfigService(db).get<string>("g", CONFIG_KEYS.scamSprayAction)).toBe("kick");
+});
+
+// The picker can only round-trip 25, so anything above that would be silently dropped
+// the first time an admin touched the select.
+test("validateSetting refuses a role list longer than the picker can hold", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  // Built as text: a snowflake is past Number.MAX_SAFE_INTEGER, so arithmetic on one
+  // silently collides.
+  const ids = (n: number) =>
+    Array.from({ length: n }, (_, i) => `1000000000000000${String(i).padStart(2, "0")}`);
+  expect(validateSetting(roles, ids(25))).toBe(true);
+  expect(validateSetting(roles, ids(26))).toBe(false);
+});
+
+test("validateSetting refuses a list that repeats a role", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  expect(validateSetting(roles, ["123456789012345678", "123456789012345678"])).toBe(false);
+});
+
+// Empty means "every category", so coercing a stale value down to empty would quietly
+// switch everything on while the panel reported none. Better to refuse it.
+test("coerceSetting will not turn a named category into an empty list", () => {
+  const cats = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckCategories)!;
+  expect(coerceSetting(cats, "electronics")).toBe("electronics"); // left alone, so it fails validation
+  expect(validateSetting(cats, coerceSetting(cats, "electronics"))).toBe(false);
+  expect(coerceSetting(cats, "")).toEqual([]); // deliberately empty is still allowed
+});
+
+test("coerceSetting normalises a list the same way it normalises a string", () => {
+  const cats = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckCategories)!;
+  expect(coerceSetting(cats, ["Reasoning", " english "])).toEqual(["reasoning", "english"]);
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  expect(coerceSetting(roles, [" 123456789012345678 "])).toEqual(["123456789012345678"]);
+});
+
+// getEffective handed back the registry's own default object, shared by every guild, so
+// one caller mutating it would corrupt the default for the whole process.
+test("getEffective never hands out the registry's own default object", () => {
+  const cfg = new ConfigService(makeTestDb());
+  const a = cfg.getEffective<string[]>("g1", CONFIG_KEYS.honeypotExemptRoles);
+  const b = cfg.getEffective<string[]>("g2", CONFIG_KEYS.honeypotExemptRoles);
+  const registryDefault = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!.default;
+  expect(a).toEqual([]);
+  expect(a).not.toBe(registryDefault);
+  expect(a).not.toBe(b);
+  a.push("mutated");
+  expect(cfg.getEffective<string[]>("g3", CONFIG_KEYS.honeypotExemptRoles)).toEqual([]);
 });

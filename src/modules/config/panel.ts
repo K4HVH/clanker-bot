@@ -47,11 +47,14 @@ function navRow(currentCategoryId: string): ActionRowBuilder<StringSelectMenuBui
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
 }
 
-function footerRow(): ActionRowBuilder<ButtonBuilder> {
+function footerRow(categoryId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId("cfg:export").setStyle(ButtonStyle.Secondary).setLabel("Export"),
     new ButtonBuilder().setCustomId("cfg:import").setStyle(ButtonStyle.Secondary).setLabel("Import"),
-    new ButtonBuilder().setCustomId("cfg:reset").setStyle(ButtonStyle.Danger).setLabel("Reset"),
+    new ButtonBuilder()
+      .setCustomId(`cfg:reset:${categoryId}`)
+      .setStyle(ButtonStyle.Danger)
+      .setLabel("Reset"),
     new ButtonBuilder().setCustomId("cfg:close").setStyle(ButtonStyle.Secondary).setLabel("Close"),
   );
 }
@@ -189,7 +192,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
 
 // The full V2 component tree for a category page (nav select + container + footer).
 export function buildPanel(ctx: AppContext, guildId: string, categoryId: string) {
-  return [navRow(categoryId), categoryContainer(ctx, guildId, categoryId), footerRow()];
+  return [navRow(categoryId), categoryContainer(ctx, guildId, categoryId), footerRow(categoryId)];
 }
 
 // Modal to edit a text/int setting, prefilled with the current value.
@@ -198,7 +201,7 @@ export function buildModal(setting: Setting, current: string): ModalBuilder {
     .setCustomId("val")
     .setLabel(truncate(setting.label, 45))
     .setStyle(setting.type === "text" ? TextInputStyle.Paragraph : TextInputStyle.Short)
-    .setValue(current)
+    .setValue(current.slice(0, 4000))
     .setRequired(setting.type === "int")
     .setMaxLength(setting.type === "int" ? 19 : 4000);
   if (setting.placeholder) input.setPlaceholder(truncate(setting.placeholder, 100));

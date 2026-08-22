@@ -66,6 +66,11 @@ export interface Session {
   startedAt: number;
   deadline: number;
   continuation: Continuation;
+  // Set once the run is over. The session stays in the map rather than being deleted,
+  // because the buttons on the question message are still live until Discord repaints it:
+  // deleting here meant the second click of a double-click found nothing and painted
+  // "this check has expired" over the pass or failure the member had just been given.
+  finished?: boolean;
 }
 
 // In memory only. A restart drops any half-finished check, which costs the member one
@@ -120,10 +125,13 @@ export function getSession(token: string): Session | undefined {
   return sessions.get(token);
 }
 
-// The check this member already has open, if any. There is at most one.
+// The check this member has open, if any. There is at most one. A finished run is not
+// one: it is only still here so its own message's buttons resolve quietly.
 export function sessionFor(guildId: string, userId: string): Session | undefined {
   for (const session of sessions.values()) {
-    if (session.guildId === guildId && session.userId === userId) return session;
+    if (session.guildId === guildId && session.userId === userId && !session.finished) {
+      return session;
+    }
   }
   return undefined;
 }
@@ -138,8 +146,9 @@ export function dropSession(token: string): void {
 // fresh one would have done nothing. The pass note goes too, or a ticket opened later
 // gets a mod-log line about a check that no longer happened.
 export function clearCheckSession(guildId: string, userId: string): void {
-  const live = sessionFor(guildId, userId);
-  if (live) sessions.delete(live.token);
+  for (const [token, session] of sessions) {
+    if (session.guildId === guildId && session.userId === userId) sessions.delete(token);
+  }
   passNotes.delete(`${guildId}:${userId}`);
 }
 
@@ -153,9 +162,12 @@ export function sweepSessions(ctx: AppContext, now: number): void {
   for (const [token, session] of sessions) {
     if (session.deadline > now) continue;
     sessions.delete(token);
-    // Unless the guild has since switched the check off, in which case nobody should be
-    // charged for a quiz that no longer exists, and nobody should find a cooldown waiting
-    // for them if it is ever switched back on.
+    // A finished run has already been settled; it was only being kept so its own buttons
+    // resolved quietly. Charging it here would double-charge the member.
+    if (session.finished) continue;
+    // Nor is anyone charged in a guild that has since switched the check off: nobody
+    // should be recorded as failing a quiz that no longer exists, or find a cooldown
+    // waiting for them if it is ever switched back on.
     const live = ctx.config.getEffective<boolean>(session.guildId, K.ticketCheckEnabled);
     if (live) recordCheckFail(ctx.db, session.guildId, session.userId, now);
   }
@@ -442,18 +454,27 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         return;
       }
 
+      // The run is over and this is a second click on a message Discord has not repainted
+      // yet. Acknowledge it and change nothing: the result is already on screen.
+      if (session.finished) {
+        await button.deferUpdate();
+        return;
+      }
+
       const policy = readPolicy(ctx, guild.id);
       const now = Date.now();
-      const outcome = answerSession(
-        session,
-        Number(questionIndex),
-        Number(choice),
-        policy.required,
-        now,
-      );
+      // The pass mark is the one this member was shown. Reading it live would let a guild
+      // that raises "questions asked" mid-check score a correct answer as a failure,
+      // because the run they are on is shorter than the mark now demands.
+      const required = Math.min(policy.required, session.questions.length);
+      const outcome = answerSession(session, Number(questionIndex), Number(choice), required, now);
 
+      // A click on a question this run has moved past: either a double-click, or a
+      // second copy of the question left over from re-entering the gate. Repaint it with
+      // where the run actually is, rather than acknowledging silently and leaving a
+      // message whose buttons visibly do nothing.
       if (outcome.kind === "stale") {
-        await button.deferUpdate();
+        await button.update(questionBody(session, policy));
         return;
       }
       if (outcome.kind === "next") {
@@ -461,9 +482,25 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         return;
       }
 
-      dropSession(session.token);
+      // Kept, not deleted: see Session.finished.
+      session.finished = true;
 
       if (outcome.kind === "failed") {
+        // A guild that switched the check off mid-run charges nobody, matching the sweep.
+        if (!policy.enabled) {
+          await button.update({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(0x95a5a6)
+                .setTitle("Never mind")
+                .setDescription(
+                  "The check was switched off while you were answering it. Open a ticket whenever you like.",
+                ),
+            ],
+            components: [],
+          });
+          return;
+        }
         recordCheckFail(ctx.db, guild.id, button.user.id, now);
         const until = now + policy.cooldownMinutes * 60_000;
         const lead = outcome.reason === "expired" ? "Time ran out. " : "";

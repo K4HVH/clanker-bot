@@ -403,7 +403,8 @@ test("answering everything right ends at the subject modal, with the pass record
   // The last right answer is answered WITH the modal, so the panel's subject prompt is
   // the reward rather than a dead end.
   expect(seen.modals).toEqual(["ticket_modal:check"]);
-  expect(getSession(token)).toBeUndefined();
+  expect(getSession(token)?.finished).toBe(true);
+  expect(sessionFor(GUILD_ID, USER.id)).toBeUndefined(); // nothing open any more
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.passedAt).toBeGreaterThan(0);
   expect(takePassNote(GUILD_ID, USER.id)).toMatchObject({ correct: 2, total: 2 });
   expect(logged.length).toBe(0); // passing is not mod-log noise
@@ -425,7 +426,7 @@ test("getting one wrong ends the run, starts the cooldown and tells staff", asyn
   await click(`ticket_check:${token}:0:${wrong}`);
 
   // Both remaining answers are needed and one is already lost, so it stops here.
-  expect(getSession(token)).toBeUndefined();
+  expect(sessionFor(GUILD_ID, USER.id)).toBeUndefined();
   expect(seen.modals).toEqual([]);
   expect(JSON.stringify(seen.updates)).toContain("public help channels");
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toMatchObject({ passedAt: null, fails: 1 });
@@ -656,4 +657,128 @@ test("a very long intro or failure text cannot break the check", async () => {
   const notice = (cooled.reply as any).embeds[0].data.description as string;
   expect(notice.length).toBeLessThanOrEqual(4096);
   expect(notice).toContain("You can try again");
+});
+
+// ── defects found by adversarial review ─────────────────────────────────────
+
+const answerOn = async (
+  ctx: AppContext,
+  guild: Guild,
+  token: string,
+  index: number,
+  choice: number,
+  seen: { updates: string[]; modals: string[] },
+) => {
+  const router = new ComponentRouter(ticketsModule.components ?? [], ctx);
+  await router.handle({
+    customId: `ticket_check:${token}:${index}:${choice}`,
+    guild,
+    user: USER,
+    replied: false,
+    deferred: false,
+    isButton: () => true,
+    isModalSubmit: () => false,
+    // biome-ignore lint: untyped Discord API JSON
+    update: async (p: any) => void seen.updates.push(p.embeds?.[0]?.data?.title ?? "?"),
+    deferUpdate: async () => void seen.updates.push("deferUpdate"),
+    showModal: async () => void seen.modals.push("modal"),
+    editReply: async () => {},
+  } as unknown as ButtonInteraction);
+};
+
+const startCheck = async (ctx: AppContext, guild: Guild, questions: number) => {
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckQuestions, questions);
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  return tokenOf(gate.reply);
+};
+
+// Buttons stay live until Discord repaints, and the last answer used to delete the
+// session before the message was replaced, so the second click of a double-click found
+// nothing and painted "expired" over the result.
+test("double-clicking the last answer does not bury the result", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const token = await startCheck(ctx, guild, 1);
+  const seen = { updates: [] as string[], modals: [] as string[] };
+  const right = getSession(token)!.questions[0]!.answerIndex;
+
+  await answerOn(ctx, guild, token, 0, right, seen);
+  await answerOn(ctx, guild, token, 0, right, seen);
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.passedAt).toBeGreaterThan(0);
+  expect(seen.modals.length).toBe(1);
+  expect(seen.updates).not.toContain("This check has expired");
+});
+
+test("double-clicking a losing answer keeps the failure message and its retry time", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const token = await startCheck(ctx, guild, 1);
+  const seen = { updates: [] as string[], modals: [] as string[] };
+  const wrong = (getSession(token)!.questions[0]!.answerIndex + 1) % 4;
+
+  await answerOn(ctx, guild, token, 0, wrong, seen);
+  await answerOn(ctx, guild, token, 0, wrong, seen);
+  expect(seen.updates.filter((u) => u === "Ticket not opened").length).toBe(1);
+  expect(seen.updates).not.toContain("This check has expired");
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.fails).toBe(1); // charged once
+});
+
+// The sweep already refuses to charge when the feature is off. The handler did not.
+test("answering after the check is switched off costs nothing", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const token = await startCheck(ctx, guild, 2);
+  const seen = { updates: [] as string[], modals: [] as string[] };
+  const wrong = (getSession(token)!.questions[0]!.answerIndex + 1) % 4;
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckEnabled, false);
+
+  await answerOn(ctx, guild, token, 0, wrong, seen);
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toBeUndefined();
+});
+
+// The pass mark has to be the one the member was shown, not whatever the guild has
+// switched to since: a correct answer must never be scored as a failure.
+test("changing the question count mid-check cannot fail a correct answer", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const token = await startCheck(ctx, guild, 2);
+  const seen = { updates: [] as string[], modals: [] as string[] };
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckQuestions, 5);
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckRequired, 5);
+
+  await answerOn(ctx, guild, token, 0, getSession(token)!.questions[0]!.answerIndex, seen);
+  expect(seen.updates).not.toContain("Ticket not opened");
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toBeUndefined();
+});
+
+// A failure is proof they cannot pass right now, so an older pass must not outrank the
+// cooldown it started.
+test("a failure retires any earlier pass", () => {
+  const ctx = silentContext();
+  recordCheckPass(ctx.db, GUILD_ID, USER.id, 3000);
+  recordCheckFail(ctx.db, GUILD_ID, USER.id, 4000);
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toEqual({
+    passedAt: null,
+    failedAt: 4000,
+    fails: 1,
+  });
+});
+
+// Re-entering the gate paints a second copy of the same question, and only one copy can
+// be the one that advances. A click on the other used to be acknowledged silently, so
+// its buttons did nothing at all, forever, with no way to tell it was dead.
+test("a click on a superseded copy of the question repaints it", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const token = await startCheck(ctx, guild, 2);
+  const seen = { updates: [] as string[], modals: [] as string[] };
+
+  // Answer question 1 on the first copy; the second copy still shows question 1.
+  await answerOn(ctx, guild, token, 0, getSession(token)!.questions[0]!.answerIndex, seen);
+  expect(seen.updates).toEqual(["Question 2 of 2"]);
+
+  await answerOn(ctx, guild, token, 0, 0, seen); // stale click on the old copy
+  expect(seen.updates).toEqual(["Question 2 of 2", "Question 2 of 2"]);
+  expect(seen.updates).not.toContain("deferUpdate");
 });

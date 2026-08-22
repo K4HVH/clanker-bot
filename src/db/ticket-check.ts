@@ -38,6 +38,9 @@ export function recordCheckPass(
   );
 }
 
+// A failure clears any earlier pass. The gate honours a live pass ahead of a live
+// cooldown, so leaving one behind would let a member who has since demonstrably failed
+// walk straight past the cooldown that failure started.
 export function recordCheckFail(
   db: BotDatabase,
   guildId: string,
@@ -49,7 +52,7 @@ export function recordCheckFail(
     `INSERT INTO ticket_check_results (guild_id, user_id, passed_at, failed_at, fails)
      VALUES (?, ?, NULL, ?, 1)
      ON CONFLICT (guild_id, user_id) DO UPDATE SET failed_at = excluded.failed_at,
-       fails = fails + 1`,
+       passed_at = NULL, fails = fails + 1`,
     guildId,
     userId,
     at,

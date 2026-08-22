@@ -351,7 +351,10 @@ async function openTicketFlow(
     );
     // How they did on the check, when one was sat for this ticket. This is what tells
     // the owner whether the bar is set right, rather than only seeing who failed.
-    const check = takePassNote(guildId, opener.id);
+    // Only for a ticket they opened themselves: staff opening one with `for:` skips the
+    // check entirely, so attaching the member's pass to it would report a check that had
+    // nothing to do with this ticket, and consume the note their own ticket needed.
+    const check = via ? undefined : takePassNote(guildId, opener.id);
     if (check) {
       logEmbed.addFields({
         name: "Check",
@@ -875,7 +878,15 @@ const onReady: Listener<Events.ClientReady> = {
       else reconcileGone(ctx, t.channelId, client.user?.id ?? "system", Date.now());
     }
     const timer = setInterval(() => {
-      sweepSessions(ctx, Date.now());
+      // Unattended work on a timer: a throw here has no interaction to fail and would
+      // take the process down instead.
+      try {
+        sweepSessions(ctx, Date.now());
+      } catch (error) {
+        ctx.logger.error("ticket: sweeping abandoned checks failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       void scanInactivity(ctx, client, Date.now());
     }, 5 * 60_000);
     timer.unref?.();

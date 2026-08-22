@@ -330,7 +330,14 @@ export function migrateConfig(db: BotDatabase): void {
         "SELECT guild_id AS guildId, value FROM guild_config WHERE key = ?",
         key,
       )) {
-        const stored: unknown = JSON.parse(row.value);
+        let stored: unknown;
+        try {
+          stored = JSON.parse(row.value);
+        } catch {
+          // Not readable, so not something this can upgrade. Leaving it is survivable;
+          // throwing here would roll back every other rename and kill startup.
+          continue;
+        }
         if (typeof stored !== "string") continue; // already a list
         db.query("UPDATE guild_config SET value = ? WHERE guild_id = ? AND key = ?").run(
           JSON.stringify(parseRoleIds(stored)),
@@ -344,6 +351,9 @@ export function migrateConfig(db: BotDatabase): void {
 }
 
 const SNOWFLAKE = /^\d{17,20}$/;
+
+// Discord shows at most 25 options in a select, which bounds what a list setting can hold.
+export const ROLE_PICKER_MAX = 25;
 
 // Role IDs from a "roles" setting, which the picker stores as a list. A string is still
 // accepted for values typed in before the picker existed and for older config exports.
@@ -368,14 +378,25 @@ export function settingsByCategory(categoryId: string): Setting[] {
 // reports a rejection only as a count, so a restored backup would come back quietly
 // missing settings the guild still expects to be there.
 export function coerceSetting(setting: Setting, value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  if (setting.type === "roles") return parseRoleIds(value);
-  if (setting.type === "multichoice") {
+  if (setting.type === "roles" && (typeof value === "string" || Array.isArray(value))) {
+    const ids = parseRoleIds(value as string | string[]);
+    // As below: something was named here, and dropping all of it would apply an empty
+    // list as though that is what the guild asked for. Let validation refuse it instead.
+    const named = (Array.isArray(value) ? value : value.split(/[\n,]/)).some(
+      (part) => String(part).trim().length > 0,
+    );
+    return ids.length === 0 && named ? value : ids;
+  }
+  if (setting.type === "multichoice" && (typeof value === "string" || Array.isArray(value))) {
     const offered = new Set(setting.choices?.map((c) => c.value));
-    return value
-      .split(/[\n,]/)
-      .map((part) => part.trim().toLowerCase())
-      .filter((part) => offered.has(part));
+    const parts = Array.isArray(value) ? value.map(String) : value.split(/[\n,]/);
+    const wanted = parts.map((part) => part.trim().toLowerCase());
+    const known = wanted.filter((part) => offered.has(part));
+    // An empty list means "every category", so coercing a named-but-unknown value down to
+    // empty would switch everything on while the panel reported none. Hand back what came
+    // in and let validation refuse it, so the admin is told instead.
+    if (known.length === 0 && wanted.some((part) => part.length > 0)) return value;
+    return known;
   }
   return value;
 }
@@ -393,7 +414,9 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
         (setting.max === undefined || value <= setting.max)
       );
     case "text":
-      return typeof value === "string";
+      // Discord's modal input cap. A longer value could be stored but never edited back
+      // down through the panel, since building the modal to show it would throw.
+      return typeof value === "string" && value.length <= 4000;
     case "channel":
     case "role":
       return typeof value === "string" && SNOWFLAKE.test(value);
@@ -401,12 +424,18 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
       return typeof value === "string" && (setting.choices?.some((c) => c.value === value) ?? false);
     case "roles":
       return (
-        Array.isArray(value) && value.every((v) => typeof v === "string" && SNOWFLAKE.test(v))
+        Array.isArray(value) &&
+        // Discord's own cap on a select. Anything longer could be stored but never shown,
+        // and would be lost the first time an admin touched the picker.
+        value.length <= ROLE_PICKER_MAX &&
+        value.every((v) => typeof v === "string" && SNOWFLAKE.test(v)) &&
+        new Set(value).size === value.length
       );
     case "multichoice":
       return (
         Array.isArray(value) &&
-        value.every((v) => setting.choices?.some((c) => c.value === v) ?? false)
+        value.every((v) => setting.choices?.some((c) => c.value === v) ?? false) &&
+        new Set(value).size === value.length
       );
   }
 }
@@ -429,7 +458,11 @@ export class ConfigService {
   // meaningful default (bools/ints/text); use get() for unset-sensitive keys.
   getEffective<T>(guildId: string, key: string): T {
     const stored = this.get<T>(guildId, key);
-    return stored ?? (REGISTRY_BY_KEY.get(key)?.default as T);
+    if (stored !== undefined) return stored;
+    // Copied, never handed out by reference: list defaults are shared by every guild, and
+    // one caller pushing to what it got back would corrupt the default process-wide.
+    const fallback = REGISTRY_BY_KEY.get(key)?.default;
+    return (Array.isArray(fallback) ? [...fallback] : fallback) as T;
   }
 
   set(guildId: string, key: string, value: unknown): void {

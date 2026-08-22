@@ -188,7 +188,9 @@ const buttonHandler: ComponentHandler = {
 
     if (verb === "edit" && arg) {
       const setting = getSetting(arg);
-      if (!setting) return;
+      // Only the two types the panel renders an Edit button for. A stale panel from
+      // before a type change would otherwise open a text box over a list setting.
+      if (!setting || (setting.type !== "int" && setting.type !== "text")) return;
       const current = ctx.config.getEffective<unknown>(guildId, setting.key);
       await button.showModal(buildModal(setting, current === undefined ? "" : String(current)));
       return;
@@ -204,7 +206,9 @@ const buttonHandler: ComponentHandler = {
       return;
     }
 
-    if (verb === "reset" && arg) {
+    if (verb === "reset") {
+      // Panels rendered before this button carried a category still send it without one.
+      const from = arg ?? DEFAULT_CATEGORY;
       const confirm = new ContainerBuilder()
         .setAccentColor(0xe74c3c)
         .addTextDisplayComponents(
@@ -215,11 +219,11 @@ const buttonHandler: ComponentHandler = {
         .addActionRowComponents(
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
-              .setCustomId(`cfg:resetyes:${arg}`)
+              .setCustomId(`cfg:resetyes:${from}`)
               .setStyle(ButtonStyle.Danger)
               .setLabel("Reset everything"),
             new ButtonBuilder()
-              .setCustomId(`cfg:resetno:${arg}`)
+              .setCustomId(`cfg:resetno:${from}`)
               .setStyle(ButtonStyle.Secondary)
               .setLabel("Cancel"),
           ),
@@ -274,22 +278,20 @@ const selectHandler: ComponentHandler = {
       const setting = getSetting(arg);
       if (!setting) return;
 
+      // A refused pick still repaints the panel rather than returning silently: an
+      // unanswered interaction is "This interaction failed" with no explanation, and the
+      // repaint shows the admin the setting unchanged.
       if (setting.type === "roles" || setting.type === "multichoice") {
         // The whole selection is the value. An empty pick is stored rather than unset:
         // "nobody is exempt" is a decision, and unsetting would quietly restore the
         // default instead of honouring it.
         const chosen = [...select.values];
-        if (!validateSetting(setting, chosen)) return;
-        ctx.config.set(guildId, setting.key, chosen);
+        if (validateSetting(setting, chosen)) ctx.config.set(guildId, setting.key, chosen);
       } else {
         // chan / role / choice: one value, or unset when the selection is cleared.
         const chosen = select.values[0];
-        if (chosen) {
-          if (!validateSetting(setting, chosen)) return;
-          ctx.config.set(guildId, setting.key, chosen);
-        } else {
-          ctx.config.unset(guildId, setting.key);
-        }
+        if (chosen === undefined) ctx.config.unset(guildId, setting.key);
+        else if (validateSetting(setting, chosen)) ctx.config.set(guildId, setting.key, chosen);
       }
       await select.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
     }
@@ -310,17 +312,19 @@ const modalHandler: ComponentHandler = {
     if (!setting) return;
 
     const raw = modal.fields.getTextInputValue("val");
-    let value: unknown = raw;
-    if (setting.type === "int") {
-      const parsed = Number.parseInt(raw.trim(), 10);
-      if (!validateSetting(setting, parsed)) {
-        await modal.reply({
-          content: `Invalid value: must be a whole number between ${setting.min} and ${setting.max}.`,
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-      value = parsed;
+    const value: unknown = setting.type === "int" ? Number.parseInt(raw.trim(), 10) : raw;
+    // Validated whatever the type. A panel rendered before a setting changed type still
+    // carries its old Edit button, and storing the raw string a modal returns into a
+    // setting that now holds a list leaves the whole category page unable to render.
+    if (!validateSetting(setting, value)) {
+      await modal.reply({
+        content:
+          setting.type === "int"
+            ? `Invalid value: must be a whole number between ${setting.min} and ${setting.max}.`
+            : "That value isn't valid for this setting. Reopen /config and try again.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
     ctx.config.set(guildId, setting.key, value);
 
