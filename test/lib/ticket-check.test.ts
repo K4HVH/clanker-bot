@@ -269,11 +269,10 @@ test("table-lookup: the key is the best ratio, and never the lazy row", () => {
     const best = [...rows].sort((a, b) => ratio(b) - ratio(a));
     expect(ratio(best[0]!), where).toBeGreaterThan(ratio(best[1]!)); // one clear winner
     expect(q.choices[q.answerIndex], where).toBe(best[0]!.name);
-    // Neither "cheapest" nor "biggest number" can be right, or the table is decoration.
-    const cheapest = [...rows].sort((a, b) => a.price - b.price)[0]!;
-    const biggest = [...rows].sort((a, b) => b.storage - a.storage)[0]!;
-    expect(best[0]!.name, where).not.toBe(cheapest.name);
-    expect(best[0]!.name, where).not.toBe(biggest.name);
+    // It used to assert the winner was never the cheapest row and never the biggest-storage
+    // one. That pair of "traps" was a single tell: excluding two of four positions left the
+    // answer pinned to the second-cheapest row every time. Rank uniformity is asserted
+    // separately now; what matters here is that the ratio is what decides it.
   }
 });
 
@@ -454,4 +453,73 @@ test("buildQuiz still fills up from one category when only one is on", () => {
   const quiz = buildQuiz(3, ["english"], makeRng(4));
   expect(quiz.length).toBe(3);
   for (const q of quiz) expect(q.category).toBe("english");
+});
+
+// A member does not have to solve a question whose answer can be found by sorting the
+// options. Every distractor being an error in the same direction put the answer at a
+// fixed rank: "pick the smallest" beat multi-step 94% of the time. Rank must be uniform.
+test("no numeric generator puts its answer at a predictable rank", () => {
+  const N = 2000;
+  for (const gen of GENERATORS) {
+    const ranks = [0, 0, 0, 0];
+    let numeric = 0;
+    for (let seed = 0; seed < N; seed++) {
+      const q = gen.generate(makeRng(seed));
+      const values = q.choices.map(Number);
+      if (values.some(Number.isNaN)) break; // not a numeric family
+      numeric++;
+      const sorted = [...values].sort((a, b) => a - b);
+      ranks[sorted.indexOf(values[q.answerIndex]!)]!++;
+    }
+    if (numeric === 0) continue;
+    for (const [rank, count] of ranks.entries()) {
+      expect(count / numeric, `${gen.id}: answer is rank ${rank} of 4 by value`).toBeGreaterThan(
+        0.1,
+      );
+      expect(count / numeric, `${gen.id}: answer is rank ${rank} of 4 by value`).toBeLessThan(0.4);
+    }
+  }
+});
+
+// Same idea for the table: the row that wins on ratio must not be findable by its
+// position in the price or storage column.
+test("table-lookup's winning row is not identifiable by price or storage rank", () => {
+  const gen = GENERATORS.find((g) => g.id === "table-lookup")!;
+  const N = 2000;
+  const priceRank = [0, 0, 0, 0];
+  const storageRank = [0, 0, 0, 0];
+  for (let seed = 0; seed < N; seed++) {
+    const q = gen.generate(makeRng(seed));
+    const rows = [...q.prompt.matchAll(/^(\w+) +(\d+) +(\d+)$/gm)].map((m) => ({
+      name: m[1]!,
+      price: Number(m[2]),
+      storage: Number(m[3]),
+    }));
+    const winner = q.choices[q.answerIndex]!;
+    priceRank[[...rows].sort((a, b) => a.price - b.price).findIndex((r) => r.name === winner)]!++;
+    storageRank[
+      [...rows].sort((a, b) => a.storage - b.storage).findIndex((r) => r.name === winner)
+    ]!++;
+  }
+  for (const [rank, count] of priceRank.entries()) {
+    expect(count / N, `winner is the price-rank ${rank} row`).toBeLessThan(0.4);
+  }
+  for (const [rank, count] of storageRank.entries()) {
+    expect(count / N, `winner is the storage-rank ${rank} row`).toBeLessThan(0.4);
+  }
+});
+
+// A question with two defensible answers fails a member who is right, which is the worst
+// thing this gate can do.
+test("agreement never offers a second sentence that is also correct", () => {
+  const gen = GENERATORS.find((g) => g.id === "agreement")!;
+  for (let seed = 0; seed < 4000; seed++) {
+    const q = gen.generate(makeRng(seed));
+    const where = `seed ${seed}: ${q.choices.join(" | ")}`;
+    // Both "is" and "was" fit a singular subject; only one of them can be on offer.
+    const tensed = q.choices.filter((c) => / (is|was) /.test(c));
+    expect(tensed.length, where).toBeLessThanOrEqual(1);
+    const plural = q.choices.filter((c) => / (are|were) /.test(c));
+    expect(plural.length, where).toBeLessThanOrEqual(1);
+  }
 });

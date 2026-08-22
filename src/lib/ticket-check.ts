@@ -86,8 +86,15 @@ function assemble(
   };
 }
 
-// Numeric answers pad from near-misses so a generator can never run short of options:
-// an off-by-one is exactly the mistake a rushed reader makes anyway.
+// Numeric answers need one thing beyond four distinct options: the answer must not sit at
+// a predictable place in the sorted list. Every distractor a generator offers is an error
+// in some direction, and those directions are rarely balanced, which is how "pick the
+// smallest" came to answer the shelf question 94% of the time without reading it.
+//
+// So the rank is DRAWN first, then that many distractors are taken from below the answer
+// and the rest from above, keeping the generator's own plausible mistakes wherever they
+// happen to fall and padding with near-misses only to make up the numbers. An off-by-one
+// is the mistake a rushed reader makes anyway, so a padded option is still a fair one.
 function assembleNumeric(
   rng: Rng,
   gen: { id: string; category: CheckCategory },
@@ -95,8 +102,28 @@ function assembleNumeric(
   correct: number,
   wrong: number[],
 ): CheckQuestion {
-  const padded = [...wrong, correct + 1, correct - 1, correct + 2, correct - 2];
-  return assemble(rng, gen, prompt, String(correct), padded.map(String));
+  const offered = [...new Set(wrong)].filter((w) => w !== correct);
+  const below = shuffle(
+    rng,
+    offered.filter((w) => w < correct),
+  );
+  const above = shuffle(
+    rng,
+    offered.filter((w) => w > correct),
+  );
+  const rank = randInt(rng, 0, 3); // how many of the three sit below the answer
+
+  const take = (pool: number[], want: number, step: 1 | -1): number[] => {
+    const out = pool.slice(0, want);
+    for (let offset = 1; out.length < want; offset++) {
+      const candidate = correct + step * offset;
+      if (!out.includes(candidate) && !offered.includes(candidate)) out.push(candidate);
+    }
+    return out;
+  };
+
+  const chosen = [...take(below, rank, -1), ...take(above, 3 - rank, 1)];
+  return assemble(rng, gen, prompt, String(correct), chosen.map(String));
 }
 
 // ── seq: continue the sequence ──────────────────────────────────────────────
@@ -391,22 +418,19 @@ const tableLookup: Generator = {
   category: "reasoning",
   generate(rng) {
     const names = shuffle(rng, [...PLAN_NAMES]).slice(0, 4);
+    // Rates and prices are drawn independently and paired at random. Arranging the rows so
+    // the winner was neither the cheapest nor the biggest-storage one sounded like two
+    // traps and was really a single tell: it pinned the answer to the second-cheapest row,
+    // every single time. Prices stay in fives so each rate is a division worth attempting.
     const best = pick(rng, [14, 16, 18]);
-    // Prices in fives, so each row's storage-per-pound is a division worth attempting
-    // rather than long division against the clock.
-    const winnerPrice = randInt(rng, 3, 4) * 5;
-    // The top spender buys the most storage outright despite a worse rate, so "biggest
-    // number in the storage column" is a trap rather than a shortcut.
-    const spenderPrice = randInt(rng, 2 * winnerPrice / 5 + 1, 2 * winnerPrice / 5 + 4) * 5;
-    const midPrice = randInt(rng, winnerPrice / 5 + 1, spenderPrice / 5 - 1) * 5;
-    const cheapPrice = randInt(rng, 1, winnerPrice / 5 - 1) * 5;
-
-    const rows = [
-      { name: names[0]!, price: winnerPrice, rate: best },
-      { name: names[1]!, price: spenderPrice, rate: best - 4 },
-      { name: names[2]!, price: midPrice, rate: best - 6 },
-      { name: names[3]!, price: cheapPrice, rate: best - 8 },
-    ].map((r) => ({ name: r.name, price: r.price, storage: r.price * r.rate }));
+    const rates = shuffle(rng, [best, best - 4, best - 6, best - 8]);
+    const prices = shuffle(rng, [2, 3, 4, 8, 14, 20].map((p) => p * 5)).slice(0, 4);
+    const rows = names.map((name, i) => ({
+      name,
+      price: prices[i]!,
+      storage: prices[i]! * rates[i]!,
+    }));
+    const winner = rows[rates.indexOf(best)]!;
 
     const table = [
       "Plan    Price  Storage",
@@ -423,8 +447,8 @@ const tableLookup: Generator = {
       rng,
       tableLookup,
       prompt,
-      rows[0]!.name,
-      rows.slice(1).map((r) => r.name),
+      winner.name,
+      rows.filter((r) => r.name !== winner.name).map((r) => r.name),
     );
   },
 };
@@ -477,7 +501,7 @@ const multiStep: Generator = {
 // a perfectly correct sentence and there would be two right answers.
 const AGREEMENT_SETS = [
   { singular: "is", plural: "are", others: ["be", "am"], tail: ["on the table.", "in the drawer.", "still missing."] },
-  { singular: "was", plural: "were", others: ["been", "is"], tail: ["there yesterday.", "in the drawer.", "missing all week."] },
+  { singular: "was", plural: "were", others: ["been", "being"], tail: ["there yesterday.", "in the drawer.", "missing all week."] },
   { singular: "has", plural: "have", others: ["haves", "having"], tail: ["arrived.", "gone missing.", "turned up again."] },
   { singular: "does", plural: "do", others: ["doing", "done"], tail: ["not fit.", "not belong here."] },
 ] as const;
