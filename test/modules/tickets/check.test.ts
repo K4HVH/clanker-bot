@@ -11,7 +11,7 @@ import type { AppContext } from "../../../src/core/context";
 import { getCheckResult, recordCheckFail, recordCheckPass } from "../../../src/db/ticket-check";
 import { ticketsModule } from "../../../src/modules/tickets";
 import { CONFIG_KEYS } from "../../../src/lib/config";
-import type { CheckQuestion } from "../../../src/lib/ticket-check";
+import { type CheckQuestion, cooldownMs } from "../../../src/lib/ticket-check";
 import {
   answerSession,
   clearCheckSession,
@@ -113,17 +113,36 @@ test("clearing the last question passes, with the score and how long it took", (
   });
 });
 
-// Asking the rest of the questions once the pass mark is out of reach wastes
-// everyone's time, so a hopeless run ends where it goes wrong.
-test("a run that can no longer reach the pass mark ends at once", () => {
+// Ending a hopeless run early looked like a kindness and was an oracle: with the default
+// three-of-three, stopping told the member exactly which question they had just got
+// wrong, and that every earlier answer was right. Repeat, and you assemble an answer key
+// one question at a time. Every run now goes to the end and reports only a score.
+test("a run that can no longer reach the pass mark still asks the rest", () => {
   const s = session([1, 2, 3]);
-  expect(answerSession(s, 0, 0, 3, NOW + 1000)).toEqual({ kind: "failed", correct: 0, reason: "wrong" });
+  expect(answerSession(s, 0, 0, 3, NOW + 1000)).toEqual({ kind: "next" });
+  expect(answerSession(s, 1, 2, 3, NOW + 2000)).toEqual({ kind: "next" });
+  expect(answerSession(s, 2, 3, 3, NOW + 3000)).toEqual({
+    kind: "failed",
+    correct: 2,
+    reason: "wrong",
+  });
 });
 
 test("a wrong answer that still leaves the mark reachable carries on", () => {
   const s = session([1, 2, 3]);
   expect(answerSession(s, 0, 0, 2, NOW + 1000)).toEqual({ kind: "next" });
   expect(s.correct).toBe(0);
+});
+
+// Failing repeatedly has to get more expensive, or a flat cooldown just sets the rate at
+// which the gate can be ground down: 48 attempts a day beat it inside two hours.
+test("each failure in a row costs longer than the last", () => {
+  expect(cooldownMs(30, 1)).toBe(30 * 60_000);
+  expect(cooldownMs(30, 2)).toBe(60 * 60_000);
+  expect(cooldownMs(30, 3)).toBe(120 * 60_000);
+  // Capped, so it stays a cooldown rather than a ban.
+  expect(cooldownMs(30, 20)).toBe(cooldownMs(30, 30));
+  expect(cooldownMs(30, 20)).toBeLessThanOrEqual(24 * 60 * 60_000);
 });
 
 test("the last answer decides it when the mark is still live", () => {
@@ -422,10 +441,12 @@ test("getting one wrong ends the run, starts the cooldown and tells staff", asyn
   const token = tokenOf(gate.reply);
 
   const live = getSession(token)!;
-  const wrong = (live.questions[0]!.answerIndex + 1) % 4;
-  await click(`ticket_check:${token}:0:${wrong}`);
+  // The run always goes to the end now, so answer both: stopping early would have told
+  // them which question they lost.
+  for (let i = 0; i < live.questions.length; i++) {
+    await click(`ticket_check:${token}:${i}:${(live.questions[i]!.answerIndex + 1) % 4}`);
+  }
 
-  // Both remaining answers are needed and one is already lost, so it stops here.
   expect(sessionFor(GUILD_ID, USER.id)).toBeUndefined();
   expect(seen.modals).toEqual([]);
   expect(JSON.stringify(seen.updates)).toContain("public help channels");
@@ -454,7 +475,9 @@ test("failures stay out of the mod log when the guild turns that off", async () 
   if (gate.kind !== "stop") throw new Error("expected a challenge");
   const token = tokenOf(gate.reply);
   const live = getSession(token)!;
-  await click(`ticket_check:${token}:0:${(live.questions[0]!.answerIndex + 1) % 4}`);
+  for (let i = 0; i < live.questions.length; i++) {
+    await click(`ticket_check:${token}:${i}:${(live.questions[i]!.answerIndex + 1) % 4}`);
+  }
 
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.fails).toBe(1); // still recorded
   expect(logged.length).toBe(0);

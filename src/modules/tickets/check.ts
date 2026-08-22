@@ -18,6 +18,7 @@ import { userValue } from "../../lib/modlog";
 import {
   buildQuiz,
   type CheckPolicy,
+  cooldownMs,
   type CheckQuestion,
   gateDecision,
   makeRng,
@@ -204,12 +205,11 @@ export function answerSession(
   if (choice === question.answerIndex) session.correct++;
   session.current++;
 
-  const remaining = session.questions.length - session.current;
-  // Asking the rest once the pass mark is out of reach wastes both sides' time.
-  if (session.correct + remaining < required) {
-    return { kind: "failed", correct: session.correct, reason: "wrong" };
-  }
-  if (remaining > 0) return { kind: "next" };
+  // Every run goes to the end, even a hopeless one. Stopping the moment the pass mark
+  // became unreachable told the member exactly which question they had just failed, and
+  // that every earlier answer was right: repeat that and you assemble an answer key one
+  // question at a time. A couple of extra taps is a cheap price for saying nothing.
+  if (session.current < session.questions.length) return { kind: "next" };
   return session.correct >= required
     ? { kind: "passed", correct: session.correct, elapsedMs: now - session.startedAt }
     : { kind: "failed", correct: session.correct, reason: "wrong" };
@@ -502,7 +502,10 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
           return;
         }
         recordCheckFail(ctx.db, guild.id, button.user.id, now);
-        const until = now + policy.cooldownMinutes * 60_000;
+        // Read back rather than assumed: the wait doubles with each failure in a row and
+        // the notice has to match what the gate will actually enforce.
+        const fails = getCheckResult(ctx.db, guild.id, button.user.id)?.fails ?? 1;
+        const until = now + cooldownMs(policy.cooldownMinutes, fails);
         const lead = outcome.reason === "expired" ? "Time ran out. " : "";
         const score = `${lead}You got **${outcome.correct} of ${session.questions.length}**, which isn't enough to open a ticket.`;
         await button.update(failBody(ctx, guild.id, score, until));

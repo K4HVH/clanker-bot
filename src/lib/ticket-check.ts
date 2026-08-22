@@ -1,7 +1,13 @@
-// The ticket intelligence check: a short multiple-choice test generated fresh every
-// time, so there is no question bank to maintain and no answer key to screenshot into
-// general chat. Pure logic (no discord.js), which is what lets the tests re-derive
-// every answer from the prompt text the way a member would read it.
+// The ticket intelligence check: a short multiple-choice test built fresh every time.
+//
+// The reasoning families are parameterised, so their questions run to thousands of
+// distinct forms and there is nothing worth screenshotting. The English ones are not:
+// they are frames with fixed answers, a bank of a bit over a hundred between them, and
+// someone who collects them has collected them. That is the trade for asking about
+// English at all, and it is part of why the reasoning half exists.
+//
+// Pure logic (no discord.js), which is what lets the tests re-derive every answer from
+// the prompt text the way a member would read it.
 
 // A seeded PRNG (mulberry32). Production seeds from crypto; tests pin the seed so a
 // generator that is wrong about its own answer fails reproducibly rather than one run
@@ -746,6 +752,16 @@ export interface CheckResult {
   fails: number;
 }
 
+// How long a member waits after failing. Doubling per consecutive failure, capped at a
+// day: a flat cooldown only sets the rate at which the gate can be ground down, and 48
+// attempts a day is enough to beat any multiple-choice test by persistence alone.
+export const COOLDOWN_CAP_MS = 24 * 60 * 60_000;
+
+export function cooldownMs(cooldownMinutes: number, fails: number): number {
+  const doublings = Math.min(Math.max(fails, 1) - 1, 20);
+  return Math.min(cooldownMinutes * 60_000 * 2 ** doublings, COOLDOWN_CAP_MS);
+}
+
 export type GateDecision =
   | { kind: "allow"; reason: "disabled" | "exempt" | "recent-pass" }
   | { kind: "cooldown"; until: number }
@@ -776,7 +792,7 @@ export function gateDecision(
     }
   }
   if (failedAt !== null) {
-    const until = failedAt + policy.cooldownMinutes * 60_000;
+    const until = failedAt + cooldownMs(policy.cooldownMinutes, input.result?.fails ?? 1);
     if (input.now < until) return { kind: "cooldown", until };
   }
   return { kind: "challenge" };
