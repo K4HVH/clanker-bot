@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import type { CheckPolicy } from "../../src/lib/ticket-check";
-import { buildQuiz, gateDecision, GENERATORS, makeRng } from "../../src/lib/ticket-check";
+import {
+  buildQuiz,
+  CHECK_CATEGORIES,
+  gateDecision,
+  GENERATORS,
+  makeRng,
+  parseCategories,
+} from "../../src/lib/ticket-check";
 
 test("makeRng is deterministic per seed and stays in [0,1)", () => {
   const a = makeRng(12345);
@@ -279,6 +286,14 @@ test("buildQuiz varies which families come up", () => {
   expect(seen.size).toBe(GENERATORS.length);
 });
 
+test("parseCategories keeps known ids and falls back when none survive", () => {
+  expect(parseCategories("reasoning")).toEqual(["reasoning"]);
+  expect(parseCategories(" REASONING , nonsense ")).toEqual(["reasoning"]);
+  // A typo must not quietly switch the gate off: every category is better than none.
+  expect(parseCategories("")).toEqual([...CHECK_CATEGORIES]);
+  expect(parseCategories("nonsense")).toEqual([...CHECK_CATEGORIES]);
+});
+
 test("buildQuiz only draws from the categories it is given", () => {
   const quiz = buildQuiz(5, ["reasoning"], makeRng(3));
   for (const q of quiz) expect(q.category).toBe("reasoning");
@@ -297,6 +312,7 @@ const POLICY: CheckPolicy = {
   cooldownMinutes: 30,
   exemptStaff: true,
   exemptRoles: [],
+  introText: "",
 };
 const NOW = 1_000_000_000;
 const DAY = 86_400_000;

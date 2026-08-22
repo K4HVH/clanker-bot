@@ -60,6 +60,8 @@ export const CONFIG_KEYS = {
   ticketStaffOnlyClose: "ticket_staff_only_close",
   // Ticket Check: the generated reasoning test that gates opening a ticket.
   ticketCheckEnabled: "ticket_check_enabled",
+  ticketCheckCategories: "ticket_check_categories",
+  ticketCheckIntroText: "ticket_check_intro_text",
   ticketCheckQuestions: "ticket_check_questions",
   ticketCheckRequired: "ticket_check_required",
   ticketCheckSeconds: "ticket_check_seconds",
@@ -136,6 +138,7 @@ export const CATEGORIES: Category[] = [
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
   { id: "ticket-check", label: "Ticket Check", accentColor: 0x2980b9 },
+  { id: "ticket-check-results", label: "Ticket Check Results", accentColor: 0x2980b9 },
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
 ];
@@ -203,15 +206,17 @@ export const REGISTRY: Setting[] = [
   // Ticket Check: a short generated reasoning test in front of ticket creation, for
   // guilds drowning in tickets from people who will not read. Off by default.
   { key: K.ticketCheckEnabled, category: "ticket-check", type: "bool", default: false, label: "Require a check before opening a ticket", description: "Ask a few generated reasoning questions before a ticket is created. Questions are built fresh every time, so there are no answers to share. Off by default." },
+  { key: K.ticketCheckCategories, category: "ticket-check", type: "text", default: "reasoning", label: "Question categories", description: "Which question sets are in play, comma separated. 'reasoning' is the only one so far; domain-specific sets slot in here as they are added. An empty or unrecognised list uses every category rather than switching the check off.", placeholder: "reasoning" },
   { key: K.ticketCheckQuestions, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Questions asked", description: "How many questions one check contains. Each comes from a different family, so no check repeats a shape." },
   { key: K.ticketCheckRequired, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Correct answers needed", description: "How many must be right to pass. Clamped to the number asked, so the two settings can't be set to contradict each other." },
   { key: K.ticketCheckSeconds, category: "ticket-check", type: "int", min: 30, max: 600, default: 180, label: "Time limit (seconds)", description: "How long the whole check may take before it expires and counts as a failure." },
-  { key: K.ticketCheckPassDays, category: "ticket-check", type: "int", min: 0, max: 365, default: 30, label: "A pass stays valid for (days)", description: "How long before a member has to sit the check again. 0 gates every ticket; 365 is effectively once ever." },
-  { key: K.ticketCheckCooldownMinutes, category: "ticket-check", type: "int", min: 1, max: 1440, default: 30, label: "Cooldown after a failure (minutes)", description: "How long a failed member must wait before trying again. This is what stops someone rerolling questions until they get lucky." },
+  { key: K.ticketCheckPassDays, category: "ticket-check-results", type: "int", min: 0, max: 365, default: 30, label: "A pass stays valid for (days)", description: "How long before a member has to sit the check again. 0 gates every ticket; 365 is effectively once ever." },
+  { key: K.ticketCheckCooldownMinutes, category: "ticket-check-results", type: "int", min: 1, max: 1440, default: 30, label: "Cooldown after a failure (minutes)", description: "How long a failed member must wait before trying again. This is what stops someone rerolling questions until they get lucky." },
   { key: K.ticketCheckExemptRoles, category: "ticket-check", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs that skip the check, comma/newline separated. Use it for customers or veterans you never want gated.", placeholder: "1234567890, 9876543210" },
+  { key: K.ticketCheckIntroText, category: "ticket-check", type: "text", default: "", label: "Intro text (first question)", description: "Shown above the first question only. Use it to point at the FAQ or pinned posts first. The line stating how many are needed and how long is left is added automatically, so it stays right when you change those." },
   { key: K.ticketCheckExemptStaff, category: "ticket-check", type: "bool", default: true, label: "Exempt staff", description: "Let Manage Server holders and the ticket staff role skip the check. A ticket staff opens for someone else with /ticket open for: is never gated either way." },
-  { key: K.ticketCheckFailText, category: "ticket-check", type: "text", default: "Not this time. Ask in the public help channels instead, where more people can see it and you'll usually get an answer faster.", label: "Failure text", description: "Shown when someone fails. Point them at whichever channel you want them asking in." },
-  { key: K.ticketCheckLogFailures, category: "ticket-check", type: "bool", default: true, label: "Log failures to the mod log", description: "Post who failed, what they answered, and when their cooldown lifts. Turn off if it gets noisy: the check keeps working either way." },
+  { key: K.ticketCheckFailText, category: "ticket-check-results", type: "text", default: "Not this time. Ask in the public help channels instead, where more people can see it and you'll usually get an answer faster.", label: "Failure text", description: "Shown when someone fails. Point them at whichever channel you want them asking in." },
+  { key: K.ticketCheckLogFailures, category: "ticket-check-results", type: "bool", default: true, label: "Log failures to the mod log", description: "Post who failed, what they answered, and when their cooldown lifts. Turn off if it gets noisy: the check keeps working either way." },
   // Memes: @-mention moderation ("@bot ban @user"). Runs the real mod pipeline for people who
   // hold the permission; snarks at those who don't. All replies pull a random line from the lists
   // (blank = built-in defaults). Placeholders: {mod}, {target}, {action}.

@@ -17,11 +17,11 @@ import { CONFIG_KEYS, parseRoleIds } from "../../lib/config";
 import { userValue } from "../../lib/modlog";
 import {
   buildQuiz,
-  CHECK_CATEGORIES,
   type CheckPolicy,
   type CheckQuestion,
   gateDecision,
   makeRng,
+  parseCategories,
   type Rng,
 } from "../../lib/ticket-check";
 import { isTicketStaff, sendToModLog, subjectModal } from "./shared";
@@ -36,7 +36,7 @@ export function readPolicy(ctx: AppContext, guildId: string): CheckPolicy {
   const questions = cfg.getEffective<number>(guildId, K.ticketCheckQuestions);
   return {
     enabled: cfg.getEffective<boolean>(guildId, K.ticketCheckEnabled),
-    categories: [...CHECK_CATEGORIES],
+    categories: parseCategories(cfg.getEffective<string>(guildId, K.ticketCheckCategories)),
     questions,
     required: Math.min(cfg.getEffective<number>(guildId, K.ticketCheckRequired), questions),
     seconds: cfg.getEffective<number>(guildId, K.ticketCheckSeconds),
@@ -44,6 +44,7 @@ export function readPolicy(ctx: AppContext, guildId: string): CheckPolicy {
     cooldownMinutes: cfg.getEffective<number>(guildId, K.ticketCheckCooldownMinutes),
     exemptStaff: cfg.getEffective<boolean>(guildId, K.ticketCheckExemptStaff),
     exemptRoles: parseRoleIds(cfg.getEffective<string>(guildId, K.ticketCheckExemptRoles)),
+    introText: cfg.getEffective<string>(guildId, K.ticketCheckIntroText),
   };
 }
 
@@ -206,11 +207,15 @@ function retryLine(until: number): string {
 function questionBody(session: Session, policy: CheckPolicy) {
   const question = session.questions[session.current]!;
   const total = session.questions.length;
+  // The guild's own words introduce the check, then get out of the way: repeating them
+  // above every question would only push the question itself down the message. The line
+  // below is generated rather than written, so it stays true when the knobs change.
+  const intro = session.current === 0 && policy.introText.trim() ? `${policy.introText}\n\n` : "";
   const embed = new EmbedBuilder()
     .setColor(0x2980b9)
     .setTitle(`Question ${session.current + 1} of ${total}`)
     .setDescription(
-      `${question.prompt}\n\n-# ${policy.required} of ${total} right opens a ticket. ` +
+      `${intro}${question.prompt}\n\n-# ${policy.required} of ${total} right opens a ticket. ` +
         `Time runs out <t:${Math.floor(session.deadline / 1000)}:R>.`,
     );
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

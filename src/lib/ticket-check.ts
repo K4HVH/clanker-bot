@@ -470,6 +470,17 @@ export const GENERATORS: Generator[] = [
 
 // ── Quiz assembly ───────────────────────────────────────────────────────────
 
+// Read the guild's category list. A typo must not silently disable the gate, so an
+// empty or entirely unrecognised list falls back to every category rather than none.
+export function parseCategories(raw: string): CheckCategory[] {
+  const known = new Set<string>(CHECK_CATEGORIES);
+  const wanted = raw
+    .split(/[,\n]/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => known.has(s)) as CheckCategory[];
+  return wanted.length > 0 ? [...new Set(wanted)] : [...CHECK_CATEGORIES];
+}
+
 // Draw `count` questions, each from a different family, so one quiz cannot ask the same
 // shape twice. Asking for more than there are families repeats rather than returning
 // short: the config bound is the guard, not this.
@@ -499,6 +510,8 @@ export interface CheckPolicy {
   cooldownMinutes: number;
   exemptStaff: boolean;
   exemptRoles: string[];
+  // Shown above the first question only. Empty means the generated line stands alone.
+  introText: string;
 }
 
 // What a member's past attempts amount to. Owned here rather than in the db layer

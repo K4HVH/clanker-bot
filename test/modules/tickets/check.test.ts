@@ -32,7 +32,16 @@ test("readPolicy comes back with the registry defaults", () => {
     cooldownMinutes: 30,
     exemptStaff: true,
     exemptRoles: [],
+    introText: "",
   });
+});
+
+test("readPolicy reads the category list, falling back when it is nonsense", () => {
+  const ctx = silentContext();
+  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, "electronics");
+  expect(readPolicy(ctx, "g").categories).toEqual(["reasoning"]);
+  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, "reasoning");
+  expect(readPolicy(ctx, "g").categories).toEqual(["reasoning"]);
 });
 
 // Two independent knobs can be set to contradict each other, and "must get 5 of 3 right"
@@ -421,4 +430,24 @@ test("failures stay out of the mod log when the guild turns that off", async () 
 
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.fails).toBe(1); // still recorded
   expect(logged.length).toBe(0);
+});
+
+// Repeating it on every question would push the actual question down the message for no
+// gain, so it introduces the check and then gets out of the way.
+test("the intro text leads the first question only", async () => {
+  const ctx = journeyContext(2);
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckIntroText, "Read the pinned FAQ first.");
+  const guild = journeyGuild([]);
+  const seen = { updates: [] as unknown[], modals: [] as string[] };
+  const click = clicker(ctx, guild, seen);
+
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  expect(JSON.stringify(gate.reply)).toContain("Read the pinned FAQ first.");
+
+  const token = tokenOf(gate.reply);
+  const live = getSession(token)!;
+  await click(`ticket_check:${token}:0:${live.questions[0]!.answerIndex}`);
+  expect(JSON.stringify(seen.updates)).toContain("Question 2 of 2");
+  expect(JSON.stringify(seen.updates)).not.toContain("Read the pinned FAQ first.");
 });
