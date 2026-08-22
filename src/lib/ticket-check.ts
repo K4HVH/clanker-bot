@@ -161,10 +161,10 @@ const seq: Generator = {
 // Built so the numbers stay whole: N workers at T minutes is N*M*k of work, which M
 // workers clear in N*k. The distractor everyone reaches for is the direct proportion.
 const RATE_JOBS = [
-  { actor: "pumps", task: "drain the tank" },
-  { actor: "printers", task: "finish a print run" },
-  { actor: "machines", task: "cut one batch of panels" },
-  { actor: "packers", task: "pack a pallet" },
+  { actor: "painters", task: "paint the hall" },
+  { actor: "cleaners", task: "clean the office" },
+  { actor: "bakers", task: "fill the order" },
+  { actor: "printers", task: "finish the print run" },
 ] as const;
 
 const inverseRate: Generator = {
@@ -198,21 +198,21 @@ const inverseRate: Generator = {
 // Each pair carries its own closing clause so the verb agrees with the two it describes.
 const OVERLAP_PAIRS = [
   {
-    where: "a repair night",
-    a: "brought a multimeter",
-    b: "brought a soldering iron",
+    where: "a club night",
+    a: "brought an umbrella",
+    b: "brought a coat",
     all: "Everyone brought at least one of the two.",
   },
   {
-    where: "a workshop",
-    a: "had used a scope before",
-    b: "had written firmware before",
+    where: "a reunion",
+    a: "had lived abroad",
+    b: "had learned to drive",
     all: "Everyone had done at least one of the two.",
   },
   {
-    where: "a club meet",
-    a: "own a printer",
-    b: "own a laser cutter",
+    where: "a village fair",
+    a: "own a dog",
+    b: "own a cat",
     all: "Everyone owns at least one of the two.",
   },
 ] as const;
@@ -340,13 +340,13 @@ const ordering: Generator = {
 // prompt and nothing in the text can be mistaken for them.
 const SENTENCES = [
   "the quick brown fox jumps over that lazy dog",
-  "every solder joint needs heat before the wire moves",
-  "please check whether your board still boots after flashing",
-  "a broken cable looks exactly like working firmware from outside",
-  "we should measure twice before cutting any panel again",
-  "nobody reads manuals until something starts smoking on their desk",
-  "several small mistakes compound into one very confusing failure",
-  "keep spare fuses somewhere obvious inside your toolbox drawer",
+  "every winter morning starts colder than the last one did",
+  "please check whether the back door locked before leaving",
+  "a quiet street looks completely different after heavy rain",
+  "we should measure twice before cutting anything at all",
+  "nobody reads instructions until something goes badly wrong",
+  "several small mistakes compound into one very confusing muddle",
+  "keep spare batteries somewhere obvious inside the kitchen drawer",
 ] as const;
 
 const wordIndex: Generator = {
@@ -433,7 +433,7 @@ const tableLookup: Generator = {
 
 // One shape, fully parameterised. The procedure is the thing being tested, so seeing
 // it twice is no more of a leak than seeing long division twice.
-const STOCK_ITEMS = ["boards", "enclosures", "spools", "relays", "sensors"] as const;
+const STOCK_ITEMS = ["mugs", "plates", "books", "jars", "tins"] as const;
 
 const multiStep: Generator = {
   id: "multi-step",
@@ -476,16 +476,16 @@ const multiStep: Generator = {
 // is no guide to which it is. "had" and the like are left out on purpose: they would make
 // a perfectly correct sentence and there would be two right answers.
 const AGREEMENT_SETS = [
-  { singular: "is", plural: "are", others: ["be", "am"], tail: ["ready to test.", "on the bench.", "still in the box."] },
-  { singular: "was", plural: "were", others: ["been", "is"], tail: ["working yesterday.", "in the drawer.", "already open."] },
-  { singular: "has", plural: "have", others: ["haves", "having"], tail: ["arrived.", "stopped working.", "gone missing."] },
-  { singular: "does", plural: "do", others: ["doing", "done"], tail: ["not power on.", "not respond."] },
+  { singular: "is", plural: "are", others: ["be", "am"], tail: ["on the table.", "in the drawer.", "still missing."] },
+  { singular: "was", plural: "were", others: ["been", "is"], tail: ["there yesterday.", "in the drawer.", "missing all week."] },
+  { singular: "has", plural: "have", others: ["haves", "having"], tail: ["arrived.", "gone missing.", "turned up again."] },
+  { singular: "does", plural: "do", others: ["doing", "done"], tail: ["not fit.", "not belong here."] },
 ] as const;
 const AGREEMENT_SUBJECTS = [
-  { singular: "The board", plural: "The boards" },
-  { singular: "This cable", plural: "These cables" },
-  { singular: "My sensor", plural: "My sensors" },
-  { singular: "That relay", plural: "Those relays" },
+  { singular: "The parcel", plural: "The parcels" },
+  { singular: "This box", plural: "These boxes" },
+  { singular: "My key", plural: "My keys" },
+  { singular: "That letter", plural: "Those letters" },
 ] as const;
 
 const agreement: Generator = {
@@ -511,20 +511,20 @@ const agreement: Generator = {
 // Word choice: the confusions that make a ticket unreadable, each with its own set of
 // look-alikes rather than random words, so the wrong options are the ones people reach for.
 const WORD_FRAMES = [
-  { text: "Check ___ power supply before you post about it.", correct: "your", wrong: ["you're", "yours", "your's"] },
-  { text: "___ going to need the serial output for this.", correct: "You're", wrong: ["Your", "Yours", "Youre"] },
-  { text: "The board lost ___ settings after the reset.", correct: "its", wrong: ["it's", "its'", "their"] },
-  { text: "___ been like this since the last update.", correct: "It's", wrong: ["Its", "Its'", "It"] },
-  { text: "Put the jumper back where ___ was.", correct: "it", wrong: ["its", "it's", "they"] },
-  { text: "The cables are over ___ on the bench.", correct: "there", wrong: ["their", "they're", "theirs"] },
-  { text: "___ all reporting the same error code.", correct: "They're", wrong: ["Their", "There", "Theirs"] },
-  { text: "This one draws more current ___ the old one.", correct: "than", wrong: ["then", "that", "as"] },
-  { text: "Flash it first, ___ measure the voltage.", correct: "then", wrong: ["than", "when", "so"] },
-  { text: "A bad ground will ___ the readings.", correct: "affect", wrong: ["effect", "affects", "affected"] },
-  { text: "I have ___ the firmware three times already.", correct: "flashed", wrong: ["flash", "flashing", "flashen"] },
-  { text: "The screw has ___ loose again.", correct: "come", wrong: ["came", "coming", "comed"] },
-  { text: "Nothing has ___ since I changed the cable.", correct: "changed", wrong: ["change", "changing", "changen"] },
-  { text: "I should have ___ the datasheet first.", correct: "read", wrong: ["readed", "reading", "reads"] },
+  { text: "Check ___ spelling before you post it.", correct: "your", wrong: ["you're", "yours", "your's"] },
+  { text: "___ going to need more detail than that.", correct: "You're", wrong: ["Your", "Yours", "Youre"] },
+  { text: "The shop lost ___ licence last year.", correct: "its", wrong: ["it's", "its'", "their"] },
+  { text: "___ been like this since Tuesday.", correct: "It's", wrong: ["Its", "Its'", "It"] },
+  { text: "Put the key back where ___ was.", correct: "it", wrong: ["its", "it's", "they"] },
+  { text: "The forms are over ___ on the desk.", correct: "there", wrong: ["their", "they're", "theirs"] },
+  { text: "___ all saying exactly the same thing.", correct: "They're", wrong: ["Their", "There", "Theirs"] },
+  { text: "This one costs more ___ the old one.", correct: "than", wrong: ["then", "that", "as"] },
+  { text: "Read it first, ___ decide what to do.", correct: "then", wrong: ["than", "when", "so"] },
+  { text: "The weather will ___ the results.", correct: "affect", wrong: ["effect", "affects", "affected"] },
+  { text: "I have ___ that three times already.", correct: "tried", wrong: ["try", "trying", "tryed"] },
+  { text: "The handle has ___ loose again.", correct: "come", wrong: ["came", "coming", "comed"] },
+  { text: "Nothing has ___ since last week.", correct: "changed", wrong: ["change", "changing", "changen"] },
+  { text: "I should have ___ the notice first.", correct: "read", wrong: ["readed", "reading", "reads"] },
 ] as const;
 
 const wordChoice: Generator = {
@@ -541,52 +541,52 @@ const wordChoice: Generator = {
 // support, since every instruction in the pinned posts is a sentence like these.
 const MEANING_FRAMES = [
   {
-    rule: "Do not connect the {thing} while the board is powered.",
-    correct: "Power the board down before you connect the {thing}.",
+    rule: "Do not open the {thing} while the machine is running.",
+    correct: "Stop the machine running before opening the {thing}.",
     wrong: [
-      "Connect the {thing} first, then power the board up.",
-      "The {thing} must never be connected under any conditions.",
-      "The board has to be powered when the {thing} goes on.",
+      "Open the {thing} first, then start the machine up.",
+      "The {thing} must never be opened at all.",
+      "The machine has to be running when the {thing} opens.",
     ],
-    slots: ["probe", "jumper", "sensor", "test lead"],
+    slots: ["lid", "panel", "hatch", "side door"],
   },
   {
-    rule: "You only need the {thing} if the board did not come with one.",
-    correct: "A board that came with one needs no second {thing}.",
+    rule: "You only need the {thing} if the room did not come with one.",
+    correct: "A room that already came with one needs no {thing}.",
     wrong: [
-      "Every board needs a {thing} added to it regardless.",
-      "No board ever needs a {thing} added to it at all.",
-      "A board that came with one still needs a spare {thing}.",
+      "Every room needs a {thing} brought into it regardless.",
+      "No room needs a {thing} brought into it.",
+      "A room that came with one still needs a spare {thing}.",
     ],
-    slots: ["cable", "bracket", "spacer"],
+    slots: ["kettle", "heater", "lamp"],
   },
   {
-    rule: "Post the full log unless it contains your wifi password.",
-    correct: "Post the whole log, unless your password is in it.",
+    rule: "Send the whole file unless it has your password in it.",
+    correct: "Send the whole file, unless your password is in it.",
     wrong: [
-      "Post the log even when your password appears in it.",
-      "Never post the log, password in it or not.",
-      "Post the log only when your password appears in it.",
+      "Send the whole file even when your password is in it.",
+      "Never send the file, password in it or not.",
+      "Send the file only when your password is in it.",
     ],
     slots: [],
   },
   {
-    rule: "The {thing} works on every board except the first revision.",
-    correct: "It works on all of the revisions but the first one.",
+    rule: "The {thing} fits every model except the first one.",
+    correct: "It fits all of the models but the very first.",
     wrong: [
-      "It works on the first revision and none of the rest.",
-      "It works on none of the revisions at all.",
-      "It works on every revision that came before this one.",
+      "It fits the first model and none of the rest.",
+      "It fits none of the models at all.",
+      "It fits every model that came before this one.",
     ],
-    slots: ["driver", "bootloader", "patch"],
+    slots: ["charger", "cover", "stand"],
   },
   {
-    rule: "Reflash the board before asking, unless it will not power on.",
-    correct: "Reflash first, unless the board is completely dead.",
+    rule: "Restart it before asking, unless it will not turn on.",
+    correct: "Restart first, unless the thing is completely dead.",
     wrong: [
-      "Reflash first, whatever state the board is in now.",
-      "Never reflash a board before asking about a fault.",
-      "Reflash only the boards that will not power on now.",
+      "Restart first, whatever state the thing is in now.",
+      "Never restart it before asking about a problem.",
+      "Restart only the ones that will not turn on now.",
     ],
     slots: [],
   },
