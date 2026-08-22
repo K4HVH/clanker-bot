@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Guild, ModalSubmitInteraction, User } from "discord.js";
+import type { ButtonInteraction, Guild, ModalSubmitInteraction, User } from "discord.js";
 import { ComponentRouter } from "../../../src/core/component-router";
 import type { AppContext } from "../../../src/core/context";
 import { getCheckResult, recordCheckFail, recordCheckPass } from "../../../src/db/ticket-check";
@@ -10,6 +10,7 @@ import {
   answerSession,
   type Continuation,
   gateTicket,
+  takePassNote,
   dropSession,
   getSession,
   newSession,
@@ -295,4 +296,129 @@ test("the modal off a passed check updates its own ephemeral question message", 
   const calls = await route("ticket_modal:check");
   expect(calls).toContain("deferUpdate");
   expect(calls).not.toContain("deferReply");
+});
+
+// ── end to end, through the real button handler ─────────────────────────────
+
+const LOG_CHANNEL_ID = "c-log";
+
+function journeyContext(questions: number) {
+  const ctx = gatedContext();
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckQuestions, questions);
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.modLogChannelId, LOG_CHANNEL_ID);
+  return ctx;
+}
+
+// biome-ignore lint: the fakes stand in for untyped Discord API JSON
+function journeyGuild(logged: any[]): Guild {
+  const base = stubGuild() as unknown as Record<string, unknown>;
+  return {
+    ...base,
+    channels: {
+      fetch: async () => ({ isTextBased: () => true, send: async (p: unknown) => logged.push(p) }),
+    },
+  } as unknown as Guild;
+}
+
+// biome-ignore lint: the fakes stand in for untyped Discord API JSON
+function clicker(ctx: AppContext, guild: Guild, seen: any) {
+  const router = new ComponentRouter(ticketsModule.components ?? [], ctx);
+  return async (customId: string) => {
+    const interaction = {
+      customId,
+      guild,
+      user: USER,
+      replied: false,
+      deferred: false,
+      isButton: () => true,
+      isModalSubmit: () => false,
+      // biome-ignore lint: see above
+      update: async (p: any) => void seen.updates.push(p),
+      deferUpdate: async () => void seen.updates.push("deferUpdate"),
+      // biome-ignore lint: see above
+      showModal: async (m: any) => void seen.modals.push(m.data?.custom_id ?? m.toJSON().custom_id),
+      editReply: async () => {},
+      reply: async () => {},
+    };
+    await router.handle(interaction as unknown as ButtonInteraction);
+  };
+}
+
+const tokenOf = (reply: unknown) =>
+  JSON.stringify(reply).match(/ticket_check:([0-9a-f]+):/)![1]!;
+
+test("answering everything right ends at the subject modal, with the pass recorded", async () => {
+  const ctx = journeyContext(2);
+  const logged: unknown[] = [];
+  const guild = journeyGuild(logged);
+  const seen = { updates: [] as unknown[], modals: [] as string[] };
+  const click = clicker(ctx, guild, seen);
+
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(gate.reply);
+
+  for (let i = 0; i < 2; i++) {
+    const live = getSession(token)!;
+    const right = live.questions[live.current]!.answerIndex;
+    await click(`ticket_check:${token}:${live.current}:${right}`);
+  }
+
+  // The last right answer is answered WITH the modal, so the panel's subject prompt is
+  // the reward rather than a dead end.
+  expect(seen.modals).toEqual(["ticket_modal:check"]);
+  expect(getSession(token)).toBeUndefined();
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.passedAt).toBeGreaterThan(0);
+  expect(takePassNote(GUILD_ID, USER.id)).toMatchObject({ correct: 2, total: 2 });
+  expect(logged.length).toBe(0); // passing is not mod-log noise
+});
+
+test("getting one wrong ends the run, starts the cooldown and tells staff", async () => {
+  const ctx = journeyContext(2);
+  const logged: { embeds: { data: { title?: string; fields?: { name: string }[] } }[] }[] = [];
+  const guild = journeyGuild(logged);
+  const seen = { updates: [] as unknown[], modals: [] as string[] };
+  const click = clicker(ctx, guild, seen);
+
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(gate.reply);
+
+  const live = getSession(token)!;
+  const wrong = (live.questions[0]!.answerIndex + 1) % 4;
+  await click(`ticket_check:${token}:0:${wrong}`);
+
+  // Both remaining answers are needed and one is already lost, so it stops here.
+  expect(getSession(token)).toBeUndefined();
+  expect(seen.modals).toEqual([]);
+  expect(JSON.stringify(seen.updates)).toContain("public help channels");
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toMatchObject({ passedAt: null, fails: 1 });
+
+  expect(logged.length).toBe(1);
+  const embed = logged[0]!.embeds[0]!.data;
+  expect(embed.title).toBe("Ticket check failed");
+  expect(embed.fields?.map((f) => f.name)).toEqual([
+    "Member",
+    "Score",
+    "Failures in a row",
+    "Can retry",
+    "Answers",
+  ]);
+});
+
+test("failures stay out of the mod log when the guild turns that off", async () => {
+  const ctx = journeyContext(2);
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckLogFailures, false);
+  const logged: unknown[] = [];
+  const guild = journeyGuild(logged);
+  const click = clicker(ctx, guild, { updates: [], modals: [] });
+
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(gate.reply);
+  const live = getSession(token)!;
+  await click(`ticket_check:${token}:0:${(live.questions[0]!.answerIndex + 1) % 4}`);
+
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.fails).toBe(1); // still recorded
+  expect(logged.length).toBe(0);
 });
