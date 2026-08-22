@@ -40,7 +40,14 @@ import { CONFIG_KEYS } from "../../lib/config";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
 import { checkComponents, gateTicket, readPolicy, sweepSessions, takePassNote } from "./check";
-import { isTicketStaff, sendToModLog, subjectModal, SUBJECT_MAX } from "./shared";
+import {
+  isTicketStaff,
+  minSubjectWords,
+  sendToModLog,
+  subjectDenial,
+  subjectModal,
+  SUBJECT_MAX,
+} from "./shared";
 
 const ACCESS = [
   PermissionFlagsBits.ViewChannel,
@@ -459,12 +466,20 @@ const openSub: Subcommand = {
     // Staff opening on someone's behalf have already decided that person needs a ticket,
     // so `via` skips the check entirely.
     if (!via) {
-      // Quota first, then the check, exactly as the panel button orders them: answering
-      // questions only to be told you already have too many tickets open is the one
-      // sequence guaranteed to make someone give up on the gate entirely.
+      // Cheapest refusal first: being told you are at your limit after writing a
+      // description, or after answering three questions, is what makes someone give up on
+      // the whole thing.
       const denial = quotaDenial(ctx, guild.id, opener.id, false);
       if (denial) {
         await interaction.reply({ content: denial, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      // The modal cannot enforce anything here: this subject arrived as a command option.
+      // Checked before the questions, so a two-word one is refused straight away rather
+      // than after a quiz that was never going to end in a ticket.
+      const short = subjectDenial(subject, minSubjectWords(ctx, guild.id));
+      if (short) {
+        await interaction.reply({ content: short, flags: MessageFlags.Ephemeral });
         return;
       }
       const gate = await gateTicket(ctx, guild, opener, { kind: "command", subject });
@@ -697,7 +712,7 @@ const openHandler: ComponentHandler = {
       await button.reply(gate.reply);
       return;
     }
-    await button.showModal(subjectModal());
+    await button.showModal(subjectModal(false, minSubjectWords(ctx, button.guild.id)));
   },
 };
 
@@ -721,6 +736,13 @@ const modalHandler: ComponentHandler = {
     const subject = modal.fields.fields.has("subject")
       ? modal.fields.getTextInputValue("subject")
       : "";
+    // Discord's own minimum is a character count, so a long enough string of nothing much
+    // still reaches us. This is where the words are actually counted.
+    const short = subjectDenial(subject, minSubjectWords(ctx, modal.guild.id));
+    if (short) {
+      await modal.editReply({ content: short, embeds: [], components: [] });
+      return;
+    }
     const result = await openTicketFlow(ctx, modal.guild, modal.user, subject, null);
     // Clearing both is what removes the answered question when this came from a check.
     await modal.editReply({

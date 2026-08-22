@@ -59,6 +59,7 @@ export const CONFIG_KEYS = {
   ticketArchiveImages: "ticket_archive_images",
   ticketCloseConfirm: "ticket_close_confirm",
   ticketStaffOnlyClose: "ticket_staff_only_close",
+  ticketMinSubjectWords: "ticket_min_subject_words",
   // Ticket Check: the generated reasoning test that gates opening a ticket.
   ticketCheckEnabled: "ticket_check_enabled",
   ticketCheckCategories: "ticket_check_categories",
@@ -221,10 +222,11 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
   { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket. Only staff can." },
+  { key: K.ticketMinSubjectWords, category: "tickets", type: "int", min: 0, max: 30, default: 10, label: "Minimum words in the description (0=off)", description: "Refuse to open a ticket until the member has described the problem in at least this many words. Kills the two-word ticket nobody can act on. Discord enforces a rough length as they type, and the count is checked properly on submit. Staff opening a ticket for someone else are not asked." },
   // Ticket Check: a short generated reasoning test in front of ticket creation, for
   // guilds drowning in tickets from people who will not read. Off by default.
   { key: K.ticketCheckEnabled, category: "ticket-check", type: "bool", default: false, label: "Require a check before opening a ticket", description: "Ask a few generated reasoning questions before a ticket is created. Questions are built fresh every time, so there are no answers to share. Off by default." },
-  { key: K.ticketCheckCategories, category: "ticket-check", type: "multichoice", choices: CHECK_CATEGORY_CHOICES, default: ["reasoning"], label: "Question categories", description: "Which question sets are in play. 'reasoning' is the only one so far; domain-specific sets appear here as they are added. Selecting none uses every category rather than switching the check off." },
+  { key: K.ticketCheckCategories, category: "ticket-check", type: "multichoice", choices: CHECK_CATEGORY_CHOICES, default: ["reasoning", "english"], label: "Question categories", description: "Which question sets are in play. Reasoning covers sequences, proportion and multi-step problems; English covers reading an instruction and putting a sentence together. Each selected category takes its turn, so one that is on always comes up. Selecting none uses every category rather than switching the check off." },
   { key: K.ticketCheckQuestions, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Questions asked", description: "How many questions one check contains. Each comes from a different family, so no check repeats a shape." },
   { key: K.ticketCheckRequired, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Correct answers needed", description: "How many must be right to pass. Clamped to the number asked, so the two settings can't be set to contradict each other." },
   { key: K.ticketCheckSeconds, category: "ticket-check", type: "int", min: 30, max: 600, default: 180, label: "Time limit (seconds)", description: "How long the whole check may take before it expires and counts as a failure." },

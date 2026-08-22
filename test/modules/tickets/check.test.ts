@@ -24,7 +24,7 @@ test("readPolicy comes back with the registry defaults", () => {
   const ctx = silentContext();
   expect(readPolicy(ctx, "g")).toEqual({
     enabled: false,
-    categories: ["reasoning"],
+    categories: ["reasoning", "english"],
     questions: 3,
     required: 3,
     seconds: 180,
@@ -45,10 +45,10 @@ test("the intro text ships with something to say", () => {
 
 test("readPolicy reads the category list, falling back when it is nonsense", () => {
   const ctx = silentContext();
-  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, "electronics");
-  expect(readPolicy(ctx, "g").categories).toEqual(["reasoning"]);
-  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, "reasoning");
-  expect(readPolicy(ctx, "g").categories).toEqual(["reasoning"]);
+  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, ["electronics"]);
+  expect(readPolicy(ctx, "g").categories).toEqual(["reasoning", "english"]);
+  ctx.config.set("g", CONFIG_KEYS.ticketCheckCategories, ["english"]);
+  expect(readPolicy(ctx, "g").categories).toEqual(["english"]);
 });
 
 // Two independent knobs can be set to contradict each other, and "must get 5 of 3 right"

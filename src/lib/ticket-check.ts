@@ -19,13 +19,13 @@ export function makeRng(seed: number): Rng {
   };
 }
 
-export type CheckCategory = "reasoning";
+export type CheckCategory = "reasoning" | "english";
 
 // The one category that ships. Domain-specific sets (electronics, ESP32, comprehension)
 // and any harder tier arrive as new entries here, which is why there is no difficulty
 // knob: five calibrated variants of every generator would be five times the content for
 // a dial that gets set once.
-export const CHECK_CATEGORIES = ["reasoning"] as const satisfies readonly CheckCategory[];
+export const CHECK_CATEGORIES = ["reasoning", "english"] as const satisfies readonly CheckCategory[];
 
 export interface CheckQuestion {
   category: CheckCategory;
@@ -392,12 +392,14 @@ const tableLookup: Generator = {
   generate(rng) {
     const names = shuffle(rng, [...PLAN_NAMES]).slice(0, 4);
     const best = pick(rng, [14, 16, 18]);
-    const winnerPrice = randInt(rng, 12, 20);
+    // Prices in fives, so each row's storage-per-pound is a division worth attempting
+    // rather than long division against the clock.
+    const winnerPrice = randInt(rng, 3, 4) * 5;
     // The top spender buys the most storage outright despite a worse rate, so "biggest
     // number in the storage column" is a trap rather than a shortcut.
-    const spenderPrice = randInt(rng, 2 * winnerPrice + 4, 2 * winnerPrice + 20);
-    const midPrice = randInt(rng, winnerPrice + 2, spenderPrice - 2);
-    const cheapPrice = randInt(rng, 6, winnerPrice - 3);
+    const spenderPrice = randInt(rng, 2 * winnerPrice / 5 + 1, 2 * winnerPrice / 5 + 4) * 5;
+    const midPrice = randInt(rng, winnerPrice / 5 + 1, spenderPrice / 5 - 1) * 5;
+    const cheapPrice = randInt(rng, 1, winnerPrice / 5 - 1) * 5;
 
     const rows = [
       { name: names[0]!, price: winnerPrice, rate: best },
@@ -438,10 +440,14 @@ const multiStep: Generator = {
   category: "reasoning",
   generate(rng) {
     const item = pick(rng, STOCK_ITEMS);
-    const start = randInt(rng, 30, 90);
-    const sold = randInt(rng, 5, Math.floor(start / 3));
-    let delivered = randInt(rng, 4, 30);
-    if ((start - sold + delivered) % 2 !== 0) delivered += 1;
+    // Multiples of ten and five throughout: the question is whether you halve what is on
+    // the shelf AFTER the delivery, not whether you can subtract 7 from 63 under a clock.
+    const start = randInt(rng, 3, 8) * 10;
+    const soldFives = randInt(rng, 1, Math.floor(start / 20));
+    const sold = soldFives * 5;
+    // What is left has to halve cleanly, and start is already even, so the delivery takes
+    // the same parity as the sale: both odd multiples of five, or both even.
+    const delivered = (randInt(rng, 1, 3) * 2 - (soldFives % 2)) * 5;
     const left = (start - sold + delivered) / 2;
 
     const wrong = [
@@ -457,6 +463,171 @@ const multiStep: Generator = {
   },
 };
 
+// ── english: can they read an instruction and write a sentence ───────────────
+//
+// Tickets are answered in English by a couple of people, so a request nobody can act on
+// costs more time than it saves. These test the English actually needed to do that: read
+// a rule and act on it, and put a sentence together. They are frames rather than
+// arithmetic, so correctness lives in the data below and the tests check it holds.
+
+// Agreement: one verb form fits the subject, the rest do not. The predicate travels with
+// the verb set so every option is a real sentence apart from the grammar being tested.
+const AGREEMENT_SETS = [
+  { singular: "is", plural: "are", others: ["be", "was being"], tail: ["ready to test.", "on the bench.", "still in the box."] },
+  { singular: "was", plural: "were", others: ["been", "being"], tail: ["working yesterday.", "in the drawer.", "already open."] },
+  { singular: "has", plural: "have", others: ["having", "haves"], tail: ["arrived.", "stopped working.", "gone missing."] },
+  { singular: "does", plural: "do", others: ["doing", "done"], tail: ["not power on.", "not respond."] },
+] as const;
+const AGREEMENT_SUBJECTS = [
+  { singular: "The board", plural: "The boards" },
+  { singular: "This cable", plural: "These cables" },
+  { singular: "My sensor", plural: "My sensors" },
+  { singular: "That relay", plural: "Those relays" },
+] as const;
+
+const agreement: Generator = {
+  id: "agreement",
+  category: "english",
+  generate(rng) {
+    const set = pick(rng, AGREEMENT_SETS);
+    const subject = pick(rng, AGREEMENT_SUBJECTS);
+    const tail = pick(rng, set.tail);
+    const plural = rng() < 0.5;
+    const noun = plural ? subject.plural : subject.singular;
+    const right = plural ? set.plural : set.singular;
+    const wrongVerb = plural ? set.singular : set.plural;
+
+    const sentence = (verb: string) => `${noun} ${verb} ${tail}`;
+    return assemble(rng, agreement, "Which sentence is written correctly?", sentence(right), [
+      sentence(wrongVerb),
+      ...set.others.map(sentence),
+    ]);
+  },
+};
+
+// Word choice: the confusions that make a ticket unreadable, each with its own set of
+// look-alikes rather than random words, so the wrong options are the ones people reach for.
+const WORD_FRAMES = [
+  { text: "Check ___ power supply before you post about it.", correct: "your", wrong: ["you're", "yours", "your's"] },
+  { text: "___ going to need the serial output for this.", correct: "You're", wrong: ["Your", "Yours", "Youre"] },
+  { text: "The board lost ___ settings after the reset.", correct: "its", wrong: ["it's", "its'", "their"] },
+  { text: "___ been like this since the last update.", correct: "It's", wrong: ["Its", "Its'", "It"] },
+  { text: "Put the jumper back where ___ was.", correct: "it", wrong: ["its", "it's", "they"] },
+  { text: "The cables are over ___ on the bench.", correct: "there", wrong: ["their", "they're", "theirs"] },
+  { text: "___ all reporting the same error code.", correct: "They're", wrong: ["Their", "There", "Theirs"] },
+  { text: "This one draws more current ___ the old one.", correct: "than", wrong: ["then", "that", "as"] },
+  { text: "Flash it first, ___ measure the voltage.", correct: "then", wrong: ["than", "when", "so"] },
+  { text: "A bad ground will ___ the readings.", correct: "affect", wrong: ["effect", "affects", "affected"] },
+  { text: "I have ___ the firmware three times already.", correct: "flashed", wrong: ["flash", "flashing", "flashen"] },
+  { text: "The screw has ___ loose again.", correct: "come", wrong: ["came", "coming", "comed"] },
+  { text: "Nothing has ___ since I changed the cable.", correct: "changed", wrong: ["change", "changing", "changen"] },
+  { text: "I should have ___ the datasheet first.", correct: "read", wrong: ["readed", "reading", "reads"] },
+] as const;
+
+const wordChoice: Generator = {
+  id: "word-choice",
+  category: "english",
+  generate(rng) {
+    const frame = pick(rng, WORD_FRAMES);
+    const prompt = `Which word completes this sentence?\n\n\`${frame.text}\``;
+    return assemble(rng, wordChoice, prompt, frame.correct, [...frame.wrong]);
+  },
+};
+
+// Meaning: a rule, and what it actually tells you to do. This is the one that matters for
+// support, since every instruction in the pinned posts is a sentence like these.
+const MEANING_FRAMES = [
+  {
+    rule: "Do not connect the {thing} while the board is powered.",
+    correct: "Power the board down before connecting the {thing}.",
+    wrong: [
+      "Connect the {thing} while the board is running.",
+      "The {thing} must never be connected at all.",
+      "The board has to be powered when you connect the {thing}.",
+    ],
+    slots: ["probe", "jumper", "sensor", "test lead"],
+  },
+  {
+    rule: "You only need the {thing} if the board did not come with one.",
+    correct: "A board that came with one needs no {thing}.",
+    wrong: [
+      "Every board needs a {thing}.",
+      "No board needs a {thing}.",
+      "Boards that came with one need a second {thing}.",
+    ],
+    slots: ["cable", "bracket", "spacer"],
+  },
+  {
+    rule: "Post the full log unless it contains your wifi password.",
+    correct: "Post the log, but not if your wifi password appears in it.",
+    wrong: [
+      "Never post the full log.",
+      "Always post the full log, password or not.",
+      "Post the log only when your password is in it.",
+    ],
+    slots: [],
+  },
+  {
+    rule: "The {thing} works on every board except the first revision.",
+    correct: "First revision boards are the ones it does not work on.",
+    wrong: [
+      "It works on the first revision only.",
+      "It works on no boards at all.",
+      "It works on the first revision and nothing else since.",
+    ],
+    slots: ["driver", "bootloader", "patch"],
+  },
+  {
+    rule: "Reflash the board before asking, unless it will not power on at all.",
+    correct: "A board that will not power on does not need reflashing first.",
+    wrong: [
+      "Reflash the board no matter what it is doing.",
+      "Never reflash a board before asking.",
+      "Only reflash boards that will not power on.",
+    ],
+    slots: [],
+  },
+] as const;
+
+const meaning: Generator = {
+  id: "meaning",
+  category: "english",
+  generate(rng) {
+    const frame = pick(rng, MEANING_FRAMES);
+    const thing = frame.slots.length ? pick(rng, frame.slots) : "";
+    const fill = (text: string) => text.replace(/\{thing\}/g, thing);
+    const prompt = `What does this tell you to do?\n\n\`${fill(frame.rule)}\``;
+    return assemble(rng, meaning, prompt, fill(frame.correct), frame.wrong.map(fill));
+  },
+};
+
+// Clear report: the least demanding question in the set, and deliberately so. It is the
+// last thing a member reads before writing their ticket, so it shows what one looks like.
+const REPORT_CASES = [
+  {
+    good: "My board reboots whenever the motor starts, but runs fine on USB alone.",
+    bad: ["board keeps dying", "it dont work pls help", "hi anyone there"],
+  },
+  {
+    good: "Flashing fails at 40% with a timeout, on two cables, since I repartitioned.",
+    bad: ["cant flash", "broken help asap", "why is this happening"],
+  },
+  {
+    good: "The sensor reads zero after ten minutes; replugging fixes it until next time.",
+    bad: ["sensor broke", "not working??", "someone help me"],
+  },
+] as const;
+
+const clearReport: Generator = {
+  id: "clear-report",
+  category: "english",
+  generate(rng) {
+    const example = pick(rng, REPORT_CASES);
+    const prompt = "Which of these would let someone actually help you?";
+    return assemble(rng, clearReport, prompt, example.good, [...example.bad]);
+  },
+};
+
 export const GENERATORS: Generator[] = [
   seq,
   inverseRate,
@@ -466,6 +637,10 @@ export const GENERATORS: Generator[] = [
   wordIndex,
   tableLookup,
   multiStep,
+  agreement,
+  wordChoice,
+  meaning,
+  clearReport,
 ];
 
 // ── Quiz assembly ───────────────────────────────────────────────────────────
@@ -485,13 +660,26 @@ export function parseCategories(raw: string[] | string | undefined): CheckCatego
 // Draw `count` questions, each from a different family, so one quiz cannot ask the same
 // shape twice. Asking for more than there are families repeats rather than returning
 // short: the config bound is the guard, not this.
+//
+// Categories take turns rather than sharing one pool. Reasoning has twice the families
+// English does, so a straight draw would leave a three-question check with no English in
+// it about a third of the time, and a category that is on should actually turn up.
 export function buildQuiz(count: number, categories: CheckCategory[], rng: Rng): CheckQuestion[] {
-  const allowed = GENERATORS.filter((g) => categories.includes(g.category));
-  const pool = allowed.length > 0 ? allowed : GENERATORS;
+  const bags = new Map<CheckCategory, Generator[]>();
+  const live = shuffle(
+    rng,
+    categories.filter((c) => GENERATORS.some((g) => g.category === c)),
+  );
+  const order = live.length > 0 ? live : [...CHECK_CATEGORIES];
+
   const out: CheckQuestion[] = [];
-  let bag: Generator[] = [];
   for (let i = 0; i < count; i++) {
-    if (bag.length === 0) bag = shuffle(rng, pool);
+    const category = order[i % order.length]!;
+    let bag = bags.get(category);
+    if (!bag || bag.length === 0) {
+      bag = shuffle(rng, GENERATORS.filter((g) => g.category === category));
+      bags.set(category, bag);
+    }
     out.push(bag.pop()!.generate(rng));
   }
   return out;

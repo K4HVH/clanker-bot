@@ -91,7 +91,7 @@ test("question categories are picked from a list of the ones that exist", () => 
   const ctx = silentContext();
   const select = find(panelJson(ctx, "ticket-check"), `cfg:multi:${CONFIG_KEYS.ticketCheckCategories}`);
   expect(select).not.toBeNull();
-  expect(select.options.map((o: { value: string }) => o.value)).toEqual(["reasoning"]);
+  expect(select.options.map((o: { value: string }) => o.value)).toEqual(["reasoning", "english"]);
   expect(select.options.find((o: { value: string }) => o.value === "reasoning").default).toBe(true);
 });
 

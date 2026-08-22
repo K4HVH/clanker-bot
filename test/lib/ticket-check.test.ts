@@ -255,6 +255,28 @@ test("table-lookup: the key is the best ratio, and never the lazy row", () => {
   }
 });
 
+// The reasoning is the point, not the mental arithmetic. Round figures keep the trap
+// (halving what is on the shelf AFTER the delivery) while taking the load off.
+test("multi-step: the numbers stay easy to hold in your head", () => {
+  const gen = GENERATORS.find((g) => g.id === "multi-step")!;
+  for (let seed = 0; seed < SEEDS; seed++) {
+    const [start, sold, delivered] = numbersIn(gen.generate(makeRng(seed)).prompt);
+    const where = `seed ${seed}`;
+    expect(start! % 10, where).toBe(0);
+    expect(sold! % 5, where).toBe(0);
+    expect(delivered! % 5, where).toBe(0);
+    expect(start!, where).toBeLessThanOrEqual(80);
+  }
+});
+
+test("table-lookup: prices stay round enough to divide in your head", () => {
+  const gen = GENERATORS.find((g) => g.id === "table-lookup")!;
+  for (let seed = 0; seed < SEEDS; seed++) {
+    const rows = [...gen.generate(makeRng(seed)).prompt.matchAll(/^(\w+) +(\d+) +(\d+)$/gm)];
+    for (const row of rows) expect(Number(row[2]) % 5, `seed ${seed}`).toBe(0);
+  }
+});
+
 test("multi-step: the key survives every step, in order", () => {
   const gen = GENERATORS.find((g) => g.id === "multi-step")!;
   for (let seed = 0; seed < SEEDS; seed++) {
@@ -283,7 +305,7 @@ test("buildQuiz varies which families come up", () => {
   for (let seed = 0; seed < 50; seed++) {
     for (const q of buildQuiz(3, ["reasoning"], makeRng(seed))) seen.add(q.generatorId);
   }
-  expect(seen.size).toBe(GENERATORS.length);
+  expect(seen.size).toBe(GENERATORS.filter((g) => g.category === "reasoning").length);
 });
 
 test("parseCategories keeps known ids and falls back when none survive", () => {
@@ -369,4 +391,45 @@ test("a live pass beats a live cooldown", () => {
 
 test("a member with no history is challenged", () => {
   expect(decide({}, {})).toEqual({ kind: "challenge" });
+});
+
+// ── english ─────────────────────────────────────────────────────────────────
+
+test("english is a category of its own, with generators in it", () => {
+  expect(CHECK_CATEGORIES).toContain("english");
+  const english = GENERATORS.filter((g) => g.category === "english");
+  expect(english.length).toBeGreaterThanOrEqual(3);
+});
+
+// These are authored frames rather than arithmetic, so there is no way to re-derive the
+// answer. What CAN be checked is that no frame contradicts itself: a "wrong" option that
+// is really right, or a blank with nothing to fill, would both key a question incorrectly.
+test("english frames never offer the answer twice, or a blank with no gap", () => {
+  for (const gen of GENERATORS.filter((g) => g.category === "english")) {
+    for (let seed = 0; seed < SEEDS; seed++) {
+      const q = gen.generate(makeRng(seed));
+      const where = `${gen.id} seed ${seed}`;
+      const answer = q.choices[q.answerIndex]!;
+      expect(q.choices.filter((c) => c === answer).length, where).toBe(1);
+      // A fill-the-blank prompt has exactly one gap to fill.
+      const blanks = (q.prompt.match(/___/g) ?? []).length;
+      expect(blanks, where).toBeLessThanOrEqual(1);
+      if (q.prompt.includes("___")) expect(blanks, where).toBe(1);
+    }
+  }
+});
+
+test("buildQuiz gives every enabled category a turn", () => {
+  for (let seed = 0; seed < 200; seed++) {
+    const quiz = buildQuiz(3, ["reasoning", "english"], makeRng(seed));
+    const seen = new Set(quiz.map((q) => q.category));
+    expect(seen.has("reasoning"), `seed ${seed}`).toBe(true);
+    expect(seen.has("english"), `seed ${seed}`).toBe(true);
+  }
+});
+
+test("buildQuiz still fills up from one category when only one is on", () => {
+  const quiz = buildQuiz(3, ["english"], makeRng(4));
+  expect(quiz.length).toBe(3);
+  for (const q of quiz) expect(q.category).toBe("english");
 });

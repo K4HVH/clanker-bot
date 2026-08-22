@@ -24,7 +24,7 @@ import {
   parseCategories,
   type Rng,
 } from "../../lib/ticket-check";
-import { isTicketStaff, sendToModLog, subjectModal } from "./shared";
+import { isTicketStaff, minSubjectWords, sendToModLog, subjectModal } from "./shared";
 
 const K = CONFIG_KEYS;
 
@@ -417,7 +417,7 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         // The panel button never collected a subject, so the reward for the last right
         // answer is the modal. The question message stays put until the modal handler
         // edits it (it can, having been opened from a component).
-        await button.showModal(subjectModal(true));
+        await button.showModal(subjectModal(true, minSubjectWords(ctx, guild.id)));
         return;
       }
 
