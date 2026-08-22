@@ -311,7 +311,10 @@ export async function gateTicket(
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
       .setTitle("Ticket not opened")
-      .setDescription(`${failText(ctx, guild.id)}\n\n${retryLine(decision.until)}`);
+      .setDescription(
+        "You didn't pass the intelligence check, so opening a ticket is on hold for now." +
+          `\n\n${failText(ctx, guild.id)}\n\n${retryLine(decision.until)}`,
+      );
     return { kind: "stop", reply: { embeds: [embed], flags: MessageFlags.Ephemeral } };
   }
 
@@ -359,7 +362,10 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
             new EmbedBuilder()
               .setColor(0x95a5a6)
               .setTitle("This check has expired")
-              .setDescription("Open the ticket panel to start a new one."),
+              .setDescription(
+                "Running out of time counts as not passing. Open the ticket panel to see " +
+                  "when you can start another.",
+              ),
           ],
           components: [],
         });
@@ -391,14 +397,8 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         recordCheckFail(ctx.db, guild.id, button.user.id, now);
         const until = now + policy.cooldownMinutes * 60_000;
         const lead = outcome.reason === "expired" ? "Time ran out. " : "";
-        await button.update(
-          failBody(
-            ctx,
-            guild.id,
-            `${lead}You got **${outcome.correct} of ${session.questions.length}**.`,
-            until,
-          ),
-        );
+        const score = `${lead}You got **${outcome.correct} of ${session.questions.length}**, which isn't enough to open a ticket.`;
+        await button.update(failBody(ctx, guild.id, score, until));
         await logFailure(ctx, guild, button.user, session, outcome, until);
         return;
       }

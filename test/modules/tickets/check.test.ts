@@ -33,7 +33,7 @@ test("readPolicy comes back with the registry defaults", () => {
     exemptStaff: true,
     exemptRoles: [],
     introText:
-      "Tickets are answered by a small team, so there are a few questions first. Read each one properly, there's no rush.",
+      "You need to pass a short intelligence check before you can open a ticket. Tickets are handled by a small team, so they're kept for the problems that need one. Read each question carefully.",
   });
 });
 
