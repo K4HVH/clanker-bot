@@ -39,7 +39,14 @@ import { clearCheckResult, recordCheckPass } from "../../db/ticket-check";
 import { CONFIG_KEYS } from "../../lib/config";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
-import { checkComponents, gateTicket, readPolicy, sweepSessions, takePassNote } from "./check";
+import {
+  checkComponents,
+  clearCheckSession,
+  gateTicket,
+  readPolicy,
+  sweepSessions,
+  takePassNote,
+} from "./check";
 import {
   isTicketStaff,
   minSubjectWords,
@@ -677,6 +684,10 @@ const checkSub: Subcommand = {
     const policy = readPolicy(ctx, guild.id);
     if (pass) recordCheckPass(ctx.db, guild.id, target.id, Date.now());
     else clearCheckResult(ctx.db, guild.id, target.id);
+    // Either way, whatever they have open stops being theirs to finish: a cleared member
+    // sits a fresh check, and a passed one is not left with a quiz the sweep would later
+    // charge them a failure for.
+    clearCheckSession(guild.id, target.id);
 
     // Say so when the setting makes the action pointless, rather than reporting success
     // for something that will have no effect.
@@ -685,7 +696,7 @@ const checkSub: Subcommand = {
       ? policy.passDays > 0
         ? `<@${target.id}> is marked as passed: they won't be asked again for ${policy.passDays} days.${off}`
         : `<@${target.id}> is marked as passed, but the pass window is 0 days, so they'll still be asked on their next ticket.${off}`
-      : `Cleared <@${target.id}>'s check: no cooldown, and they'll sit a fresh one next time.${off}`;
+      : `Cleared <@${target.id}>'s check: any cooldown is lifted, whatever they had open is closed, and they'll sit a fresh one next time.${off}`;
     await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
   },
 };

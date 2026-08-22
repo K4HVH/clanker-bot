@@ -132,6 +132,17 @@ export function dropSession(token: string): void {
   sessions.delete(token);
 }
 
+// Retire whatever a member has in flight, for staff resetting or excusing them. Clearing
+// the stored result alone is not enough: a check already open would be RESUMED on their
+// next click, so they would be handed the same question back and a reset that promised a
+// fresh one would have done nothing. The pass note goes too, or a ticket opened later
+// gets a mod-log line about a check that no longer happened.
+export function clearCheckSession(guildId: string, userId: string): void {
+  const live = sessionFor(guildId, userId);
+  if (live) sessions.delete(live.token);
+  passNotes.delete(`${guildId}:${userId}`);
+}
+
 // Abandoned checks are never answered, so nothing else would ever remove them. Called
 // from the ticket module's existing five-minute scan rather than a timer of its own.
 //
@@ -142,7 +153,11 @@ export function sweepSessions(ctx: AppContext, now: number): void {
   for (const [token, session] of sessions) {
     if (session.deadline > now) continue;
     sessions.delete(token);
-    recordCheckFail(ctx.db, session.guildId, session.userId, now);
+    // Unless the guild has since switched the check off, in which case nobody should be
+    // charged for a quiz that no longer exists, and nobody should find a cooldown waiting
+    // for them if it is ever switched back on.
+    const live = ctx.config.getEffective<boolean>(session.guildId, K.ticketCheckEnabled);
+    if (live) recordCheckFail(ctx.db, session.guildId, session.userId, now);
   }
   // A member who passed and then walked away from the subject modal leaves a note
   // behind that nothing else would ever collect.

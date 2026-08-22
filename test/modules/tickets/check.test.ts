@@ -1,5 +1,11 @@
 import { beforeEach, expect, test } from "bun:test";
-import type { ButtonInteraction, Guild, ModalSubmitInteraction, User } from "discord.js";
+import type {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  Guild,
+  ModalSubmitInteraction,
+  User,
+} from "discord.js";
 import { ComponentRouter } from "../../../src/core/component-router";
 import type { AppContext } from "../../../src/core/context";
 import { getCheckResult, recordCheckFail, recordCheckPass } from "../../../src/db/ticket-check";
@@ -171,6 +177,8 @@ test("starting a second check retires the first, so only one can be live", () =>
 // questions, come back for a fresh set" is a free reroll.
 test("an abandoned session is swept and counts as a failure", () => {
   const ctx = silentContext();
+  // You only have a check open if the guild has the feature on.
+  ctx.config.set("g", CONFIG_KEYS.ticketCheckEnabled, true);
   const s = session([1], 60);
   putSession(s);
   sweepSessions(ctx, NOW + 59_000);
@@ -191,15 +199,18 @@ test("an abandoned session is swept and counts as a failure", () => {
 const GUILD_ID = "g1";
 const USER: User = { id: "u1", username: "kenny" } as unknown as User;
 
+// Resolves per id, so the member running a staff command is not mistaken for the member
+// it is being run ON. "staff" always holds Manage Server; the flag covers everyone else.
 function stubGuild(opts: { manageGuild?: boolean; roles?: string[] } = {}): Guild {
-  const member = {
-    id: USER.id,
-    permissions: { has: () => opts.manageGuild ?? false },
-    roles: { cache: new Map((opts.roles ?? []).map((r) => [r, {}])) },
-  };
   return {
     id: GUILD_ID,
-    members: { fetch: async () => member },
+    members: {
+      fetch: async (id: string) => ({
+        id,
+        permissions: { has: () => id === "staff" || (opts.manageGuild ?? false) },
+        roles: { cache: new Map((id === USER.id ? (opts.roles ?? []) : []).map((r) => [r, {}])) },
+      }),
+    },
   } as unknown as Guild;
 }
 
@@ -524,4 +535,97 @@ test("a check left to run out is settled on the next attempt, not reissued", asy
   expect(JSON.stringify(again.reply)).toContain("You can try again");
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toMatchObject({ fails: 1 });
   expect(getSession(token)).toBeUndefined();
+});
+
+// ── /ticket check ───────────────────────────────────────────────────────────
+
+async function runCheckCommand(
+  ctx: AppContext,
+  guild: Guild,
+  target: User,
+  pass: boolean | null,
+): Promise<string> {
+  let replied = "";
+  const interaction = {
+    guild,
+    guildId: GUILD_ID,
+    user: { id: "staff", username: "staff" },
+    options: {
+      getSubcommand: () => "check",
+      getUser: () => target,
+      getBoolean: () => pass,
+    },
+    memberPermissions: { has: () => true },
+    reply: async (opts: { content: string }) => {
+      replied = opts.content;
+    },
+  };
+  const command = ticketsModule.commands![0]!;
+  await command.execute(interaction as unknown as ChatInputCommandInteraction, ctx);
+  return replied;
+}
+
+// Clearing someone's check used to leave the check they had OPEN untouched, so the next
+// click resumed the same question and the reply's promise of a fresh one was a lie.
+test("clearing a member's check also drops the one they have open", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const started = await gateTicket(ctx, guild, USER, PANEL);
+  if (started.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(started.reply);
+
+  const reply = await runCheckCommand(ctx, guild, USER, null);
+  expect(reply).toContain("Cleared");
+  expect(getSession(token)).toBeUndefined();
+
+  const after = await gateTicket(ctx, guild, USER, PANEL);
+  if (after.kind !== "stop") throw new Error("expected a fresh challenge");
+  expect(tokenOf(after.reply)).not.toBe(token);
+  expect(JSON.stringify(after.reply)).not.toContain("already started");
+});
+
+test("clearing a member's check lifts their cooldown", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  recordCheckFail(ctx.db, GUILD_ID, USER.id, Date.now());
+  await runCheckCommand(ctx, guild, USER, null);
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toBeUndefined();
+  const after = await gateTicket(ctx, guild, USER, PANEL);
+  if (after.kind !== "stop") throw new Error("expected a challenge, not a cooldown");
+  expect(JSON.stringify(after.reply)).toContain("Question 1");
+});
+
+// Marking someone through while they have a check open has to retire it too, or the
+// sweep charges them a failure for the quiz they were just excused from.
+test("passing a member drops the check they were part way through", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const started = await gateTicket(ctx, guild, USER, PANEL);
+  if (started.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(started.reply);
+
+  const reply = await runCheckCommand(ctx, guild, USER, true);
+  expect(reply).toContain("marked as passed");
+  expect(getSession(token)).toBeUndefined();
+  expect((await gateTicket(ctx, guild, USER, PANEL)).kind).toBe("allow");
+});
+
+// Switching the feature off must not keep charging people. Anyone mid-check when it is
+// turned off would otherwise be recorded as having failed, and put on a cooldown waiting
+// for them if it is ever switched back on.
+test("a check swept after the feature is turned off costs nothing", () => {
+  const ctx = gatedContext();
+  const s = newSession({
+    guildId: GUILD_ID,
+    userId: USER.id,
+    questions: [question(1)],
+    seconds: 60,
+    continuation: PANEL,
+    now: NOW,
+  });
+  putSession(s);
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckEnabled, false);
+  sweepSessions(ctx, NOW + 61_000);
+  expect(getSession(s.token)).toBeUndefined();
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toBeUndefined();
 });
