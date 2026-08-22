@@ -12,14 +12,11 @@ import {
   type GuildTextBasedChannel,
   type Message,
   MessageFlags,
-  ModalBuilder,
   type ModalSubmitInteraction,
   type OverwriteResolvable,
   OverwriteType,
   PermissionFlagsBits,
   type TextChannel,
-  TextInputBuilder,
-  TextInputStyle,
   type User,
 } from "discord.js";
 import { featureCommand, type Subcommand } from "../../core/command";
@@ -39,6 +36,15 @@ import {
   touchTicketActivity,
 } from "../../db/tickets";
 import { CONFIG_KEYS } from "../../lib/config";
+import { clearCheckResult, recordCheckPass } from "../../db/ticket-check";
+import {
+  checkComponents,
+  gateTicket,
+  readPolicy,
+  sweepSessions,
+  takePassNote,
+} from "./check";
+import { isTicketStaff, sendToModLog, subjectModal, SUBJECT_MAX } from "./shared";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
 
@@ -57,7 +63,6 @@ const warnedTickets = new Set<string>();
 const opening = new Set<string>();
 
 const MAX_TRANSCRIPT_MESSAGES = 2000;
-const SUBJECT_MAX = 300;
 
 // Plain-text form, for the transcript file: markdown and mentions are both dead weight there.
 function nameAndId(id: string, name?: string | null): string {
@@ -105,14 +110,6 @@ function ticketButtons(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-async function isTicketStaff(guild: Guild, userId: string, ctx: AppContext): Promise<boolean> {
-  const member = await guild.members.fetch(userId).catch(() => null);
-  if (!member) return false;
-  if (member.permissions.has(PermissionFlagsBits.ManageGuild)) return true;
-  const staffRoleId = ctx.config.get<string>(guild.id, CONFIG_KEYS.ticketStaffRoleId);
-  return !!staffRoleId && member.roles.cache.has(staffRoleId);
-}
-
 // Decide whether a user may close a ticket. Staff always can; the opener can too, unless the
 // guild has restricted closing to staff only. Returns a denial message, or null if allowed.
 async function closeDenial(
@@ -125,17 +122,6 @@ async function closeDenial(
   const staffOnly = ctx.config.getEffective<boolean>(guild.id, CONFIG_KEYS.ticketStaffOnlyClose);
   if (!staffOnly && userId === ticket.openerId) return null;
   return staffOnly ? "Only staff can close tickets here." : "Only the opener or staff can close this.";
-}
-
-async function sendToModLog(
-  ctx: AppContext,
-  guild: Guild,
-  payload: { embeds: EmbedBuilder[]; files?: AttachmentBuilder[] },
-): Promise<void> {
-  const id = ctx.config.get<string>(guild.id, CONFIG_KEYS.modLogChannelId);
-  if (!id) return;
-  const channel = await guild.channels.fetch(id).catch(() => null);
-  if (channel?.isTextBased()) await channel.send(payload).catch(() => {});
 }
 
 // Shared close: build the transcript+images zip, persist it, post to mod-log, DM the
@@ -349,14 +335,22 @@ async function openTicketFlow(
       .setTitle(`Ticket #${record.ticketNumber} opened`)
       .addFields({ name: "Opened by", value: userValue(opener.id, opener.username) });
     if (via) logEmbed.addFields({ name: "Opened via", value: userValue(via.id, via.username) });
-    logEmbed
-      .addFields(
-        // Mention (a live link while open) + the name, so the entry still reads after the
-        // channel is deleted on close (the mention would become "#unknown").
-        { name: "Channel", value: `<#${channel.id}> (\`${channel.name}\`)` },
-        { name: "Subject", value: subjectLine(subject) },
-      )
-      .setTimestamp(new Date());
+    logEmbed.addFields(
+      // Mention (a live link while open) + the name, so the entry still reads after the
+      // channel is deleted on close (the mention would become "#unknown").
+      { name: "Channel", value: `<#${channel.id}> (\`${channel.name}\`)` },
+      { name: "Subject", value: subjectLine(subject) },
+    );
+    // How they did on the check, when one was sat for this ticket. This is what tells
+    // the owner whether the bar is set right, rather than only seeing who failed.
+    const check = takePassNote(guildId, opener.id);
+    if (check) {
+      logEmbed.addFields({
+        name: "Check",
+        value: `${check.correct}/${check.total} in ${Math.round(check.elapsedMs / 1000)}s`,
+      });
+    }
+    logEmbed.setTimestamp(new Date());
     await sendToModLog(ctx, guild, { embeds: [logEmbed] });
 
     return { ok: true, channelId: channel.id };
@@ -467,8 +461,26 @@ const openSub: Subcommand = {
       via = interaction.user;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const subject = interaction.options.getString("subject") ?? "";
+    // Staff opening on someone's behalf have already decided that person needs a ticket,
+    // so `via` skips the check entirely.
+    if (!via) {
+      // Quota first, then the check, exactly as the panel button orders them: answering
+      // questions only to be told you already have too many tickets open is the one
+      // sequence guaranteed to make someone give up on the gate entirely.
+      const denial = quotaDenial(ctx, guild.id, opener.id, false);
+      if (denial) {
+        await interaction.reply({ content: denial, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const gate = await gateTicket(ctx, guild, opener, { kind: "command", subject });
+      if (gate.kind === "stop") {
+        await interaction.reply(gate.reply);
+        return;
+      }
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const result = await openTicketFlow(ctx, guild, opener, subject, via);
     if (!result.ok) {
       await interaction.editReply({ content: result.message });
@@ -628,6 +640,47 @@ const transcriptSub: Subcommand = {
   },
 };
 
+// Staff override for the intelligence check. Without it, a gate that bounces someone it
+// shouldn't leaves no recourse short of switching the feature off for everyone.
+const checkSub: Subcommand = {
+  description: "Reset or grant a member's ticket check (staff).",
+  options: (s) =>
+    s
+      .addUserOption((o) => o.setName("user").setDescription("Member to act on").setRequired(true))
+      .addBooleanOption((o) =>
+        o.setName("pass").setDescription("Mark them as passed instead of clearing their state"),
+      ),
+  async execute(interaction, ctx) {
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.reply({ content: "Run this in the server.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!(await isTicketStaff(guild, interaction.user.id, ctx))) {
+      await interaction.reply({
+        content: "Only staff can change someone's check.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const target = interaction.options.getUser("user", true);
+    const pass = interaction.options.getBoolean("pass") ?? false;
+    const policy = readPolicy(ctx, guild.id);
+    if (pass) recordCheckPass(ctx.db, guild.id, target.id, Date.now());
+    else clearCheckResult(ctx.db, guild.id, target.id);
+
+    // Say so when the setting makes the action pointless, rather than reporting success
+    // for something that will have no effect.
+    const off = policy.enabled ? "" : " The check is switched off in this server right now.";
+    const message = pass
+      ? policy.passDays > 0
+        ? `<@${target.id}> is marked as passed: they won't be asked again for ${policy.passDays} days.${off}`
+        : `<@${target.id}> is marked as passed, but the pass window is 0 days, so they'll still be asked on their next ticket.${off}`
+      : `Cleared <@${target.id}>'s check: no cooldown, and they'll sit a fresh one next time.${off}`;
+    await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
+  },
+};
+
 // ── Buttons ──────────────────────────────────────────────────────────────────
 
 const openHandler: ComponentHandler = {
@@ -643,15 +696,14 @@ const openHandler: ComponentHandler = {
       await button.reply({ content: denial, flags: MessageFlags.Ephemeral });
       return;
     }
-    const modal = new ModalBuilder().setCustomId("ticket_modal").setTitle("Open a ticket");
-    const subject = new TextInputBuilder()
-      .setCustomId("subject")
-      .setLabel("What do you need help with? (optional)")
-      .setStyle(TextInputStyle.Paragraph)
-      .setMaxLength(SUBJECT_MAX)
-      .setRequired(false);
-    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(subject));
-    await button.showModal(modal);
+    // Quota first, then the check: nobody should answer questions only to be told they
+    // already have too many tickets open.
+    const gate = await gateTicket(ctx, button.guild, button.user, { kind: "panel" });
+    if (gate.kind === "stop") {
+      await button.reply(gate.reply);
+      return;
+    }
+    await button.showModal(subjectModal());
   },
 };
 
@@ -661,15 +713,22 @@ const modalHandler: ComponentHandler = {
   async handle(interaction, ctx) {
     const modal = interaction as ModalSubmitInteraction;
     if (!modal.guild) return;
-    await modal.deferReply({ flags: MessageFlags.Ephemeral });
+    // Reached from the last answer of a passed check, the modal belongs to that question
+    // message: edit it in place rather than leaving the question on screen under a second
+    // ephemeral reply.
+    if (modal.isFromMessage()) await modal.deferUpdate();
+    else await modal.deferReply({ flags: MessageFlags.Ephemeral });
     // The subject input is optional, so Discord may send it back empty (or, in principle,
     // not at all: getTextInputValue throws on a missing field). Both mean "no subject".
     const subject = modal.fields.fields.has("subject")
       ? modal.fields.getTextInputValue("subject")
       : "";
     const result = await openTicketFlow(ctx, modal.guild, modal.user, subject, null);
+    // Clearing both is what removes the answered question when this came from a check.
     await modal.editReply({
       content: result.ok ? `Ticket opened: <#${result.channelId}>` : result.message,
+      embeds: [],
+      components: [],
     });
   },
 };
@@ -784,7 +843,10 @@ const onReady: Listener<Events.ClientReady> = {
       if (exists) openTicketChannels.add(t.channelId);
       else reconcileGone(ctx, t.channelId, client.user?.id ?? "system", Date.now());
     }
-    const timer = setInterval(() => void scanInactivity(ctx, client, Date.now()), 5 * 60_000);
+    const timer = setInterval(() => {
+      sweepSessions(ctx, Date.now());
+      void scanInactivity(ctx, client, Date.now());
+    }, 5 * 60_000);
     timer.unref?.();
   },
 };
@@ -859,11 +921,13 @@ export const ticketsModule: BotModule = {
         add: addSub,
         remove: removeSub,
         transcript: transcriptSub,
+        check: checkSub,
       },
     }),
   ],
   listeners: [onMessage, onChannelDelete, onReady] as Listener[],
   components: [
+    ...checkComponents(openTicketFlow),
     openHandler,
     modalHandler,
     closeHandler,
