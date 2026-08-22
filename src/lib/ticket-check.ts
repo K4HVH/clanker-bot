@@ -472,10 +472,13 @@ const multiStep: Generator = {
 
 // Agreement: one verb form fits the subject, the rest do not. The predicate travels with
 // the verb set so every option is a real sentence apart from the grammar being tested.
+// The wrong forms sit close in length to the right one, so the shortest or longest option
+// is no guide to which it is. "had" and the like are left out on purpose: they would make
+// a perfectly correct sentence and there would be two right answers.
 const AGREEMENT_SETS = [
-  { singular: "is", plural: "are", others: ["be", "was being"], tail: ["ready to test.", "on the bench.", "still in the box."] },
-  { singular: "was", plural: "were", others: ["been", "being"], tail: ["working yesterday.", "in the drawer.", "already open."] },
-  { singular: "has", plural: "have", others: ["having", "haves"], tail: ["arrived.", "stopped working.", "gone missing."] },
+  { singular: "is", plural: "are", others: ["be", "am"], tail: ["ready to test.", "on the bench.", "still in the box."] },
+  { singular: "was", plural: "were", others: ["been", "is"], tail: ["working yesterday.", "in the drawer.", "already open."] },
+  { singular: "has", plural: "have", others: ["haves", "having"], tail: ["arrived.", "stopped working.", "gone missing."] },
   { singular: "does", plural: "do", others: ["doing", "done"], tail: ["not power on.", "not respond."] },
 ] as const;
 const AGREEMENT_SUBJECTS = [
@@ -539,51 +542,51 @@ const wordChoice: Generator = {
 const MEANING_FRAMES = [
   {
     rule: "Do not connect the {thing} while the board is powered.",
-    correct: "Power the board down before connecting the {thing}.",
+    correct: "Power the board down before you connect the {thing}.",
     wrong: [
-      "Connect the {thing} while the board is running.",
-      "The {thing} must never be connected at all.",
-      "The board has to be powered when you connect the {thing}.",
+      "Connect the {thing} first, then power the board up.",
+      "The {thing} must never be connected under any conditions.",
+      "The board has to be powered when the {thing} goes on.",
     ],
     slots: ["probe", "jumper", "sensor", "test lead"],
   },
   {
     rule: "You only need the {thing} if the board did not come with one.",
-    correct: "A board that came with one needs no {thing}.",
+    correct: "A board that came with one needs no second {thing}.",
     wrong: [
-      "Every board needs a {thing}.",
-      "No board needs a {thing}.",
-      "Boards that came with one need a second {thing}.",
+      "Every board needs a {thing} added to it regardless.",
+      "No board ever needs a {thing} added to it at all.",
+      "A board that came with one still needs a spare {thing}.",
     ],
     slots: ["cable", "bracket", "spacer"],
   },
   {
     rule: "Post the full log unless it contains your wifi password.",
-    correct: "Post the log, but not if your wifi password appears in it.",
+    correct: "Post the whole log, unless your password is in it.",
     wrong: [
-      "Never post the full log.",
-      "Always post the full log, password or not.",
-      "Post the log only when your password is in it.",
+      "Post the log even when your password appears in it.",
+      "Never post the log, password in it or not.",
+      "Post the log only when your password appears in it.",
     ],
     slots: [],
   },
   {
     rule: "The {thing} works on every board except the first revision.",
-    correct: "First revision boards are the ones it does not work on.",
+    correct: "It works on all of the revisions but the first one.",
     wrong: [
-      "It works on the first revision only.",
-      "It works on no boards at all.",
-      "It works on the first revision and nothing else since.",
+      "It works on the first revision and none of the rest.",
+      "It works on none of the revisions at all.",
+      "It works on every revision that came before this one.",
     ],
     slots: ["driver", "bootloader", "patch"],
   },
   {
-    rule: "Reflash the board before asking, unless it will not power on at all.",
-    correct: "A board that will not power on does not need reflashing first.",
+    rule: "Reflash the board before asking, unless it will not power on.",
+    correct: "Reflash first, unless the board is completely dead.",
     wrong: [
-      "Reflash the board no matter what it is doing.",
-      "Never reflash a board before asking.",
-      "Only reflash boards that will not power on.",
+      "Reflash first, whatever state the board is in now.",
+      "Never reflash a board before asking about a fault.",
+      "Reflash only the boards that will not power on now.",
     ],
     slots: [],
   },
@@ -601,30 +604,36 @@ const meaning: Generator = {
   },
 };
 
-// Clear report: the least demanding question in the set, and deliberately so. It is the
-// last thing a member reads before writing their ticket, so it shows what one looks like.
-const REPORT_CASES = [
-  {
-    good: "My board reboots whenever the motor starts, but runs fine on USB alone.",
-    bad: ["board keeps dying", "it dont work pls help", "hi anyone there"],
-  },
-  {
-    good: "Flashing fails at 40% with a timeout, on two cables, since I repartitioned.",
-    bad: ["cant flash", "broken help asap", "why is this happening"],
-  },
-  {
-    good: "The sensor reads zero after ten minutes; replugging fixes it until next time.",
-    bad: ["sensor broke", "not working??", "someone help me"],
-  },
+// Spelling: the one English check nothing but knowing the word will get you through.
+// Every option is the same word, so length, wordiness and plausibility are all useless.
+// No misspelling here is a real word in its own right, or there would be two answers.
+const SPELLING_WORDS = [
+  { correct: "receive", wrong: ["recieve", "receeve", "reciave"] },
+  { correct: "separate", wrong: ["seperate", "seperete", "sepparate"] },
+  { correct: "definitely", wrong: ["definately", "definetly", "definitley"] },
+  { correct: "occurred", wrong: ["occured", "ocurred", "occurrd"] },
+  { correct: "necessary", wrong: ["neccessary", "necesary", "neccesary"] },
+  { correct: "until", wrong: ["untill", "untl", "unitl"] },
+  { correct: "believe", wrong: ["beleive", "belive", "beleve"] },
+  { correct: "calendar", wrong: ["calender", "calandar", "calendor"] },
+  { correct: "probably", wrong: ["probaly", "probbably", "probablly"] },
+  { correct: "especially", wrong: ["expecially", "especialy", "escpecially"] },
+  { correct: "length", wrong: ["lenght", "lengh", "lenthg"] },
+  { correct: "successful", wrong: ["succesful", "successfull", "sucessful"] },
+  { correct: "immediately", wrong: ["immediatly", "imediately", "immediatley"] },
+  { correct: "environment", wrong: ["enviroment", "envirnoment", "environmnet"] },
+  { correct: "argument", wrong: ["arguement", "arguemnt", "argumnet"] },
+  { correct: "beginning", wrong: ["begining", "beginnning", "begginning"] },
 ] as const;
 
-const clearReport: Generator = {
-  id: "clear-report",
+const spelling: Generator = {
+  id: "spelling",
   category: "english",
   generate(rng) {
-    const example = pick(rng, REPORT_CASES);
-    const prompt = "Which of these would let someone actually help you?";
-    return assemble(rng, clearReport, prompt, example.good, [...example.bad]);
+    const word = pick(rng, SPELLING_WORDS);
+    return assemble(rng, spelling, "Which of these is spelled correctly?", word.correct, [
+      ...word.wrong,
+    ]);
   },
 };
 
@@ -640,7 +649,7 @@ export const GENERATORS: Generator[] = [
   agreement,
   wordChoice,
   meaning,
-  clearReport,
+  spelling,
 ];
 
 // ── Quiz assembly ───────────────────────────────────────────────────────────

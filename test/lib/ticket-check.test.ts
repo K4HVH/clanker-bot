@@ -48,6 +48,28 @@ test("every generator emits four distinct, button-sized choices with a valid key
   }
 });
 
+// The other way to beat a multiple-choice question without reading it: if the answer is
+// reliably the longest option (the careful, hedged, complete-sounding one) then "pick the
+// wordiest" is a winning strategy and the question tests nothing. Four options means 25%
+// by chance; anything approaching half is a tell.
+test("no generator gives its answer away by length", () => {
+  const N = 500;
+  for (const gen of GENERATORS) {
+    let longest = 0;
+    let shortest = 0;
+    for (let seed = 0; seed < N; seed++) {
+      const q = gen.generate(makeRng(seed));
+      const lengths = q.choices.map((c) => c.length);
+      const key = lengths[q.answerIndex]!;
+      const unique = (n: number) => lengths.filter((l) => l === n).length === 1;
+      if (key === Math.max(...lengths) && unique(key)) longest++;
+      if (key === Math.min(...lengths) && unique(key)) shortest++;
+    }
+    expect(longest / N, `${gen.id}: answer is the longest option`).toBeLessThan(0.45);
+    expect(shortest / N, `${gen.id}: answer is the shortest option`).toBeLessThan(0.45);
+  }
+});
+
 // If the key sat in the same slot every time, "always click the first button" would
 // beat the gate outright.
 test("every generator spreads the answer across all four slots", () => {
