@@ -16,7 +16,7 @@ import {
 } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, SlashCommand } from "../../core/module";
-import { getSetting, REGISTRY, validateSetting } from "../../lib/config";
+import { coerceSetting, getSetting, REGISTRY, validateSetting } from "../../lib/config";
 import { buildModal, buildPanel } from "./panel";
 
 const V2 = MessageFlags.IsComponentsV2;
@@ -125,17 +125,7 @@ async function handleImport(
       return;
     }
 
-    let applied = 0;
-    let skipped = 0;
-    for (const [key, value] of Object.entries(incoming)) {
-      const setting = getSetting(key);
-      if (!setting || !validateSetting(setting, value)) {
-        skipped++;
-        continue;
-      }
-      ctx.config.set(guildId, key, value);
-      applied++;
-    }
+    const { applied, skipped } = applyImport(ctx, guildId, incoming);
     await msg.delete().catch(() => {});
     await interaction.followUp({
       content: `Import complete: **${applied}** applied, **${skipped}** skipped (unknown or invalid). Reopen \`/config\` to see the changes.`,
@@ -150,6 +140,31 @@ async function handleImport(
         .catch(() => {});
     }
   });
+}
+
+// Apply an imported config, one setting at a time, skipping anything unknown or invalid
+// rather than failing the whole file. Separate from the upload handling above so the
+// rules it applies can be tested without a Discord attachment to feed it.
+export function applyImport(
+  ctx: AppContext,
+  guildId: string,
+  incoming: Record<string, unknown>,
+): { applied: number; skipped: number } {
+  let applied = 0;
+  let skipped = 0;
+  for (const [key, value] of Object.entries(incoming)) {
+    const setting = getSetting(key);
+    // An export taken before a setting became a picker still holds it as text, and
+    // validation alone would drop it with nothing but a count to show for it.
+    const upgraded = setting ? coerceSetting(setting, value) : value;
+    if (!setting || !validateSetting(setting, upgraded)) {
+      skipped++;
+      continue;
+    }
+    ctx.config.set(guildId, key, upgraded);
+    applied++;
+  }
+  return { applied, skipped };
 }
 
 // ── Button handler (toggle/edit/export/import/reset/close) ───────────────────

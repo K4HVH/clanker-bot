@@ -362,6 +362,24 @@ export function settingsByCategory(categoryId: string): Setting[] {
   return REGISTRY.filter((s) => s.category === categoryId);
 }
 
+// Bring a value up to the shape its setting holds today. Settings that used to be typed
+// out as text are now picked from a menu and stored as a list, and a config exported
+// before that change still carries the old form. Validation would reject it and import
+// reports a rejection only as a count, so a restored backup would come back quietly
+// missing settings the guild still expects to be there.
+export function coerceSetting(setting: Setting, value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  if (setting.type === "roles") return parseRoleIds(value);
+  if (setting.type === "multichoice") {
+    const offered = new Set(setting.choices?.map((c) => c.value));
+    return value
+      .split(/[\n,]/)
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => offered.has(part));
+  }
+  return value;
+}
+
 // Validate a typed value against a setting's type + bounds (used by import + modal).
 export function validateSetting(setting: Setting, value: unknown): boolean {
   switch (setting.type) {

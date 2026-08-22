@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   CATEGORIES,
   CONFIG_KEYS,
+  coerceSetting,
   ConfigService,
   migrateConfig,
   parseRoleIds,
@@ -207,4 +208,36 @@ test("migrateConfig turns hand-typed role lists into picker lists", () => {
     "123456789012345678",
     "987654321098765432",
   ]);
+});
+
+// A config exported before those settings became pickers holds them as a typed string.
+// Validation rejects that shape, and import reports a rejection only as a count, so a
+// restored backup would come back quietly missing its honeypot exemptions.
+test("coerceSetting brings an older export's values up to the current shape", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  expect(coerceSetting(roles, "123456789012345678, 987654321098765432")).toEqual([
+    "123456789012345678",
+    "987654321098765432",
+  ]);
+  expect(coerceSetting(roles, "nonsense")).toEqual([]);
+
+  const cats = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckCategories)!;
+  expect(coerceSetting(cats, "reasoning")).toEqual(["reasoning"]);
+  expect(coerceSetting(cats, "reasoning, made-up")).toEqual(["reasoning"]);
+});
+
+test("coerceSetting leaves anything already in the right shape alone", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  expect(coerceSetting(roles, ["123456789012345678"])).toEqual(["123456789012345678"]);
+  const bool = REGISTRY_BY_KEY.get(CONFIG_KEYS.dmOnAction)!;
+  expect(coerceSetting(bool, true)).toBe(true);
+  const int = REGISTRY_BY_KEY.get(CONFIG_KEYS.automodFloodMessages)!;
+  expect(coerceSetting(int, 5)).toBe(5);
+});
+
+test("an older export now survives the round trip that import puts it through", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.honeypotExemptRoles)!;
+  const legacy = "123456789012345678, 987654321098765432";
+  expect(validateSetting(roles, legacy)).toBe(false); // why it was being dropped
+  expect(validateSetting(roles, coerceSetting(roles, legacy))).toBe(true);
 });

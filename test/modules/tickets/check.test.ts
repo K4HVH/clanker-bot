@@ -14,6 +14,7 @@ import { CONFIG_KEYS } from "../../../src/lib/config";
 import type { CheckQuestion } from "../../../src/lib/ticket-check";
 import {
   answerSession,
+  clearCheckSession,
   type Continuation,
   gateTicket,
   takePassNote,
@@ -628,4 +629,31 @@ test("a check swept after the feature is turned off costs nothing", () => {
   sweepSessions(ctx, NOW + 61_000);
   expect(getSession(s.token)).toBeUndefined();
   expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toBeUndefined();
+});
+
+// The config modal takes 4000 characters for a text setting, and Discord caps an embed
+// description at 4096. Without clamping, a guild that pastes a long explanation into the
+// intro makes the whole gate throw, and nobody can open a ticket at all.
+test("a very long intro or failure text cannot break the check", async () => {
+  const ctx = gatedContext();
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckIntroText, "x".repeat(4000));
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckFailText, "y".repeat(4000));
+  const guild = stubGuild();
+
+  const gate = await gateTicket(ctx, guild, USER, PANEL);
+  if (gate.kind !== "stop") throw new Error("expected a challenge");
+  // biome-ignore lint: untyped Discord API JSON
+  const question = (gate.reply as any).embeds[0].data.description as string;
+  expect(question.length).toBeLessThanOrEqual(4096);
+  expect(question).toContain("right opens a ticket"); // the question itself survives
+
+  // And the same on the way out, where the failure text is just as long.
+  recordCheckFail(ctx.db, GUILD_ID, USER.id, Date.now());
+  clearCheckSession(GUILD_ID, USER.id);
+  const cooled = await gateTicket(ctx, guild, USER, PANEL);
+  if (cooled.kind !== "stop") throw new Error("expected a cooldown notice");
+  // biome-ignore lint: untyped Discord API JSON
+  const notice = (cooled.reply as any).embeds[0].data.description as string;
+  expect(notice.length).toBeLessThanOrEqual(4096);
+  expect(notice).toContain("You can try again");
 });

@@ -216,8 +216,20 @@ function cryptoRng(): Rng {
   return makeRng(randomBytes(4).readUInt32BE(0));
 }
 
+// Discord caps an embed description at 4096 characters and discord.js THROWS rather than
+// truncating, so an over-long setting would take the whole gate down with it: the button
+// handler would answer "something went wrong" and nobody could open a ticket. Guild copy
+// gets a generous cap of its own, and the finished description a hard one, so no
+// combination of settings can produce a message that cannot be sent.
+const COPY_MAX = 1500;
+const DESCRIPTION_MAX = 4096;
+
+function clamp(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 function failText(ctx: AppContext, guildId: string): string {
-  return ctx.config.getEffective<string>(guildId, K.ticketCheckFailText);
+  return clamp(ctx.config.getEffective<string>(guildId, K.ticketCheckFailText), COPY_MAX);
 }
 
 function retryLine(until: number): string {
@@ -233,14 +245,18 @@ function questionBody(session: Session, policy: CheckPolicy, resumed = false) {
   // The guild's own words introduce the check, then get out of the way: repeating them
   // above every question would only push the question itself down the message. The line
   // below is generated rather than written, so it stays true when the knobs change.
-  const intro = session.current === 0 && policy.introText.trim() ? `${policy.introText}\n\n` : "";
+  const intro =
+    session.current === 0 && policy.introText.trim() ? `${clamp(policy.introText, COPY_MAX)}\n\n` : "";
   const embed = new EmbedBuilder()
     .setColor(0x2980b9)
     .setTitle(`Question ${session.current + 1} of ${total}`)
     .setDescription(
-      `${intro}${question.prompt}\n\n-# ${resumed ? "Still the check you already started. " : ""}` +
-        `${policy.required} of ${total} right opens a ticket. ` +
-        `Time runs out <t:${Math.floor(session.deadline / 1000)}:R>.`,
+      clamp(
+        `${intro}${question.prompt}\n\n-# ${resumed ? "Still the check you already started. " : ""}` +
+          `${policy.required} of ${total} right opens a ticket. ` +
+          `Time runs out <t:${Math.floor(session.deadline / 1000)}:R>.`,
+        DESCRIPTION_MAX,
+      ),
     );
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     ...question.choices.map((choice, index) =>
@@ -257,7 +273,9 @@ function failBody(ctx: AppContext, guildId: string, scoreLine: string, until: nu
   const embed = new EmbedBuilder()
     .setColor(0xe74c3c)
     .setTitle("Ticket not opened")
-    .setDescription(`${scoreLine}\n\n${failText(ctx, guildId)}\n\n${retryLine(until)}`);
+    .setDescription(
+      clamp(`${scoreLine}\n\n${failText(ctx, guildId)}\n\n${retryLine(until)}`, DESCRIPTION_MAX),
+    );
   return { embeds: [embed], components: [] };
 }
 
@@ -346,8 +364,11 @@ export async function gateTicket(
       .setColor(0xe74c3c)
       .setTitle("Ticket not opened")
       .setDescription(
-        "You didn't pass the intelligence check, so opening a ticket is on hold for now." +
-          `\n\n${failText(ctx, guild.id)}\n\n${retryLine(decision.until)}`,
+        clamp(
+          "You didn't pass the intelligence check, so opening a ticket is on hold for now." +
+            `\n\n${failText(ctx, guild.id)}\n\n${retryLine(decision.until)}`,
+          DESCRIPTION_MAX,
+        ),
       );
     return { kind: "stop", reply: { embeds: [embed], flags: MessageFlags.Ephemeral } };
   }
