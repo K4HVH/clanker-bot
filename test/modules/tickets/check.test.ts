@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import type { Guild, User } from "discord.js";
+import type { Guild, ModalSubmitInteraction, User } from "discord.js";
+import { ComponentRouter } from "../../../src/core/component-router";
 import type { AppContext } from "../../../src/core/context";
 import { getCheckResult, recordCheckFail, recordCheckPass } from "../../../src/db/ticket-check";
+import { ticketsModule } from "../../../src/modules/tickets";
 import { CONFIG_KEYS } from "../../../src/lib/config";
 import type { CheckQuestion } from "../../../src/lib/ticket-check";
 import {
@@ -236,4 +238,61 @@ test("gateTicket lets a recent pass straight through", async () => {
   const ctx = gatedContext();
   recordCheckPass(ctx.db, GUILD_ID, USER.id, Date.now());
   expect((await gateTicket(ctx, stubGuild(), USER, PANEL)).kind).toBe("allow");
+});
+
+// ── the subject modal, and which message it is allowed to touch ─────────────
+
+function fakeModal(customId: string) {
+  const calls: string[] = [];
+  const guild = {
+    id: GUILD_ID,
+    name: "Test",
+    roles: { everyone: { id: "everyone" } },
+    members: { me: { id: "bot" } },
+    client: { user: { id: "bot" } },
+    // Creation failing is fine here: the assertion is about how the interaction was
+    // answered, not about the ticket itself.
+    channels: {
+      create: async () => {
+        throw new Error("no channels in a test");
+      },
+    },
+  };
+  const interaction = {
+    customId,
+    guild,
+    user: USER,
+    replied: false,
+    deferred: false,
+    fields: { fields: new Map() },
+    isButton: () => false,
+    isModalSubmit: () => true,
+    isFromMessage: () => true,
+    deferReply: async () => void calls.push("deferReply"),
+    deferUpdate: async () => void calls.push("deferUpdate"),
+    editReply: async () => void calls.push("editReply"),
+  };
+  return { interaction, calls };
+}
+
+const route = async (customId: string) => {
+  const { interaction, calls } = fakeModal(customId);
+  const router = new ComponentRouter(ticketsModule.components ?? [], silentContext());
+  await router.handle(interaction as unknown as ModalSubmitInteraction);
+  return calls;
+};
+
+// A modal opened from ANY message component arrives with that component's message
+// attached, so the panel button's modal carries the PUBLIC panel message. Answering it
+// with an update would rewrite the panel itself and leave the server with no button.
+test("the panel's subject modal replies, and never edits the panel message", async () => {
+  const calls = await route("ticket_modal");
+  expect(calls).toContain("deferReply");
+  expect(calls).not.toContain("deferUpdate");
+});
+
+test("the modal off a passed check updates its own ephemeral question message", async () => {
+  const calls = await route("ticket_modal:check");
+  expect(calls).toContain("deferUpdate");
+  expect(calls).not.toContain("deferReply");
 });

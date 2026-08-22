@@ -41,7 +41,13 @@ export async function sendToModLog(
 
 // The panel's "what do you need help with" prompt. Shown either straight off the Open
 // Ticket button, or off the last answer of a passed check.
-export function subjectModal(): ModalBuilder {
+//
+// Those two need different responses, and the custom id is what tells them apart. A modal
+// opened from ANY message component arrives with that component's message attached, so
+// "did this come from a message?" cannot distinguish them: answering the panel button's
+// modal with an update would edit the public panel message itself and wipe the panel for
+// the whole server. The check's question message is ephemeral and IS the thing to edit.
+export function subjectModal(fromCheck = false): ModalBuilder {
   const subject = new TextInputBuilder()
     .setCustomId("subject")
     .setLabel("What do you need help with? (optional)")
@@ -49,7 +55,7 @@ export function subjectModal(): ModalBuilder {
     .setMaxLength(SUBJECT_MAX)
     .setRequired(false);
   return new ModalBuilder()
-    .setCustomId("ticket_modal")
+    .setCustomId(fromCheck ? "ticket_modal:check" : "ticket_modal")
     .setTitle("Open a ticket")
     .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(subject));
 }

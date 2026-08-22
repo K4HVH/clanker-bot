@@ -35,18 +35,12 @@ import {
   type TicketRecord,
   touchTicketActivity,
 } from "../../db/tickets";
-import { CONFIG_KEYS } from "../../lib/config";
 import { clearCheckResult, recordCheckPass } from "../../db/ticket-check";
-import {
-  checkComponents,
-  gateTicket,
-  readPolicy,
-  sweepSessions,
-  takePassNote,
-} from "./check";
-import { isTicketStaff, sendToModLog, subjectModal, SUBJECT_MAX } from "./shared";
+import { CONFIG_KEYS } from "../../lib/config";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
+import { checkComponents, gateTicket, readPolicy, sweepSessions, takePassNote } from "./check";
+import { isTicketStaff, sendToModLog, subjectModal, SUBJECT_MAX } from "./shared";
 
 const ACCESS = [
   PermissionFlagsBits.ViewChannel,
@@ -710,13 +704,17 @@ const openHandler: ComponentHandler = {
 const modalHandler: ComponentHandler = {
   customId: "ticket_modal",
   type: "modal",
+  // "ticket_modal" from the panel button, "ticket_modal:check" off a passed check.
+  match: "prefix",
   async handle(interaction, ctx) {
     const modal = interaction as ModalSubmitInteraction;
     if (!modal.guild) return;
-    // Reached from the last answer of a passed check, the modal belongs to that question
-    // message: edit it in place rather than leaving the question on screen under a second
-    // ephemeral reply.
-    if (modal.isFromMessage()) await modal.deferUpdate();
+    // Off a passed check this modal belongs to the ephemeral question message, so update
+    // it in place instead of leaving the answered question on screen under a second
+    // reply. Off the panel button it belongs to the PUBLIC panel message, which must be
+    // left alone: see subjectModal() for why the source message can't tell us which.
+    const fromCheck = modal.customId.endsWith(":check");
+    if (fromCheck && modal.isFromMessage()) await modal.deferUpdate();
     else await modal.deferReply({ flags: MessageFlags.Ephemeral });
     // The subject input is optional, so Discord may send it back empty (or, in principle,
     // not at all: getTextInputValue throws on a missing field). Both mean "no subject".
