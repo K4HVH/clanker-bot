@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tickets_channel_idx ON tickets (channel_id);
 
+-- Ticket intelligence check: who has passed (and when) so a pass can stay good for a
+-- while, and who has failed (and how often in a row) so a cooldown can be enforced
+-- across restarts. In-flight challenges live in memory only.
+CREATE TABLE IF NOT EXISTS ticket_check_results (
+  guild_id  TEXT    NOT NULL,
+  user_id   TEXT    NOT NULL,
+  passed_at INTEGER,
+  failed_at INTEGER,
+  fails     INTEGER NOT NULL DEFAULT 0,  -- consecutive; a pass resets it
+  PRIMARY KEY (guild_id, user_id)
+) WITHOUT ROWID;
+
 -- Canned-response tags (FAQ answers).
 CREATE TABLE IF NOT EXISTS tags (
   guild_id   TEXT    NOT NULL,

@@ -5,7 +5,7 @@ import type { BotModule, Listener } from "../../core/module";
 import { type GuardAction, parseGuardAction } from "../../lib/actions";
 import { Claims } from "../../lib/claim";
 import { createCase } from "../../db/cases";
-import { CONFIG_KEYS } from "../../lib/config";
+import { CONFIG_KEYS, parseRoleIds } from "../../lib/config";
 import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
@@ -24,11 +24,7 @@ function actionOf(ctx: AppContext, guildId: string): GuardAction {
 }
 
 function exemptRoleIds(ctx: AppContext, guildId: string): string[] {
-  const raw = ctx.config.getEffective<string>(guildId, CONFIG_KEYS.honeypotExemptRoles) ?? "";
-  return raw
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter((s) => /^\d{17,20}$/.test(s));
+  return parseRoleIds(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.honeypotExemptRoles));
 }
 
 function dmText(guildName: string): string {

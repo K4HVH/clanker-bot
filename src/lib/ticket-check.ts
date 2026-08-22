@@ -470,17 +470,6 @@ export const GENERATORS: Generator[] = [
 
 // ── Quiz assembly ───────────────────────────────────────────────────────────
 
-// Read the guild's category list. A typo must not silently disable the gate, so an
-// empty or entirely unrecognised list falls back to every category rather than none.
-export function parseCategories(raw: string): CheckCategory[] {
-  const known = new Set<string>(CHECK_CATEGORIES);
-  const wanted = raw
-    .split(/[,\n]/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => known.has(s)) as CheckCategory[];
-  return wanted.length > 0 ? [...new Set(wanted)] : [...CHECK_CATEGORIES];
-}
-
 // Draw `count` questions, each from a different family, so one quiz cannot ask the same
 // shape twice. Asking for more than there are families repeats rather than returning
 // short: the config bound is the guard, not this.
@@ -494,4 +483,66 @@ export function buildQuiz(count: number, categories: CheckCategory[], rng: Rng):
     out.push(bag.pop()!.generate(rng));
   }
   return out;
+}
+
+// ── Gate ────────────────────────────────────────────────────────────────────
+
+// The guild's check settings, read once per gate evaluation. `required` is already
+// clamped to `questions` by the time it gets here.
+export interface CheckPolicy {
+  enabled: boolean;
+  categories: CheckCategory[];
+  questions: number;
+  required: number;
+  seconds: number;
+  passDays: number;
+  cooldownMinutes: number;
+  exemptStaff: boolean;
+  exemptRoles: string[];
+}
+
+// What a member's past attempts amount to. Owned here rather than in the db layer
+// because the gate is what gives the three fields their meaning.
+export interface CheckResult {
+  passedAt: number | null;
+  failedAt: number | null;
+  // Consecutive failures, reset by a pass. The mod-log reports it, so it has to mean
+  // "keeps failing" rather than "has ever failed".
+  fails: number;
+}
+
+export type GateDecision =
+  | { kind: "allow"; reason: "disabled" | "exempt" | "recent-pass" }
+  | { kind: "cooldown"; until: number }
+  | { kind: "challenge" };
+
+// Decide whether this member has to sit the check. Order matters: a live pass is
+// honoured before a live cooldown, which can only happen if an admin shortened the pass
+// window since, and bouncing someone who demonstrably passed would be the wrong call.
+export function gateDecision(
+  policy: CheckPolicy,
+  input: {
+    isStaff: boolean;
+    roleIds: string[];
+    result?: CheckResult | undefined;
+    now: number;
+  },
+): GateDecision {
+  if (!policy.enabled) return { kind: "allow", reason: "disabled" };
+  if (policy.exemptStaff && input.isStaff) return { kind: "allow", reason: "exempt" };
+  if (input.roleIds.some((id) => policy.exemptRoles.includes(id))) {
+    return { kind: "allow", reason: "exempt" };
+  }
+
+  const { passedAt, failedAt } = input.result ?? { passedAt: null, failedAt: null };
+  if (policy.passDays > 0 && passedAt !== null) {
+    if (input.now - passedAt < policy.passDays * 86_400_000) {
+      return { kind: "allow", reason: "recent-pass" };
+    }
+  }
+  if (failedAt !== null) {
+    const until = failedAt + policy.cooldownMinutes * 60_000;
+    if (input.now < until) return { kind: "cooldown", until };
+  }
+  return { kind: "challenge" };
 }

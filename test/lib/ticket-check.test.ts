@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  buildQuiz,
-  CHECK_CATEGORIES,
-  GENERATORS,
-  makeRng,
-  parseCategories,
-} from "../../src/lib/ticket-check";
+import type { CheckPolicy } from "../../src/lib/ticket-check";
+import { buildQuiz, gateDecision, GENERATORS, makeRng } from "../../src/lib/ticket-check";
 
 test("makeRng is deterministic per seed and stays in [0,1)", () => {
   const a = makeRng(12345);
@@ -289,9 +284,68 @@ test("buildQuiz only draws from the categories it is given", () => {
   for (const q of quiz) expect(q.category).toBe("reasoning");
 });
 
-test("parseCategories keeps known ids and falls back when none survive", () => {
-  expect(parseCategories("reasoning")).toEqual(["reasoning"]);
-  expect(parseCategories(" REASONING , nonsense ")).toEqual(["reasoning"]);
-  expect(parseCategories("")).toEqual([...CHECK_CATEGORIES]);
-  expect(parseCategories("nonsense")).toEqual([...CHECK_CATEGORIES]);
+
+// ── gate decision ───────────────────────────────────────────────────────────
+
+const POLICY: CheckPolicy = {
+  enabled: true,
+  categories: ["reasoning"],
+  questions: 3,
+  required: 3,
+  seconds: 180,
+  passDays: 30,
+  cooldownMinutes: 30,
+  exemptStaff: true,
+  exemptRoles: [],
+};
+const NOW = 1_000_000_000;
+const DAY = 86_400_000;
+const decide = (policy: Partial<CheckPolicy>, input: Partial<Parameters<typeof gateDecision>[1]>) =>
+  gateDecision({ ...POLICY, ...policy }, { isStaff: false, roleIds: [], now: NOW, ...input });
+
+test("gate is open while the feature is off", () => {
+  expect(decide({ enabled: false }, {})).toEqual({ kind: "allow", reason: "disabled" });
+});
+
+test("gate exempts staff only while that is switched on", () => {
+  expect(decide({}, { isStaff: true })).toEqual({ kind: "allow", reason: "exempt" });
+  expect(decide({ exemptStaff: false }, { isStaff: true })).toEqual({ kind: "challenge" });
+});
+
+test("gate exempts the configured roles", () => {
+  expect(decide({ exemptRoles: ["r1"] }, { roleIds: ["r9", "r1"] })).toEqual({
+    kind: "allow",
+    reason: "exempt",
+  });
+  expect(decide({ exemptRoles: ["r1"] }, { roleIds: ["r9"] })).toEqual({ kind: "challenge" });
+});
+
+test("a pass stays good until its window runs out", () => {
+  const passed = (ago: number) => ({ result: { passedAt: NOW - ago, failedAt: null, fails: 0 } });
+  expect(decide({}, passed(29 * DAY))).toEqual({ kind: "allow", reason: "recent-pass" });
+  expect(decide({}, passed(31 * DAY))).toEqual({ kind: "challenge" });
+  // Zero days means every ticket is gated, however recently they passed.
+  expect(decide({ passDays: 0 }, passed(1000))).toEqual({ kind: "challenge" });
+});
+
+test("a failure blocks until the cooldown lifts", () => {
+  const failed = (ago: number) => ({ result: { passedAt: null, failedAt: NOW - ago, fails: 1 } });
+  expect(decide({}, failed(10 * 60_000))).toEqual({
+    kind: "cooldown",
+    until: NOW - 10 * 60_000 + 30 * 60_000,
+  });
+  expect(decide({}, failed(31 * 60_000))).toEqual({ kind: "challenge" });
+});
+
+// Someone who passed recently cannot also be inside a cooldown unless an admin shortened
+// the pass window under them, and in that case the pass is the fairer of the two.
+test("a live pass beats a live cooldown", () => {
+  expect(decide({}, { result: { passedAt: NOW - 1000, failedAt: NOW - 1000, fails: 1 } })).toEqual({
+    kind: "allow",
+    reason: "recent-pass",
+  });
+});
+
+test("a member with no history is challenged", () => {
+  expect(decide({}, {})).toEqual({ kind: "challenge" });
 });

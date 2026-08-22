@@ -58,6 +58,17 @@ export const CONFIG_KEYS = {
   ticketArchiveImages: "ticket_archive_images",
   ticketCloseConfirm: "ticket_close_confirm",
   ticketStaffOnlyClose: "ticket_staff_only_close",
+  // Ticket Check: the generated reasoning test that gates opening a ticket.
+  ticketCheckEnabled: "ticket_check_enabled",
+  ticketCheckQuestions: "ticket_check_questions",
+  ticketCheckRequired: "ticket_check_required",
+  ticketCheckSeconds: "ticket_check_seconds",
+  ticketCheckPassDays: "ticket_check_pass_days",
+  ticketCheckCooldownMinutes: "ticket_check_cooldown_minutes",
+  ticketCheckExemptRoles: "ticket_check_exempt_roles",
+  ticketCheckExemptStaff: "ticket_check_exempt_staff",
+  ticketCheckFailText: "ticket_check_fail_text",
+  ticketCheckLogFailures: "ticket_check_log_failures",
   logMessageEvents: "log_message_events",
   logMemberEvents: "log_member_events",
   logModActions: "log_mod_actions",
@@ -124,6 +135,7 @@ export const CATEGORIES: Category[] = [
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
   { id: "verification", label: "Verification", accentColor: 0x2ecc71 },
   { id: "tickets", label: "Tickets", accentColor: 0x3498db },
+  { id: "ticket-check", label: "Ticket Check", accentColor: 0x2980b9 },
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
 ];
@@ -188,6 +200,18 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
   { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket. Only staff can." },
+  // Ticket Check: a short generated reasoning test in front of ticket creation, for
+  // guilds drowning in tickets from people who will not read. Off by default.
+  { key: K.ticketCheckEnabled, category: "ticket-check", type: "bool", default: false, label: "Require a check before opening a ticket", description: "Ask a few generated reasoning questions before a ticket is created. Questions are built fresh every time, so there are no answers to share. Off by default." },
+  { key: K.ticketCheckQuestions, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Questions asked", description: "How many questions one check contains. Each comes from a different family, so no check repeats a shape." },
+  { key: K.ticketCheckRequired, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Correct answers needed", description: "How many must be right to pass. Clamped to the number asked, so the two settings can't be set to contradict each other." },
+  { key: K.ticketCheckSeconds, category: "ticket-check", type: "int", min: 30, max: 600, default: 180, label: "Time limit (seconds)", description: "How long the whole check may take before it expires and counts as a failure." },
+  { key: K.ticketCheckPassDays, category: "ticket-check", type: "int", min: 0, max: 365, default: 30, label: "A pass stays valid for (days)", description: "How long before a member has to sit the check again. 0 gates every ticket; 365 is effectively once ever." },
+  { key: K.ticketCheckCooldownMinutes, category: "ticket-check", type: "int", min: 1, max: 1440, default: 30, label: "Cooldown after a failure (minutes)", description: "How long a failed member must wait before trying again. This is what stops someone rerolling questions until they get lucky." },
+  { key: K.ticketCheckExemptRoles, category: "ticket-check", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs that skip the check, comma/newline separated. Use it for customers or veterans you never want gated.", placeholder: "1234567890, 9876543210" },
+  { key: K.ticketCheckExemptStaff, category: "ticket-check", type: "bool", default: true, label: "Exempt staff", description: "Let Manage Server holders and the ticket staff role skip the check. A ticket staff opens for someone else with /ticket open for: is never gated either way." },
+  { key: K.ticketCheckFailText, category: "ticket-check", type: "text", default: "Not this time. Ask in the public help channels instead, where more people can see it and you'll usually get an answer faster.", label: "Failure text", description: "Shown when someone fails. Point them at whichever channel you want them asking in." },
+  { key: K.ticketCheckLogFailures, category: "ticket-check", type: "bool", default: true, label: "Log failures to the mod log", description: "Post who failed, what they answered, and when their cooldown lifts. Turn off if it gets noisy: the check keeps working either way." },
   // Memes: @-mention moderation ("@bot ban @user"). Runs the real mod pipeline for people who
   // hold the permission; snarks at those who don't. All replies pull a random line from the lists
   // (blank = built-in defaults). Placeholders: {mod}, {target}, {action}.
@@ -271,6 +295,15 @@ export function migrateConfig(db: BotDatabase): void {
     for (const key of CONFIG_DROPS) db.query("DELETE FROM guild_config WHERE key = ?").run(key);
   });
   run();
+}
+
+// Role IDs from a comma/newline separated setting. Anything that isn't a snowflake is
+// dropped rather than trusted: a stray word must never quietly widen an exemption.
+export function parseRoleIds(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d{17,20}$/.test(s));
 }
 
 export function getSetting(key: string): Setting | undefined {
