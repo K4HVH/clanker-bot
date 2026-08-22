@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import type { ButtonInteraction, Guild, ModalSubmitInteraction, User } from "discord.js";
 import { ComponentRouter } from "../../../src/core/component-router";
 import type { AppContext } from "../../../src/core/context";
@@ -16,6 +16,7 @@ import {
   newSession,
   putSession,
   readPolicy,
+  sessionFor,
   sweepSessions,
 } from "../../../src/modules/tickets/check";
 import { silentContext } from "../../helpers/fakes";
@@ -209,6 +210,13 @@ function gatedContext(): AppContext {
 }
 
 const PANEL: Continuation = { kind: "panel" };
+
+// The session store is module state, and a check now RESUMES rather than being replaced,
+// so one test's abandoned quiz would otherwise be handed to the next.
+beforeEach(() => {
+  const live = sessionFor(GUILD_ID, USER.id);
+  if (live) dropSession(live.token);
+});
 
 test("gateTicket lets everyone through while the check is off", async () => {
   const gate = await gateTicket(silentContext(), stubGuild(), USER, PANEL);
@@ -457,4 +465,63 @@ test("the intro text leads the first question only", async () => {
   await click(`ticket_check:${token}:0:${live.questions[0]!.answerIndex}`);
   expect(JSON.stringify(seen.updates)).toContain("Question 2 of 2");
   expect(JSON.stringify(seen.updates)).not.toContain("Read the pinned FAQ first.");
+});
+
+// ── you cannot shop for an easier question ──────────────────────────────────
+
+// Clicking Open Ticket again used to build a whole new quiz and silently bin the old
+// one, so anyone could keep rerolling until question one looked easy. Coming back has
+// to return the question they already have, on the clock it already started.
+test("clicking Open Ticket again resumes the same question, on the same clock", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const first = await gateTicket(ctx, guild, USER, PANEL);
+  if (first.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(first.reply);
+  // The four button labels are the question, in the order it was asked.
+  const options = (reply: unknown) =>
+    [...JSON.stringify(reply).matchAll(/"label":"(.*?)"/g)].map((m) => m[1]);
+
+  const second = await gateTicket(ctx, guild, USER, PANEL);
+  if (second.kind !== "stop") throw new Error("expected the same challenge back");
+  expect(tokenOf(second.reply)).toBe(token);
+  expect(options(second.reply)).toEqual(options(first.reply));
+  // Said out loud, or getting the same question back reads as the bot being broken.
+  expect(JSON.stringify(first.reply)).not.toContain("already started");
+  expect(JSON.stringify(second.reply)).toContain("already started");
+});
+
+// The same applies across the two ways in: the command must not hand out a fresh quiz
+// to someone who already has one open from the panel.
+test("the slash command resumes a check started from the panel", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const started = await gateTicket(ctx, guild, USER, PANEL);
+  if (started.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(started.reply);
+
+  const viaCommand = await gateTicket(ctx, guild, USER, { kind: "command", subject: "x" });
+  if (viaCommand.kind !== "stop") throw new Error("expected the same challenge back");
+  expect(tokenOf(viaCommand.reply)).toBe(token);
+  // The newest intent wins: passing should now open with the subject they just gave.
+  expect(getSession(token)?.continuation).toEqual({ kind: "command", subject: "x" });
+});
+
+test("a check left to run out is settled on the next attempt, not reissued", async () => {
+  const ctx = gatedContext();
+  ctx.config.set(GUILD_ID, CONFIG_KEYS.ticketCheckSeconds, 30);
+  const guild = stubGuild();
+  const started = await gateTicket(ctx, guild, USER, PANEL);
+  if (started.kind !== "stop") throw new Error("expected a challenge");
+  const token = tokenOf(started.reply);
+  // Wind the deadline back rather than waiting out the clock.
+  const live = getSession(token)!;
+  live.deadline = Date.now() - 1;
+
+  const again = await gateTicket(ctx, guild, USER, PANEL);
+  if (again.kind !== "stop") throw new Error("expected to be held off");
+  expect(JSON.stringify(again.reply)).not.toContain("Question 1");
+  expect(JSON.stringify(again.reply)).toContain("You can try again");
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)).toMatchObject({ fails: 1 });
+  expect(getSession(token)).toBeUndefined();
 });

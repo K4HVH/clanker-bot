@@ -120,6 +120,14 @@ export function getSession(token: string): Session | undefined {
   return sessions.get(token);
 }
 
+// The check this member already has open, if any. There is at most one.
+export function sessionFor(guildId: string, userId: string): Session | undefined {
+  for (const session of sessions.values()) {
+    if (session.guildId === guildId && session.userId === userId) return session;
+  }
+  return undefined;
+}
+
 export function dropSession(token: string): void {
   sessions.delete(token);
 }
@@ -204,7 +212,7 @@ function retryLine(until: number): string {
 // One question, with its four options as buttons. The custom id carries the session
 // token and which question it belongs to, so a click on a message Discord has not
 // repainted yet is recognised as stale instead of counting against the next question.
-function questionBody(session: Session, policy: CheckPolicy) {
+function questionBody(session: Session, policy: CheckPolicy, resumed = false) {
   const question = session.questions[session.current]!;
   const total = session.questions.length;
   // The guild's own words introduce the check, then get out of the way: repeating them
@@ -215,7 +223,8 @@ function questionBody(session: Session, policy: CheckPolicy) {
     .setColor(0x2980b9)
     .setTitle(`Question ${session.current + 1} of ${total}`)
     .setDescription(
-      `${intro}${question.prompt}\n\n-# ${policy.required} of ${total} right opens a ticket. ` +
+      `${intro}${question.prompt}\n\n-# ${resumed ? "Still the check you already started. " : ""}` +
+        `${policy.required} of ${total} right opens a ticket. ` +
         `Time runs out <t:${Math.floor(session.deadline / 1000)}:R>.`,
     );
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -298,12 +307,22 @@ export async function gateTicket(
   if (!ctx.config.getEffective<boolean>(guild.id, K.ticketCheckEnabled)) return { kind: "allow" };
   const policy = readPolicy(ctx, guild.id);
 
+  const now = Date.now();
+  // Settle a check whose time ran out before deciding anything, so the decision below
+  // sees the failure it caused rather than waiting on the next sweep. Otherwise the
+  // cooldown could land halfway through the quiz this call is about to hand out.
+  const stale = sessionFor(guild.id, user.id);
+  if (stale && now >= stale.deadline) {
+    dropSession(stale.token);
+    recordCheckFail(ctx.db, guild.id, user.id, now);
+  }
+
   const member = await guild.members.fetch(user.id).catch(() => null);
   const decision = gateDecision(policy, {
     isStaff: await isTicketStaff(guild, user.id, ctx),
     roleIds: member ? [...member.roles.cache.keys()] : [],
     result: getCheckResult(ctx.db, guild.id, user.id),
-    now: Date.now(),
+    now,
   });
   if (decision.kind === "allow") return { kind: "allow" };
 
@@ -318,13 +337,28 @@ export async function gateTicket(
     return { kind: "stop", reply: { embeds: [embed], flags: MessageFlags.Ephemeral } };
   }
 
+  // Coming back to a check already in progress returns THAT question, on the clock it
+  // started. Building a fresh quiz here instead would mean anyone could keep reopening
+  // the panel until the first question looked easy, at no cost: the abandoned one was
+  // simply dropped, so it never counted against them either.
+  const live = sessionFor(guild.id, user.id);
+  if (live) {
+    // The newest way in wins, so passing a check started from the panel still opens with
+    // the subject they have since typed into /ticket open.
+    live.continuation = continuation;
+    return {
+      kind: "stop",
+      reply: { ...questionBody(live, policy, true), flags: MessageFlags.Ephemeral },
+    };
+  }
+
   const session = newSession({
     guildId: guild.id,
     userId: user.id,
     questions: buildQuiz(policy.questions, policy.categories, cryptoRng()),
     seconds: policy.seconds,
     continuation,
-    now: Date.now(),
+    now,
   });
   putSession(session);
   return {

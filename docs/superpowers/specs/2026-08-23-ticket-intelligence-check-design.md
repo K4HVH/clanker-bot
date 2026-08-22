@@ -91,8 +91,11 @@ and a continuation describing what to do on success:
 - `{ kind: "panel" }` from the panel button: show the subject modal.
 - `{ kind: "command", subject }` from `/ticket open`: open directly, subject already given.
 
-Starting a session replaces any existing one for that member, so an abandoned check
-cannot be resumed alongside a fresh one.
+A member has at most one check open. Coming back to the panel returns the question they
+already have, on the clock it already started: issuing a fresh quiz instead would let
+anyone reopen the panel until the first question looked easy, at no cost, since the
+abandoned one was dropped rather than counted. A check whose time has run out is settled
+as a failure on the next attempt rather than waiting for the sweep.
 
 Buttons carry `ticket_check:<token>:<question>:<choice>` and register with the router's
 existing `match: "prefix"`. The token is per-session random, so a stale ephemeral message
