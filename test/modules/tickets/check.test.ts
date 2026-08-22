@@ -782,3 +782,95 @@ test("a click on a superseded copy of the question repaints it", async () => {
   expect(seen.updates).toEqual(["Question 2 of 2", "Question 2 of 2"]);
   expect(seen.updates).not.toContain("deferUpdate");
 });
+
+// ── the gate is actually wired in ────────────────────────────────────────────
+
+const OTHER: User = { id: "u2", username: "other" } as unknown as User;
+
+// Every gate test drives gateTicket directly, so both call sites could be deleted with
+// the suite green and the check would simply stop running.
+test("the panel button puts a plain member through the gate, not straight to the modal", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const seen = { replies: [] as string[], modals: [] as string[] };
+  const button = {
+    customId: "ticket_open",
+    guild,
+    guildId: GUILD_ID,
+    user: USER,
+    replied: false,
+    deferred: false,
+    isButton: () => true,
+    isModalSubmit: () => false,
+    // biome-ignore lint: untyped Discord API JSON
+    reply: async (p: any) => void seen.replies.push(JSON.stringify(p)),
+    showModal: async () => void seen.modals.push("subject"),
+  };
+  const router = new ComponentRouter(ticketsModule.components ?? [], ctx);
+  await router.handle(button as unknown as ButtonInteraction);
+  expect(seen.modals).toEqual([]); // no ticket without answering
+  expect(seen.replies.join()).toContain("Question 1 of 3");
+
+  // And with the check off, the same click goes straight to the subject modal.
+  const ctx2 = silentContext();
+  const seen2 = { replies: [] as string[], modals: [] as string[] };
+  const router2 = new ComponentRouter(ticketsModule.components ?? [], ctx2);
+  await router2.handle({
+    ...button,
+    reply: async (p: unknown) => void seen2.replies.push(JSON.stringify(p)),
+    showModal: async () => void seen2.modals.push("subject"),
+  } as unknown as ButtonInteraction);
+  expect(seen2.modals).toEqual(["subject"]);
+});
+
+// The command's staff check was walked only by staff, so deleting it shipped green:
+// anyone could have granted themselves a permanent pass.
+test("/ticket check refuses a member who is not staff", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  recordCheckFail(ctx.db, GUILD_ID, USER.id, Date.now());
+  let replied = "";
+  const command = ticketsModule.commands![0]!;
+  await command.execute(
+    {
+      guild,
+      guildId: GUILD_ID,
+      user: { id: "nobody", username: "nobody" },
+      options: {
+        getSubcommand: () => "check",
+        getUser: () => USER,
+        getBoolean: () => true,
+      },
+      memberPermissions: { has: () => false },
+      reply: async (opts: { content: string }) => {
+        replied = opts.content;
+      },
+    } as unknown as ChatInputCommandInteraction,
+    ctx,
+  );
+  expect(replied).toContain("Only staff");
+  // and nothing changed
+  expect(getCheckResult(ctx.db, GUILD_ID, USER.id)?.passedAt ?? null).toBeNull();
+});
+
+// No test ever had two members mid-check at once, so every guard keying the session
+// store by member was free to be deleted.
+test("one member's check is not handed to, or wiped by, another", async () => {
+  const ctx = gatedContext();
+  const guild = stubGuild();
+  const mine = await gateTicket(ctx, guild, USER, PANEL);
+  const theirs = await gateTicket(ctx, guild, OTHER, PANEL);
+  if (mine.kind !== "stop" || theirs.kind !== "stop") throw new Error("expected challenges");
+  const mineToken = tokenOf(mine.reply);
+  const theirsToken = tokenOf(theirs.reply);
+
+  expect(mineToken).not.toBe(theirsToken);
+  expect(sessionFor(GUILD_ID, USER.id)?.token).toBe(mineToken);
+  expect(sessionFor(GUILD_ID, OTHER.id)?.token).toBe(theirsToken);
+
+  // Clearing one member leaves the other's check running.
+  clearCheckSession(GUILD_ID, USER.id);
+  expect(sessionFor(GUILD_ID, USER.id)).toBeUndefined();
+  expect(sessionFor(GUILD_ID, OTHER.id)?.token).toBe(theirsToken);
+  clearCheckSession(GUILD_ID, OTHER.id);
+});

@@ -45,3 +45,16 @@ test("clearing drops the row so the member starts over", () => {
   clearCheckResult(db, "g", "u");
   expect(getCheckResult(db, "g", "u")).toBeUndefined();
 });
+
+// With one row stored, a clear that ignored the user id looked identical to one that
+// honoured it. /ticket check on one member must not wipe everyone else's.
+test("clearing one member leaves the others alone", () => {
+  const db = makeTestDb();
+  recordCheckPass(db, "g", "alice", 100);
+  recordCheckFail(db, "g", "bob", 200);
+  recordCheckPass(db, "other-guild", "alice", 300);
+  clearCheckResult(db, "g", "alice");
+  expect(getCheckResult(db, "g", "alice")).toBeUndefined();
+  expect(getCheckResult(db, "g", "bob")?.fails).toBe(1);
+  expect(getCheckResult(db, "other-guild", "alice")?.passedAt).toBe(300);
+});
