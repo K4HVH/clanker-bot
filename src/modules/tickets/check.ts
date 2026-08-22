@@ -232,7 +232,7 @@ function questionBody(session: Session, policy: CheckPolicy) {
 function failBody(ctx: AppContext, guildId: string, scoreLine: string, until: number) {
   const embed = new EmbedBuilder()
     .setColor(0xe74c3c)
-    .setTitle("No ticket opened")
+    .setTitle("Ticket not opened")
     .setDescription(`${scoreLine}\n\n${failText(ctx, guildId)}\n\n${retryLine(until)}`);
   return { embeds: [embed], components: [] };
 }
@@ -310,7 +310,7 @@ export async function gateTicket(
   if (decision.kind === "cooldown") {
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle("Not yet")
+      .setTitle("Ticket not opened")
       .setDescription(`${failText(ctx, guild.id)}\n\n${retryLine(decision.until)}`);
     return { kind: "stop", reply: { embeds: [embed], flags: MessageFlags.Ephemeral } };
   }
@@ -358,8 +358,8 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
           embeds: [
             new EmbedBuilder()
               .setColor(0x95a5a6)
-              .setTitle("That check has expired")
-              .setDescription("Open the ticket panel again when you have a minute to spare."),
+              .setTitle("This check has expired")
+              .setDescription("Open the ticket panel to start a new one."),
           ],
           components: [],
         });
@@ -425,7 +425,7 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         embeds: [
           new EmbedBuilder()
             .setColor(0x2ecc71)
-            .setTitle("Passed")
+            .setTitle("Check passed")
             .setDescription("Opening your ticket…"),
         ],
         components: [],
@@ -435,7 +435,7 @@ export function checkComponents(open: OpenTicket): ComponentHandler[] {
         embeds: [
           new EmbedBuilder()
             .setColor(result.ok ? 0x2ecc71 : 0xe74c3c)
-            .setTitle(result.ok ? "Passed" : "No ticket opened")
+            .setTitle(result.ok ? "Check passed" : "Ticket not opened")
             .setDescription(result.ok ? `Ticket opened: <#${result.channelId}>` : result.message),
         ],
       });

@@ -32,8 +32,15 @@ test("readPolicy comes back with the registry defaults", () => {
     cooldownMinutes: 30,
     exemptStaff: true,
     exemptRoles: [],
-    introText: "",
+    introText:
+      "Tickets are answered by a small team, so there are a few questions first. Read each one properly, there's no rush.",
   });
+});
+
+// An empty default would mean every guild that never touches this setting shows people a
+// bare question with no word about why they are being asked anything.
+test("the intro text ships with something to say", () => {
+  expect(readPolicy(silentContext(), "g").introText.trim().length).toBeGreaterThan(0);
 });
 
 test("readPolicy reads the category list, falling back when it is nonsense", () => {
