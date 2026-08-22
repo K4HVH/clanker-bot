@@ -255,16 +255,26 @@ const selectHandler: ComponentHandler = {
       return;
     }
 
-    // chan / role / choice: set the chosen value, or unset when the selection is cleared
     if (arg) {
       const setting = getSetting(arg);
       if (!setting) return;
-      const chosen = select.values[0];
-      if (chosen) {
+
+      if (setting.type === "roles" || setting.type === "multichoice") {
+        // The whole selection is the value. An empty pick is stored rather than unset:
+        // "nobody is exempt" is a decision, and unsetting would quietly restore the
+        // default instead of honouring it.
+        const chosen = [...select.values];
         if (!validateSetting(setting, chosen)) return;
         ctx.config.set(guildId, setting.key, chosen);
       } else {
-        ctx.config.unset(guildId, setting.key);
+        // chan / role / choice: one value, or unset when the selection is cleared.
+        const chosen = select.values[0];
+        if (chosen) {
+          if (!validateSetting(setting, chosen)) return;
+          ctx.config.set(guildId, setting.key, chosen);
+        } else {
+          ctx.config.unset(guildId, setting.key);
+        }
       }
       await select.update({ flags: V2, components: buildPanel(ctx, guildId, setting.category) });
     }

@@ -36,14 +36,14 @@ export function readPolicy(ctx: AppContext, guildId: string): CheckPolicy {
   const questions = cfg.getEffective<number>(guildId, K.ticketCheckQuestions);
   return {
     enabled: cfg.getEffective<boolean>(guildId, K.ticketCheckEnabled),
-    categories: parseCategories(cfg.getEffective<string>(guildId, K.ticketCheckCategories)),
+    categories: parseCategories(cfg.getEffective<string[]>(guildId, K.ticketCheckCategories)),
     questions,
     required: Math.min(cfg.getEffective<number>(guildId, K.ticketCheckRequired), questions),
     seconds: cfg.getEffective<number>(guildId, K.ticketCheckSeconds),
     passDays: cfg.getEffective<number>(guildId, K.ticketCheckPassDays),
     cooldownMinutes: cfg.getEffective<number>(guildId, K.ticketCheckCooldownMinutes),
     exemptStaff: cfg.getEffective<boolean>(guildId, K.ticketCheckExemptStaff),
-    exemptRoles: parseRoleIds(cfg.getEffective<string>(guildId, K.ticketCheckExemptRoles)),
+    exemptRoles: parseRoleIds(cfg.getEffective<string[]>(guildId, K.ticketCheckExemptRoles)),
     introText: cfg.getEffective<string>(guildId, K.ticketCheckIntroText),
   };
 }

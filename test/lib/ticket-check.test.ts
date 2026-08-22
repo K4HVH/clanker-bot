@@ -287,6 +287,11 @@ test("buildQuiz varies which families come up", () => {
 });
 
 test("parseCategories keeps known ids and falls back when none survive", () => {
+  // What the picker stores.
+  expect(parseCategories(["reasoning"])).toEqual(["reasoning"]);
+  expect(parseCategories(["reasoning", "made-up"])).toEqual(["reasoning"]);
+  expect(parseCategories([])).toEqual([...CHECK_CATEGORIES]);
+  // Still reads a hand-typed list, for config exported before the picker existed.
   expect(parseCategories("reasoning")).toEqual(["reasoning"]);
   expect(parseCategories(" REASONING , nonsense ")).toEqual(["reasoning"]);
   // A typo must not quietly switch the gate off: every category is better than none.

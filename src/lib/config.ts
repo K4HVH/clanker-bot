@@ -1,5 +1,6 @@
 import { ChannelType } from "discord.js";
 import { GUARD_ACTIONS, SCAM_ACTIONS } from "./actions";
+import { CHECK_CATEGORIES } from "./ticket-check";
 import { type BotDatabase, many, one } from "../db/index";
 
 // Channel types a text-message picker should offer. A mod-log or trap channel can be an
@@ -104,7 +105,17 @@ export const CONFIG_KEYS = {
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
-export type SettingType = "bool" | "int" | "text" | "channel" | "role" | "choice";
+// "role"/"choice" hold one value; "roles"/"multichoice" hold a list, and both are picked
+// from a native Discord select rather than typed out by hand.
+export type SettingType =
+  | "bool"
+  | "int"
+  | "text"
+  | "channel"
+  | "role"
+  | "roles"
+  | "choice"
+  | "multichoice";
 
 export interface Setting {
   key: string;
@@ -144,6 +155,13 @@ export const CATEGORIES: Category[] = [
 ];
 
 const K = CONFIG_KEYS;
+
+// Offered by the ticket check's category picker. Derived from the check itself, so adding
+// a question category makes it selectable without a second list to keep in step.
+const CHECK_CATEGORY_CHOICES = CHECK_CATEGORIES.map((c) => ({
+  value: c,
+  label: c.charAt(0).toUpperCase() + c.slice(1),
+}));
 
 export const REGISTRY: Setting[] = [
   // Moderation. The shared punishment magnitudes live here (one each), read by every feature.
@@ -206,13 +224,13 @@ export const REGISTRY: Setting[] = [
   // Ticket Check: a short generated reasoning test in front of ticket creation, for
   // guilds drowning in tickets from people who will not read. Off by default.
   { key: K.ticketCheckEnabled, category: "ticket-check", type: "bool", default: false, label: "Require a check before opening a ticket", description: "Ask a few generated reasoning questions before a ticket is created. Questions are built fresh every time, so there are no answers to share. Off by default." },
-  { key: K.ticketCheckCategories, category: "ticket-check", type: "text", default: "reasoning", label: "Question categories", description: "Which question sets are in play, comma separated. 'reasoning' is the only one so far; domain-specific sets slot in here as they are added. An empty or unrecognised list uses every category rather than switching the check off.", placeholder: "reasoning" },
+  { key: K.ticketCheckCategories, category: "ticket-check", type: "multichoice", choices: CHECK_CATEGORY_CHOICES, default: ["reasoning"], label: "Question categories", description: "Which question sets are in play. 'reasoning' is the only one so far; domain-specific sets appear here as they are added. Selecting none uses every category rather than switching the check off." },
   { key: K.ticketCheckQuestions, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Questions asked", description: "How many questions one check contains. Each comes from a different family, so no check repeats a shape." },
   { key: K.ticketCheckRequired, category: "ticket-check", type: "int", min: 1, max: 5, default: 3, label: "Correct answers needed", description: "How many must be right to pass. Clamped to the number asked, so the two settings can't be set to contradict each other." },
   { key: K.ticketCheckSeconds, category: "ticket-check", type: "int", min: 30, max: 600, default: 180, label: "Time limit (seconds)", description: "How long the whole check may take before it expires and counts as a failure." },
   { key: K.ticketCheckPassDays, category: "ticket-check-results", type: "int", min: 0, max: 365, default: 30, label: "A pass stays valid for (days)", description: "How long before a member has to sit the check again. 0 gates every ticket; 365 is effectively once ever." },
   { key: K.ticketCheckCooldownMinutes, category: "ticket-check-results", type: "int", min: 1, max: 1440, default: 30, label: "Cooldown after a failure (minutes)", description: "How long a failed member must wait before trying again. This is what stops someone rerolling questions until they get lucky." },
-  { key: K.ticketCheckExemptRoles, category: "ticket-check", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs that skip the check, comma/newline separated. Use it for customers or veterans you never want gated.", placeholder: "1234567890, 9876543210" },
+  { key: K.ticketCheckExemptRoles, category: "ticket-check", type: "roles", default: [], label: "Exempt roles", description: "Roles that skip the check. Use it for customers or veterans you never want gated." },
   { key: K.ticketCheckIntroText, category: "ticket-check", type: "text", default: "", label: "Intro text (first question)", description: "Shown above the first question only. Use it to point at the FAQ or pinned posts first. The line stating how many are needed and how long is left is added automatically, so it stays right when you change those." },
   { key: K.ticketCheckExemptStaff, category: "ticket-check", type: "bool", default: true, label: "Exempt staff", description: "Let Manage Server holders and the ticket staff role skip the check. A ticket staff opens for someone else with /ticket open for: is never gated either way." },
   { key: K.ticketCheckFailText, category: "ticket-check-results", type: "text", default: "Not this time. Ask in the public help channels instead, where more people can see it and you'll usually get an answer faster.", label: "Failure text", description: "Shown when someone fails. Point them at whichever channel you want them asking in." },
@@ -229,7 +247,7 @@ export const REGISTRY: Setting[] = [
   { key: K.honeypotChannelId, category: "honeypot", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Honeypot channel", description: "Trap channel. Anyone who posts here trips the action below. Put it near the top of your channel list. Unset = disabled." },
   { key: K.honeypotAction, category: "honeypot", type: "choice", choices: GUARD_ACTIONS, default: "off", label: "Honeypot: action", description: "What to do with someone who posts in the trap channel. Defaults to off. Flag to watch, kick/ban to remove. Ban wipe and timeout length come from Moderation." },
   { key: K.honeypotPanelText, category: "honeypot", type: "text", default: "**Do not post in this channel.** It is a trap for compromised accounts. Posting here removes you from the server automatically.", label: "Honeypot panel text", description: "Message shown by /honeypot panel in the trap channel." },
-  { key: K.honeypotExemptRoles, category: "honeypot", type: "text", default: "", label: "Exempt role IDs", description: "Role IDs never actioned, comma/newline separated. The owner and Manage Messages holders are always exempt.", placeholder: "1234567890, 9876543210" },
+  { key: K.honeypotExemptRoles, category: "honeypot", type: "roles", default: [], label: "Exempt roles", description: "Roles never actioned. The owner and Manage Messages holders are always exempt." },
   { key: K.honeypotDmUser, category: "honeypot", type: "bool", default: true, label: "DM removed users why", description: "Tell a kicked/banned user why (sent before removal), so a hijack victim knows to secure their account." },
   { key: K.honeypotAlertRoleId, category: "honeypot", type: "role", default: undefined, label: "Alert role", description: "Role pinged in the mod-log whenever the honeypot fires. Needs a mod-log channel set under Logging. A hit can also seed the scam signature list (see Automod Scam Seeding) when seeding is on." },
   // Automod Scam. Confirmed-bad detections run inside automod's scan, before the heuristic rules.
@@ -286,8 +304,13 @@ const CONFIG_DROPS = [
   "honeypot_delete_hours",
 ];
 
-// Bring a stored config forward to the current key names. Idempotent (a re-run finds no old keys)
-// and transactional. Call once at boot before serving.
+// Settings that used to be free-text lists of IDs and are now picked from a menu. Their
+// stored value has to become an array, or the panel shows nothing selected and the next
+// save silently replaces what the guild had.
+const ROLE_LIST_KEYS = [CONFIG_KEYS.honeypotExemptRoles, CONFIG_KEYS.ticketCheckExemptRoles];
+
+// Bring a stored config forward to the current key names and value shapes. Idempotent
+// (a re-run finds nothing left to do) and transactional. Call once at boot before serving.
 export function migrateConfig(db: BotDatabase): void {
   const run = db.transaction(() => {
     for (const [oldKey, newKey] of CONFIG_RENAMES) {
@@ -298,17 +321,35 @@ export function migrateConfig(db: BotDatabase): void {
       db.query("DELETE FROM guild_config WHERE key = ?").run(oldKey);
     }
     for (const key of CONFIG_DROPS) db.query("DELETE FROM guild_config WHERE key = ?").run(key);
+
+    for (const key of ROLE_LIST_KEYS) {
+      for (const row of many<{ guildId: string; value: string }>(
+        db,
+        "SELECT guild_id AS guildId, value FROM guild_config WHERE key = ?",
+        key,
+      )) {
+        const stored: unknown = JSON.parse(row.value);
+        if (typeof stored !== "string") continue; // already a list
+        db.query("UPDATE guild_config SET value = ? WHERE guild_id = ? AND key = ?").run(
+          JSON.stringify(parseRoleIds(stored)),
+          row.guildId,
+          key,
+        );
+      }
+    }
   });
   run();
 }
 
-// Role IDs from a comma/newline separated setting. Anything that isn't a snowflake is
-// dropped rather than trusted: a stray word must never quietly widen an exemption.
-export function parseRoleIds(raw: string | undefined): string[] {
-  return (raw ?? "")
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter((s) => /^\d{17,20}$/.test(s));
+const SNOWFLAKE = /^\d{17,20}$/;
+
+// Role IDs from a "roles" setting, which the picker stores as a list. A string is still
+// accepted for values typed in before the picker existed and for older config exports.
+// Anything that isn't a snowflake is dropped rather than trusted: a stray word must never
+// quietly widen an exemption.
+export function parseRoleIds(raw: string[] | string | undefined): string[] {
+  const parts = Array.isArray(raw) ? raw : (raw ?? "").split(/[\n,]/);
+  return parts.map((s) => s.trim()).filter((s) => SNOWFLAKE.test(s));
 }
 
 export function getSetting(key: string): Setting | undefined {
@@ -335,9 +376,18 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
       return typeof value === "string";
     case "channel":
     case "role":
-      return typeof value === "string" && /^\d{17,20}$/.test(value);
+      return typeof value === "string" && SNOWFLAKE.test(value);
     case "choice":
       return typeof value === "string" && (setting.choices?.some((c) => c.value === value) ?? false);
+    case "roles":
+      return (
+        Array.isArray(value) && value.every((v) => typeof v === "string" && SNOWFLAKE.test(v))
+      );
+    case "multichoice":
+      return (
+        Array.isArray(value) &&
+        value.every((v) => setting.choices?.some((c) => c.value === v) ?? false)
+      );
   }
 }
 

@@ -470,12 +470,13 @@ export const GENERATORS: Generator[] = [
 
 // ── Quiz assembly ───────────────────────────────────────────────────────────
 
-// Read the guild's category list. A typo must not silently disable the gate, so an
-// empty or entirely unrecognised list falls back to every category rather than none.
-export function parseCategories(raw: string): CheckCategory[] {
+// Read the guild's category list, as the picker stores it or as it was typed in before
+// the picker existed. Picking none must not silently disable the gate, so an empty or
+// entirely unrecognised list falls back to every category rather than none.
+export function parseCategories(raw: string[] | string | undefined): CheckCategory[] {
   const known = new Set<string>(CHECK_CATEGORIES);
-  const wanted = raw
-    .split(/[,\n]/)
+  const parts = Array.isArray(raw) ? raw : (raw ?? "").split(/[,\n]/);
+  const wanted = parts
     .map((s) => s.trim().toLowerCase())
     .filter((s) => known.has(s)) as CheckCategory[];
   return wanted.length > 0 ? [...new Set(wanted)] : [...CHECK_CATEGORIES];

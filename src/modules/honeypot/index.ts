@@ -24,7 +24,7 @@ function actionOf(ctx: AppContext, guildId: string): GuardAction {
 }
 
 function exemptRoleIds(ctx: AppContext, guildId: string): string[] {
-  return parseRoleIds(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.honeypotExemptRoles));
+  return parseRoleIds(ctx.config.getEffective<string[]>(guildId, CONFIG_KEYS.honeypotExemptRoles));
 }
 
 function dmText(guildName: string): string {

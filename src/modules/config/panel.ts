@@ -123,6 +123,51 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       container.addActionRowComponents(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
       );
+    } else if (s.type === "roles") {
+      const ids = ctx.config.getEffective<string[]>(guildId, s.key) ?? [];
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `**${s.label}:** ${ids.length ? ids.map((id) => `<@&${id}>`).join(" ") : "*(none)*"}${descLine(s)}`,
+        ),
+      );
+      const select = new RoleSelectMenuBuilder()
+        .setCustomId(`cfg:roles:${s.key}`)
+        .setPlaceholder("Select roles…")
+        // Zero so the list can be emptied again, and Discord's own cap as the ceiling:
+        // no reason for this to be a smaller number than the picker itself allows.
+        .setMinValues(0)
+        .setMaxValues(25);
+      if (ids.length) select.setDefaultRoles(...ids.slice(0, 25));
+      container.addActionRowComponents(
+        new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(select),
+      );
+    } else if (s.type === "multichoice") {
+      const chosen = ctx.config.getEffective<string[]>(guildId, s.key) ?? [];
+      const labels = (s.choices ?? [])
+        .filter((c) => chosen.includes(c.value))
+        .map((c) => `\`${c.label}\``);
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `**${s.label}:** ${labels.length ? labels.join(" ") : "*(none)*"}${descLine(s)}`,
+        ),
+      );
+      const options = s.choices ?? [];
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(`cfg:multi:${s.key}`)
+        .setPlaceholder("Select…")
+        .setMinValues(0)
+        .setMaxValues(Math.max(options.length, 1));
+      for (const c of options) {
+        select.addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(c.label)
+            .setValue(c.value)
+            .setDefault(chosen.includes(c.value)),
+        );
+      }
+      container.addActionRowComponents(
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+      );
     } else if (s.type === "role") {
       const id = ctx.config.get<string>(guildId, s.key);
       container.addTextDisplayComponents(

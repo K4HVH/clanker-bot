@@ -4,6 +4,7 @@ import {
   CONFIG_KEYS,
   ConfigService,
   migrateConfig,
+  parseRoleIds,
   REGISTRY,
   REGISTRY_BY_KEY,
   validateSetting,
@@ -147,4 +148,63 @@ test("all returns parsed values", () => {
   cfg.set("g1", "a", "x");
   cfg.set("g1", "b", 2);
   expect(cfg.all("g1")).toEqual({ a: "x", b: 2 });
+});
+
+// ── multi-select settings (role pickers, category pickers) ──────────────────
+
+test("validateSetting accepts a list of role IDs and rejects anything else", () => {
+  const roles = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckExemptRoles);
+  if (!roles) throw new Error("registry missing the exempt roles key");
+  expect(roles.type).toBe("roles");
+  expect(validateSetting(roles, [])).toBe(true);
+  expect(validateSetting(roles, ["123456789012345678"])).toBe(true);
+  expect(validateSetting(roles, ["123456789012345678", "987654321098765432"])).toBe(true);
+  expect(validateSetting(roles, ["nope"])).toBe(false);
+  expect(validateSetting(roles, "123456789012345678")).toBe(false); // a bare string is not a list
+  expect(validateSetting(roles, [123456789012345678])).toBe(false);
+});
+
+test("validateSetting holds a multi-choice list to the offered values", () => {
+  const cats = REGISTRY_BY_KEY.get(CONFIG_KEYS.ticketCheckCategories);
+  if (!cats) throw new Error("registry missing the categories key");
+  expect(cats.type).toBe("multichoice");
+  expect(validateSetting(cats, ["reasoning"])).toBe(true);
+  expect(validateSetting(cats, [])).toBe(true);
+  expect(validateSetting(cats, ["reasoning", "made-up"])).toBe(false);
+  expect(validateSetting(cats, "reasoning")).toBe(false);
+});
+
+test("parseRoleIds reads a stored list, and still reads a hand-typed one", () => {
+  expect(parseRoleIds(["123456789012345678", "987654321098765432"])).toEqual([
+    "123456789012345678",
+    "987654321098765432",
+  ]);
+  expect(parseRoleIds(["123456789012345678", "nonsense"])).toEqual(["123456789012345678"]);
+  // Values typed in before the picker existed, and old config exports, are still lists
+  // of IDs in a string.
+  expect(parseRoleIds("123456789012345678, 987654321098765432")).toEqual([
+    "123456789012345678",
+    "987654321098765432",
+  ]);
+  expect(parseRoleIds(undefined)).toEqual([]);
+  expect(parseRoleIds([])).toEqual([]);
+});
+
+test("migrateConfig turns hand-typed role lists into picker lists", () => {
+  const db = makeTestDb();
+  const cfg = new ConfigService(db);
+  cfg.set("g", CONFIG_KEYS.honeypotExemptRoles, "123456789012345678, 987654321098765432");
+  cfg.set("g2", CONFIG_KEYS.ticketCheckExemptRoles, "nonsense");
+  migrateConfig(db);
+  expect(cfg.get<string[]>("g", CONFIG_KEYS.honeypotExemptRoles)).toEqual([
+    "123456789012345678",
+    "987654321098765432",
+  ]);
+  expect(cfg.get<string[]>("g2", CONFIG_KEYS.ticketCheckExemptRoles)).toEqual([]);
+  // Idempotent: a second pass leaves the migrated list alone.
+  migrateConfig(db);
+  expect(cfg.get<string[]>("g", CONFIG_KEYS.honeypotExemptRoles)).toEqual([
+    "123456789012345678",
+    "987654321098765432",
+  ]);
 });
