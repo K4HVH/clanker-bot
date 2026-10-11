@@ -85,3 +85,15 @@ for (const [name, change, error] of cases) {
     expect(errorsAfter(change)).toEqual([error]);
   });
 }
+
+test("text channel names are written the way Discord stores them", () => {
+  const s = base();
+  s.channels[0]!.name = "Rules Here";
+  expect(validateSpec(s)).toEqual(['channel "rules": Discord stores text channel names in lowercase with dashes: write "rules-here"']);
+});
+
+test("voice channels and categories keep their capitals and spaces", () => {
+  const s = base();
+  s.channels.push({ key: "lounge", type: "voice", name: "The Lounge" });
+  expect(validateSpec(s)).toEqual([]);
+});

@@ -25,7 +25,7 @@ export interface EveryoneSpec {
   permissions: PermissionName[];
 }
 
-export type ChannelKind = "text" | "voice" | "announcement" | "forum" | "stage";
+export type ChannelKind = "text" | "voice" | "announcement" | "forum" | "stage" | "media";
 
 export interface ChannelSpec {
   key: string;
@@ -151,6 +151,14 @@ export function validateSpec(spec: ServerSpec): string[] {
     if (channel.type !== "category") textKeys.add(channel.key);
   }
   for (const { channel } of flat) {
+    // Discord lowercases text-like channel names and turns spaces into dashes. A name written any
+    // other way would never bind, and would plan a rename on every run.
+    if (channel.type === "text" || channel.type === "announcement" || channel.type === "forum" || channel.type === "media") {
+      const stored = channel.name.toLowerCase().replace(/\s+/g, "-");
+      if (stored !== channel.name) {
+        errors.push(`channel "${channel.key}": Discord stores text channel names in lowercase with dashes: write "${stored}"`);
+      }
+    }
     for (const [role, ow] of Object.entries(channel.overwrites ?? {})) {
       if (!roleKeys.has(role)) errors.push(`channel "${channel.key}": overwrite for unknown role "${role}"`);
       for (const p of Object.keys(ow)) {
