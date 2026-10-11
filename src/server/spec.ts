@@ -56,6 +56,8 @@ export interface ForumSpec {
   sort?: "activity" | "created";
   layout?: "list" | "gallery";
   threadSlowmode?: number;
+  solvedTag?: string; // the tag /solved puts on a post
+  answers?: boolean; // Clanker answers a new post with matching answers from the site's Help
 }
 
 export interface CategorySpec {
@@ -209,6 +211,9 @@ export function validateSpec(spec: ServerSpec): string[] {
       if (tags.length > 20) errors.push(`channel "${channel.key}": at most 20 tags`);
       if (new Set(tags.map((t) => t.name)).size !== tags.length) errors.push(`channel "${channel.key}": tag names must differ`);
       for (const t of tags) if (t.name.length === 0 || t.name.length > 20) errors.push(`channel "${channel.key}": tag "${t.name}" must be 1 to 20 characters`);
+      if (forum.solvedTag !== undefined && !tags.some((t) => t.name === forum.solvedTag)) {
+        errors.push(`channel "${channel.key}": solvedTag "${forum.solvedTag}" isn't one of its tags`);
+      }
     }
     if (channel.type !== "category" && channel.topic !== undefined) {
       const max = channel.type === "forum" || channel.type === "media" ? 4096 : 1024;

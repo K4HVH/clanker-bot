@@ -7,6 +7,8 @@ import { loggingModule } from "./logging";
 import { memesModule } from "./memes";
 import { moderationModule } from "./moderation";
 import { privacyModule } from "./privacy";
+import { publishModule } from "./publish";
+import { rolesModule } from "./roles";
 import { sayModule } from "./say";
 import { serverModule } from "./server";
 import { tagsModule } from "./tags";
@@ -31,4 +33,6 @@ export const modules: BotModule[] = [
   memesModule,
   serverModule,
   privacyModule,
+  rolesModule,
+  publishModule,
 ];
