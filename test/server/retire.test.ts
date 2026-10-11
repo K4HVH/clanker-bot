@@ -229,6 +229,17 @@ test("a plan that can't list the invites says so when it deletes a channel", asy
   expect((await planFor(e, true)).manual).not.toContain(INVITES_UNREAD);
 });
 
+test("a channel pruned says how many invites go with it, and a plan that can't list them says so", async () => {
+  const { e, f } = setup();
+  const stray = f.addChannel({ name: "stray" });
+  f.invites.push({ code: "s", channel: { id: stray.id }, uses: 2, max_age: 0 });
+  const plan = await planFor(e, false, true);
+  expect(plan.ops.find((o) => o.t === "prune")).toMatchObject({ label: "#stray", invites: 1, permanentInvites: 1 });
+  expect(renderPlan(plan, e.spec)).toContain("! - #stray, and its 1 invite (1 never expires)");
+  f.invitesHidden = true;
+  expect((await planFor(e, false, true)).manual).toContain(INVITES_UNREAD);
+});
+
 test("deleting a channel says how many invites go with it", async () => {
   const { e, f, old } = setup();
   f.invites.push({ code: "a", channel: { id: old.id }, uses: 6, max_age: 0 }, { code: "b", channel: { id: old.id }, uses: 0, max_age: 604800 });

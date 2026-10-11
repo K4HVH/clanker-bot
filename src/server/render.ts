@@ -94,11 +94,8 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
       }
       case "channel.update":
         return ["Channels", `${channel(op.key)}: ${op.changes.map(change).join(", ")}`];
-      case "channel.delete": {
-        if (!op.invites) return ["Channels", `- #${op.name}`];
-        const kept = op.permanentInvites ? ` (${op.permanentInvites} never expire${op.permanentInvites === 1 ? "s" : ""})` : "";
-        return ["Channels", `- #${op.name}, and its ${op.invites} invite${op.invites === 1 ? "" : "s"}${kept}`];
-      }
+      case "channel.delete":
+        return ["Channels", `- #${op.name}${invitesText(op)}`];
       case "onboarding.set": {
         const b = op.body;
         const was = op.enabledBefore === b.enabled ? "" : ` (was ${op.enabledBefore ? "on" : "off"})`;
@@ -161,9 +158,16 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
       case "post.delete":
         return ["Posts", `- ${op.key}, part ${op.index + 1}`];
       case "prune":
-        return ["Prune: not in the spec", `- ${op.label}`];
+        return ["Prune: not in the spec", `- ${op.label}${invitesText(op)}`];
     }
   };
+}
+
+// The invites a deleted channel takes with it.
+function invitesText(op: { invites?: number; permanentInvites?: number }): string {
+  if (!op.invites) return "";
+  const kept = op.permanentInvites ? ` (${op.permanentInvites} never expire${op.permanentInvites === 1 ? "s" : ""})` : "";
+  return `, and its ${op.invites} invite${op.invites === 1 ? "" : "s"}${kept}`;
 }
 
 export const describeOp = (op: Op, spec: ServerSpec): string => describer(spec)(op)[1];

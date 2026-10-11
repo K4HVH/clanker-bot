@@ -17,3 +17,13 @@ test("a read slower than the interval is never overlapped by the next", async ()
   expect(most).toBe(1);
   expect(reads).toBeGreaterThanOrEqual(2);
 });
+
+test("a read that throws doesn't stop the reads after it", async () => {
+  let reads = 0;
+  const stop = repeat(async () => {
+    if (++reads === 1) throw new Error("down");
+  }, 5);
+  await Bun.sleep(40);
+  stop();
+  expect(reads).toBeGreaterThanOrEqual(2);
+});

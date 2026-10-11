@@ -8,12 +8,12 @@ const EVERY_MS = 10 * 60_000;
 type Postable = Parameters<typeof runFeed>[2] extends (id: string) => Promise<infer P> ? P : never;
 
 // Runs `read` now and again `everyMs` after each run ends, so a slow run (a long first post) is never
-// overlapped by the next.
-export function repeat(read: () => Promise<void>, everyMs: number): () => void {
+// overlapped by the next, and one that throws doesn't stop the rest.
+export function repeat(read: () => Promise<void>, everyMs: number, failed: (error: unknown) => void = () => {}): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const loop = async () => {
-    await read();
+    await read().catch(failed);
     if (stopped) return;
     timer = setTimeout(() => void loop(), everyMs);
     timer.unref?.();
@@ -36,14 +36,16 @@ const onReady: Listener<Events.ClientReady> = {
   event: Events.ClientReady,
   once: true,
   async handle(ctx, client) {
-    repeat(async () => {
-      // Unattended work on a timer: a throw here has no interaction to fail.
-      for (const guild of client.guilds.cache.values()) {
-        await feedGuild(ctx, guild).catch((error: unknown) =>
-          ctx.logger.error("device feed failed", { guildId: guild.id, error: error instanceof Error ? error.message : String(error) }),
-        );
-      }
-    }, EVERY_MS);
+    const failed = (guildId: string | undefined) => (error: unknown) =>
+      ctx.logger.error("device feed failed", { guildId, error: error instanceof Error ? error.message : String(error) });
+    repeat(
+      async () => {
+        // Unattended work on a timer: a throw here has no interaction to fail.
+        for (const guild of client.guilds.cache.values()) await feedGuild(ctx, guild).catch(failed(guild.id));
+      },
+      EVERY_MS,
+      failed(undefined),
+    );
   },
 };
 

@@ -127,7 +127,7 @@ export type Op =
   | { t: "post.edit"; key: string; index: number; content: string; components?: unknown[]; menuHash?: string; clearMenu?: boolean; panel?: { kind: PanelKind; text: string } }
   | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
-  | { t: "prune"; kind: "role" | "channel"; id: string; label: string; flags: Flag[] };
+  | { t: "prune"; kind: "role" | "channel"; id: string; label: string; invites?: number; permanentInvites?: number; flags: Flag[] };
 
 // An onboarding answer's emoji as a spec writes it: Unicode, or "name:id" for one of the server's.
 export const emojiRef = (id: string | null, name: string | null): string | null => (id ? `${name}:${id}` : name);
@@ -1274,7 +1274,7 @@ class Planner {
           );
           continue;
         }
-        this.ops.push({ t: "prune", kind: "channel", id: c.id, label: channelLabel(c.name, c.type), flags: ["deletes"] });
+        this.ops.push({ t: "prune", kind: "channel", id: c.id, label: channelLabel(c.name, c.type), ...this.invitesOf(c.id), flags: ["deletes"] });
       }
       for (const r of roles) {
         if (this.aboveBot(r)) this.manual.push(`Role "${r.name}" is above the bot's role, so the bot can't delete it. Delete it in Server Settings > Roles > ${r.name} > Delete Role`);
@@ -1320,12 +1320,13 @@ export function buildPlan(input: PlanInput): Plan {
   p.planPosts();
   p.planRetired();
   p.planDeletions();
-  if (input.live.invites === null && [...p.ops, ...p.held].some((o) => o.t === "channel.delete")) {
+  p.listUnmanaged();
+  const deletesChannel = (o: Op) => o.t === "channel.delete" || (o.t === "prune" && o.kind === "channel");
+  if (input.live.invites === null && [...p.ops, ...p.held].some(deletesChannel)) {
     p.manual.push(
       "The bot can't list the server's invites, so the plan can't say which go with the channels it deletes. Check them in Server Settings > Invites before you apply, or give the bot's role Manage Server and plan again",
     );
   }
-  p.listUnmanaged();
   const plan = { ops: p.ops, held: p.held, manual: p.manual, unmanaged: p.unmanaged };
   return { ...plan, fingerprint: fingerprint({ ...plan, live: input.live, settings: input.settings }) };
 }
