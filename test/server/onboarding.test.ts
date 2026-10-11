@@ -150,3 +150,21 @@ test("adopt leaves out what onboarding names that it can't key, and says so", as
   const adopted = (await import(join(dir, "index.ts"))).default as ServerSpec;
   expect(validateSpec(adopted)).toEqual([]);
 });
+
+test("onboarding Discord refuses doesn't stop the posts before it", async () => {
+  const e = env();
+  e.f.refuse((w) => w.method === "PUT" && w.route.endsWith("/onboarding"), 400, 50035, "Invalid Form Body");
+  const result = await applyPlan(e, await planFor(e, false));
+  expect(result.failed?.op.t).toBe("onboarding.set");
+  expect(e.f.messages.some((m) => m.content.includes("Rule"))).toBe(true);
+});
+
+test("a question dropped from the file shows in the plan as removed", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const e2 = { ...e, spec: { ...fixture, onboarding: { ...onboarding, questions: [] } } };
+  const plan = await planFor(e2, false);
+  const op = plan.ops.find((o) => o.t === "onboarding.set");
+  expect(op).toMatchObject({ removed: ['"Pings"'], flags: ["deletes"] });
+  expect(renderPlan(plan, e2.spec)).toContain('! on, default channels #rules, removes "Pings"');
+});

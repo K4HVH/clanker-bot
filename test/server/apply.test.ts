@@ -262,3 +262,30 @@ test("prune and the unmanaged list leave alone what sits in a category that keep
   expect(plan.ops).toEqual([]);
   expect(plan.unmanaged.some((u) => u.includes("ticket-0001"))).toBe(false);
 });
+
+test("a forum on a server turning Community on is made after it", async () => {
+  const e = env();
+  const spec = {
+    ...e.spec,
+    channels: [...e.spec.channels, { key: "board", type: "forum" as const, name: "board" }],
+  };
+  const e2 = { ...e, spec };
+  const result = await applyPlan(e2, await planFor(e2, false));
+  expect(result.failed).toBeNull();
+  expect(e.f.channels.some((c) => c.name === "board" && c.type === 15)).toBe(true);
+});
+
+test("a role's widened permissions wait until the channels' overwrites are set", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const spec = {
+    ...e.spec,
+    roles: e.spec.roles.map((r) => (r.key === "verified" ? { ...r, permissions: [...r.permissions, "AttachFiles" as const] } : r)),
+    channels: e.spec.channels.map((c) => (c.key === "rules" && c.type === "text" ? { ...c, overwrites: { everyone: { ViewChannel: true, SendMessages: false, AttachFiles: false } } } : c)),
+  };
+  const e2 = { ...e, spec };
+  e.f.refuse((w) => w.method === "PUT" && w.route.includes("/permissions/"));
+  await applyPlan(e2, await planFor(e2, false));
+  const verified = e.f.roles.find((r) => r.name === "Verified")!;
+  expect(BigInt(verified.permissions) & (1n << 15n)).toBe(0n);
+});

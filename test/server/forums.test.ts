@@ -39,7 +39,9 @@ const spec = (over: Partial<ServerSpec> = {}): ServerSpec =>
     ...over,
   });
 
+// Forum channels exist only on Community servers.
 function env(f = new FakeDiscord()) {
+  (f.guild.features as string[]).push("COMMUNITY");
   const db = createDatabase(":memory:");
   return { f, api: f, db, config: new ConfigService(db), guildId: f.guildId, reason: "test" };
 }

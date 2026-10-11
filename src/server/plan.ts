@@ -94,7 +94,7 @@ export type Op =
   | { t: "channel.delete"; key: string; name: string; flags: Flag[] }
   // A retired channel's messages after `from` (null: from the start) up to `upTo`, copied into `into`.
   | { t: "channel.backup"; key: string; into: string; from: string | null; upTo: string; messages: number; files: number }
-  | { t: "onboarding.set"; body: OnboardingBody; enabledBefore: boolean }
+  | { t: "onboarding.set"; body: OnboardingBody; enabledBefore: boolean; removed: string[]; flags: Flag[] }
   | { t: "channel.order"; items: { key: string; parent: string | null }[] }
   | { t: "overwrite.set"; channel: string; target: string; allow: bigint; deny: bigint; before: AllowDeny | null; flags: Flag[] }
   | { t: "overwrite.delete"; channel: string; target: string; before: AllowDeny; flags: Flag[] }
@@ -161,6 +161,29 @@ export interface PlanInput {
   prune?: boolean;
   histories?: Map<string, History>; // retired channels' messages, by channel id
 }
+
+// Each wanted item with the live id it keeps: the live one of the same title, else the one in its place
+// if no other item claimed it, else a new id.
+export function matchIds<W extends { title: string }, L extends { id: string; title: string }>(want: W[], live: L[], fresh: () => string): [W, string, L | undefined][] {
+  const taken = new Set<string>();
+  const byTitle = want.map((w) => {
+    const l = live.find((x) => x.title === w.title && !taken.has(x.id));
+    if (l) taken.add(l.id);
+    return l;
+  });
+  return want.map((w, i) => {
+    let l = byTitle[i];
+    const placed = live[i];
+    if (!l && placed && !taken.has(placed.id) && !want.some((x) => x.title === placed.title)) {
+      l = placed;
+      taken.add(placed.id);
+    }
+    return [w, l?.id ?? fresh(), l];
+  });
+}
+
+// Channel types that exist only on Community servers: announcement, stage, forum and media.
+export const COMMUNITY_ONLY: ReadonlySet<number> = new Set([5, 13, 15, 16]);
 
 export const CHANNEL_TYPE: Record<ChannelKind | "category", number> = {
   text: 0,
@@ -552,7 +575,7 @@ class Planner {
       // channel does in Discord. `overwrites: {}` means none.
       const own = channel.overwrites ?? (parent !== null ? categories.get(parent)?.overwrites : undefined);
       const desired = this.desiredOverwrites(own);
-      if (id === null && (type === 5 || type === 13) && !this.communityAfter()) {
+      if (id === null && COMMUNITY_ONLY.has(type) && !this.communityAfter()) {
         this.manual.push(`${channelLabel(channel.name, type)} needs Community on: turn it on in the file (guild.community), or make it a text channel there`);
         this.skipped.add(channel.key);
         continue;
@@ -574,7 +597,7 @@ class Planner {
           flags: visibleTo.length > 0 ? ["widens"] : [],
         });
         // Announcement and stage channels are made after the overwrite edits (they wait for Community).
-        const after = type === 5 || type === 13 ? undefined : follows(parent, desired);
+        const after = COMMUNITY_ONLY.has(type) ? undefined : follows(parent, desired);
         if (after) {
           const made: LiveChannel = { id: "", type, name: channel.name, topic: null, slowmode: 0, nsfw: false, parentId: null, position: 0, overwrites: after, forum: null };
           this.planOverwrites(channel, own, made, desired);
@@ -793,8 +816,9 @@ class Planner {
   }
 
   communityAfter(): boolean {
-    if (this.live.guild.features.includes("COMMUNITY")) return this.input.spec.guild.community !== false;
-    return !!this.input.spec.guild.community && this.communityMissing().length === 0;
+    const community = this.input.spec.guild.community;
+    if (this.live.guild.features.includes("COMMUNITY")) return community !== false;
+    return !!community && this.communityMissing().length === 0 && this.usable(community.rules) && this.usable(community.updates);
   }
 
   planOnboarding(): void {
@@ -854,7 +878,21 @@ class Planner {
         })),
       })),
     };
-    if (stableJson(body) !== stableJson(have)) this.ops.push({ t: "onboarding.set", body, enabledBefore: live.enabled });
+    if (stableJson(body) === stableJson(have)) return;
+    // What the PUT drops: questions, and answers of the questions it keeps, that nothing in the file
+    // takes over (matched as apply matches them).
+    let n = 0;
+    const fresh = () => `new:${++n}`;
+    const removed: string[] = [];
+    const kept = matchIds(body.prompts, live.prompts, fresh);
+    const keptIds = new Set(kept.map(([, id]) => id));
+    for (const p of live.prompts) if (!keptIds.has(p.id)) removed.push(`"${p.title}"`);
+    for (const [p, , was] of kept) {
+      if (!was) continue;
+      const answers = new Set(matchIds(p.options, was.options, fresh).map(([, id]) => id));
+      for (const o of was.options) if (!answers.has(o.id)) removed.push(`"${p.title}": "${o.title}"`);
+    }
+    this.ops.push({ t: "onboarding.set", body, enabledBefore: live.enabled, removed, flags: removed.length > 0 ? ["deletes"] : [] });
   }
 
   planGuild(): void {

@@ -208,3 +208,10 @@ test("long text is cut into messages that give it back exactly", () => {
   expect(parts[0]!.endsWith("\n") || parts[0]!.endsWith(" ")).toBe(true);
   expect(parts.every((p) => !/[\uD800-\uDBFF]$/.test(p))).toBe(true);
 });
+
+test("replies to commands are copied like any other message", async () => {
+  const { e, f, say } = setup();
+  say("a command's answer", { type: 20 });
+  await applyPlan(e, await planFor(e, true));
+  expect(backupOf(f).at(-1)!.content).toEndWith("\na command's answer");
+});

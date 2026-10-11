@@ -92,7 +92,9 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Channels", `- #${op.name}`];
       case "onboarding.set": {
         const b = op.body;
-        const head = `${b.enabled ? "on" : "off"}${op.enabledBefore === b.enabled ? "" : ` (was ${op.enabledBefore ? "on" : "off"})`}, default channels ${b.defaultChannels.map(channel).join(", ") || "none"}`;
+        const was = op.enabledBefore === b.enabled ? "" : ` (was ${op.enabledBefore ? "on" : "off"})`;
+        const removes = op.removed.length > 0 ? `, removes ${op.removed.join(", ")}` : "";
+        const head = `${b.enabled ? "on" : "off"}${was}, default channels ${b.defaultChannels.map(channel).join(", ") || "none"}${removes}`;
         const questions = b.prompts.map((p) => {
           const how = [p.inOnboarding ? "before joining" : "in Channels & Roles", ...(p.required ? ["required"] : []), ...(p.single ? ["one answer"] : [])].join(", ");
           const answers = p.options.map((o) => {

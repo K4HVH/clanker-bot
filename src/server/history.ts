@@ -20,8 +20,10 @@ export interface History {
   threads: number;
 }
 
-// What members wrote and replies; joins, pins and other notices from Discord aren't copied.
-export const copyable = (m: HistoryMessage) => (m.type ?? 0) === 0 || m.type === 19;
+// What members and bots wrote: messages, replies, and answers to commands. Joins, pins and other
+// notices from Discord aren't copied.
+const WRITTEN = new Set([0, 19, 20, 23]);
+export const copyable = (m: HistoryMessage) => WRITTEN.has(m.type ?? 0);
 
 export const after = (id: string, than: string) => BigInt(id) > BigInt(than);
 

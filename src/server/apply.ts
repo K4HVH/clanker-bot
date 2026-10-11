@@ -6,7 +6,20 @@ import type { DiscordApi, Upload } from "./api";
 import { after, chunk, copyable, type History, type HistoryMessage, readHistory, readThreadCount, sentAt } from "./history";
 import { type Live, type RawOnboarding, readLive } from "./live";
 import { parsePosted } from "./posts";
-import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, parseEmoji, retiredChannels, VERIFICATION } from "./plan";
+import {
+  type AutoModBody,
+  buildPlan,
+  COMMUNITY_ONLY,
+  FILTER,
+  type ForumBody,
+  matchIds,
+  NOTIFY,
+  type Op,
+  type Plan,
+  parseEmoji,
+  retiredChannels,
+  VERIFICATION,
+} from "./plan";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -19,26 +32,6 @@ export interface ApplyEnv {
   spec: ServerSpec;
   reason: string; // shown in Discord's audit log on every change
   download?: (url: string) => Promise<Uint8Array>; // a retired channel's files, to upload again
-}
-
-// Each wanted item with the live id it keeps: the live one of the same title, else the one in its place
-// if no other item claimed it, else a new id.
-export function matchIds<W extends { title: string }, L extends { id: string; title: string }>(want: W[], live: L[], fresh: () => string): [W, string, L | undefined][] {
-  const taken = new Set<string>();
-  const byTitle = want.map((w) => {
-    const l = live.find((x) => x.title === w.title && !taken.has(x.id));
-    if (l) taken.add(l.id);
-    return l;
-  });
-  return want.map((w, i) => {
-    let l = byTitle[i];
-    const placed = live[i];
-    if (!l && placed && !taken.has(placed.id) && !want.some((x) => x.title === placed.title)) {
-      l = placed;
-      taken.add(placed.id);
-    }
-    return [w, l?.id ?? fresh(), l];
-  });
 }
 
 async function fetchFile(url: string): Promise<Uint8Array> {
@@ -122,7 +115,8 @@ const PHASE: Record<Op["t"], number> = {
   "post.delete": 11,
   "automod.delete": 12,
   "channel.backup": 11,
-  "onboarding.set": 10.5,
+  // After the posts and copies, so onboarding Discord refuses holds up nothing else.
+  "onboarding.set": 11.5,
   "channel.delete": 13,
   "role.delete": 14,
   prune: 15,
@@ -135,7 +129,10 @@ const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg"
 // Announcement and stage channels exist only on Community servers, so they come after Community is
 // turned on; channel order waits for them.
 const rank = (op: Op): number => {
-  if (op.t === "channel.create" && (op.type === 5 || op.type === 13)) return PHASE.community + 0.5;
+  if (op.t === "channel.create" && COMMUNITY_ONLY.has(op.type)) return PHASE.community + 0.5;
+  // A role's new permissions wait for the channels' overwrites, so a run that stops part way never
+  // leaves the role widened over channels not yet closed to it.
+  if (op.t === "role.update" && op.flags.includes("widens")) return PHASE["overwrite.set"] + 0.5;
   if (op.t === "channel.order") return PHASE.community + 0.7;
   if (op.t === "channel.update" && op.changes.some((c) => c.field === "type")) return PHASE.community + 0.3;
   if (op.t === "prune" && op.kind === "role") return PHASE.prune + 0.5;

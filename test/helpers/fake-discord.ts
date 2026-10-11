@@ -256,7 +256,7 @@ export class FakeDiscord implements DiscordApi {
     }
     if (route === `${g}/channels`) {
       // Announcement and stage channels exist only on Community servers.
-      if ((b.type === 5 || b.type === 13) && !(this.guild.features as string[]).includes("COMMUNITY")) {
+      if ([5, 13, 15, 16].includes(Number(b.type)) && !(this.guild.features as string[]).includes("COMMUNITY")) {
         throw new FakeError("announcement and stage channels need Community", 400);
       }
       const parent = (b.parent_id as string | undefined) ?? null;
