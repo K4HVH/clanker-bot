@@ -2,14 +2,26 @@ import { PermissionFlagsBits } from "discord.js";
 
 export type PermissionName = keyof typeof PermissionFlagsBits;
 
-const NAMES = Object.keys(PermissionFlagsBits) as PermissionName[];
+// One name per bit. discord.js keeps a deprecated alias beside its replacement (ManageEmojisAndStickers
+// and ManageGuildExpressions are one bit); the later name is the current one.
+const NAMES = (() => {
+  const byBit = new Map<bigint, PermissionName>();
+  for (const name of Object.keys(PermissionFlagsBits) as PermissionName[]) byBit.set(PermissionFlagsBits[name], name);
+  return (Object.keys(PermissionFlagsBits) as PermissionName[]).filter((n) => byBit.get(PermissionFlagsBits[n]) === n);
+})();
 
 export const isPermissionName = (name: string): name is PermissionName => name in PermissionFlagsBits;
 
 export const toBits = (names: readonly PermissionName[]): bigint =>
   names.reduce((acc, n) => acc | PermissionFlagsBits[n], 0n);
 
-// Every name whose bit is set, in discord.js's order. Two names share no bit, so this round-trips.
+// Every bit discord.js has a name for. Discord still reports bits for features it retired; a spec
+// can't name those, so plans keep whatever the live server has in them.
+export const NAMED: bigint = toBits(Object.keys(PermissionFlagsBits) as PermissionName[]);
+
+export const keepUnnamed = (wanted: bigint, live: bigint): bigint => wanted | (live & ~NAMED);
+
+// Every name whose bit is set, in discord.js's order.
 export const toNames = (bits: bigint): PermissionName[] =>
   NAMES.filter((n) => (bits & PermissionFlagsBits[n]) !== 0n);
 

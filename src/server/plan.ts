@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { REGISTRY_BY_KEY } from "../lib/config";
 import type { Live, LiveChannel, LiveRole, LiveRule } from "./live";
 import { splitPost } from "./posts";
-import { type AllowDeny, toBits, widens } from "./permissions";
+import { type AllowDeny, keepUnnamed, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
   type ChannelKind,
@@ -260,22 +260,23 @@ class Planner {
       const field = (name: string, from: unknown, to: unknown) => {
         if (from !== to) changes.push({ field: name, from, to });
       };
+      const wanted = keepUnnamed(permissions, live.permissions);
       field("name", live.name, role.name);
       field("color", live.color, role.color ?? 0);
       field("hoist", live.hoist, role.hoist ?? false);
       field("mentionable", live.mentionable, role.mentionable ?? false);
-      field("permissions", live.permissions, permissions);
+      field("permissions", live.permissions, wanted);
       if (changes.length === 0) continue;
       if (this.aboveBot(live)) {
         this.manual.push(`Role "${live.name}" is above the bot's role: change it by hand, or move the bot's role above it`);
         continue;
       }
-      const flags: Flag[] = (permissions & ~live.permissions) !== 0n ? ["widens"] : [];
+      const flags: Flag[] = (wanted & ~live.permissions) !== 0n ? ["widens"] : [];
       this.ops.push({ t: "role.update", key: role.key, changes, flags });
     }
 
     const everyone = this.liveRole(this.live.guild.id);
-    const wanted = toBits(spec.everyone.permissions);
+    const wanted = everyone ? keepUnnamed(toBits(spec.everyone.permissions), everyone.permissions) : 0n;
     if (everyone && everyone.permissions !== wanted) {
       this.ops.push({
         t: "role.update",
@@ -400,11 +401,14 @@ class Planner {
       }
       if (blocked.has(key)) continue;
       seen.add(key);
-      const want = desired.find((d) => d.target === key);
+      const declared = desired.find((d) => d.target === key);
       const before = { allow: o.allow, deny: o.deny };
-      if (!want) {
+      if (!declared) {
         deletes.push({ t: "overwrite.delete", channel: channel.key, target: key, before, flags: o.deny !== 0n ? ["widens"] : [] });
-      } else if (want.allow !== o.allow || want.deny !== o.deny) {
+        continue;
+      }
+      const want = { allow: keepUnnamed(declared.allow, o.allow), deny: keepUnnamed(declared.deny, o.deny) };
+      if (want.allow !== o.allow || want.deny !== o.deny) {
         sets.push({ t: "overwrite.set", channel: channel.key, target: key, allow: want.allow, deny: want.deny, before, flags: widens(before, want) ? ["widens"] : [] });
       }
     }

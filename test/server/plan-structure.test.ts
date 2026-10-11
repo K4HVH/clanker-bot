@@ -161,3 +161,19 @@ test("unclaimed roles and channels are listed unmanaged", async () => {
   const p = await plan(f, spec(), state);
   expect(p.unmanaged).toEqual(['role "Cool People"', "#abcurves"]);
 });
+
+test("permission bits with no name are kept, never planned away", async () => {
+  const OLD = 1n << 47n; // a bit Discord still reports that discord.js no longer names
+  const f = new FakeDiscord();
+  f.roles.find((r) => r.id === f.guildId)!.permissions = String(OLD | PermissionFlagsBits.ReadMessageHistory);
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+  const general = f.addChannel({ name: "general", permission_overwrites: [{ id: f.guildId, type: 0, allow: String(OLD), deny: "0" }] });
+  const state: State = new Map([[stateKey("role", "dev"), dev.id], [stateKey("channel", "general"), general.id]]);
+  const same = await plan(f, spec({ everyone: { permissions: ["ReadMessageHistory"] }, channels: [{ key: "general", type: "text", name: "general", overwrites: { everyone: {} } }] }), state);
+  expect(same.ops).toEqual([]);
+  const changed = await plan(f, spec({ everyone: { permissions: [] }, channels: [{ key: "general", type: "text", name: "general", overwrites: { everyone: { ViewChannel: false } } }] }), state);
+  expect(changed.ops).toEqual([
+    { t: "role.update", key: "everyone", changes: [{ field: "permissions", from: OLD | PermissionFlagsBits.ReadMessageHistory, to: OLD }], flags: [] },
+    { t: "overwrite.set", channel: "general", target: "everyone", allow: OLD, deny: V, before: { allow: OLD, deny: 0n }, flags: [] },
+  ]);
+});

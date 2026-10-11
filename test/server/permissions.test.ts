@@ -24,3 +24,7 @@ test("turning an allow into a deny narrows", () => {
   expect(widens({ allow: V, deny: 0n }, { allow: 0n, deny: V })).toBe(false);
   expect(widens(null, { allow: 0n, deny: V })).toBe(false);
 });
+
+test("an aliased bit is named once, by its current name", () => {
+  expect(toNames(PermissionFlagsBits.ManageGuildExpressions)).toEqual(["ManageGuildExpressions"]);
+});
