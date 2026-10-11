@@ -57,6 +57,8 @@ export default defineServer({
       name: "Verified",
       permissions: ["CreateInstantInvite", "AddReactions", "Stream", "ViewChannel", "SendMessages", "EmbedLinks", "AttachFiles", "ReadMessageHistory", "UseExternalEmojis", "Connect", "Speak", "UseVAD", "ChangeNickname", "UseExternalStickers", "SendMessagesInThreads", "UseSoundboard", "CreateGuildExpressions", "UseExternalSounds"],
     },
+    { key: "release-pings", name: "Release Pings", was: ["Release pings"], permissions: [] },
+    { key: "box-pings", name: "Box Pings", was: ["Box pings"], permissions: [] },
   ],
   botRole: { color: 0x1abc9c, hoist: true, mentionable: true, after: "dev" },
   channels: [
@@ -114,10 +116,21 @@ export default defineServer({
       overwrites: { verified: { AddReactions: false, ...readOnly } },
     },
     {
+      key: "support",
+      type: "category",
+      name: "- Support",
+      was: ["Support", "- Support"],
+      overwrites: { verified: { ...readOnly } },
+      channels: [
+        { key: "help", type: "text", name: "❓-help" },
+        { key: "ticket", type: "text", name: "🎟️-ticket", was: ["ticket"] },
+      ],
+    },
+    {
       key: "medius",
       type: "category",
-      name: "- Medius firmware",
-      was: ["- Important", "Medius"],
+      name: "- Medius Firmware",
+      was: ["- Important", "Medius", "- Medius firmware"],
       channels: [
         {
           key: "releases",
@@ -147,8 +160,8 @@ export default defineServer({
     {
       key: "medius-box",
       type: "category",
-      name: "- Medius box",
-      was: ["- Hardware", "Medius box"],
+      name: "- Medius Box",
+      was: ["- Hardware", "Medius box", "- Medius box"],
       channels: [
         {
           key: "box-updates",
@@ -159,17 +172,6 @@ export default defineServer({
           publish: true,
         },
         { key: "box-chat", type: "text", name: "hardware-chat", was: ["box-chat"] },
-      ],
-    },
-    {
-      key: "support",
-      type: "category",
-      name: "- Support",
-      was: ["Support"],
-      overwrites: { verified: { ...readOnly } },
-      channels: [
-        { key: "help", type: "text", name: "❓-help" },
-        { key: "ticket", type: "text", name: "🎟️-ticket", was: ["ticket"] },
       ],
     },
     {
@@ -184,19 +186,11 @@ export default defineServer({
       ],
     },
     {
-      key: "developers",
+      key: "cool-stuff",
       type: "category",
-      name: "- Developers",
-      was: ["- Other Cool Stuff", "Developers"],
-      channels: [
-        {
-          key: "dev-chat",
-          type: "text",
-          name: "dev-chat",
-          topic: "Native API: https://medius.k4tech.net/native · Rust Library: https://medius.k4tech.net/library · Bindings: https://medius.k4tech.net/bindings",
-        },
-        { key: "abcurves", type: "text", name: "abcurves", overwrites: { verified: { ...readOnly } } },
-      ],
+      name: "- Other Cool Stuff",
+      was: ["- Developers", "Developers"],
+      channels: [{ key: "abcurves", type: "text", name: "abcurves", overwrites: { verified: { ...readOnly } } }],
     },
     {
       key: "tickets",
@@ -226,9 +220,25 @@ export default defineServer({
     { key: "box-intro", name: "🔲-medius-box", was: ["box-intro"], into: "backup" },
   ],
   automod: [],
+  menus: [
+    {
+      key: "start",
+      questions: [
+        {
+          key: "pings",
+          title: "Pings",
+          multiple: true,
+          options: [
+            { label: "Releases", description: "Each Medius release", role: "release-pings" },
+            { label: "Medius box", description: "Medius box news", role: "box-pings" },
+          ],
+        },
+      ],
+    },
+  ],
   posts: [
     { key: "rules", channel: "rules", file: "rules.md" },
-    { key: "welcome", channel: "start-here", file: "welcome.md" },
+    { key: "welcome", channel: "start-here", file: "welcome.md", menu: "start" },
     { key: "help", channel: "help", file: "help.md" },
   ],
   bot: {
