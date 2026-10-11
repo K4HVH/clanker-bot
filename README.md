@@ -75,7 +75,6 @@ A spec is a `defineServer({...})` in `servers/<name>/index.ts`, with any posts a
 bun run server plan  --guild <id> --spec medius     # read only: prints the plan
 bun run server apply --guild <test-id> --spec medius # refuses DISCORD_GUILD_ID
 bun run server adopt --guild <id> --name medius > servers/medius/index.ts
-bun run scripts/rule2-matches.ts --guild <id>        # read only: old messages rule 2 would block
 ```
 
 Never run `src/index.ts` from a checkout holding the production token: it logs in as the bot and registers its commands in the production server.
