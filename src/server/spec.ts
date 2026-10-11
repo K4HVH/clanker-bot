@@ -15,6 +15,7 @@ export const RESERVED_ROLES = ["everyone", "booster", "bot"] as const;
 export interface RoleSpec {
   key: string;
   name: string;
+  was?: string[]; // former names: a server still using one binds to it, then is renamed
   color?: number;
   hoist?: boolean;
   mentionable?: boolean;
@@ -31,6 +32,7 @@ export interface ChannelSpec {
   key: string;
   type: ChannelKind;
   name: string;
+  was?: string[];
   topic?: string;
   slowmode?: number;
   nsfw?: boolean;
@@ -43,6 +45,7 @@ export interface CategorySpec {
   key: string;
   type: "category";
   name: string;
+  was?: string[];
   overwrites?: Record<string, Overwrite>;
   members?: "managed";
   channels: ChannelSpec[];

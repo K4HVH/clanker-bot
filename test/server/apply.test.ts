@@ -110,3 +110,14 @@ test("renaming a key in the file moves the object to the new key", async () => {
   expect(state.has(stateKey("channel", "general"))).toBe(false);
   expect((await planFor({ ...e, spec: renamed }, false)).ops).toEqual([]);
 });
+
+test("prune clears what the spec doesn't name, and stays clear", async () => {
+  const e = env();
+  const cat = e.f.addChannel({ name: "Text Channels", type: 4 });
+  e.f.addChannel({ name: "chat", parent_id: cat.id });
+  e.f.addRole({ name: "Extra", position: 2 });
+  await applyPlan(e, await planFor(e, false, true));
+  expect(e.f.channels.some((c) => c.name === "Text Channels" || c.name === "chat")).toBe(false);
+  expect(e.f.roles.some((r) => r.name === "Extra")).toBe(false);
+  expect((await planFor(e, false, true)).ops).toEqual([]);
+});

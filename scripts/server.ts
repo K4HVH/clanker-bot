@@ -1,7 +1,7 @@
 // The server tools over REST, from a checkout: preview a spec against any server, build a test
 // server from it, or generate a spec from a live server. Production changes go through /server.
 //
-//   bun run server plan  --guild <id> [--spec medius] [--db ./data/local-server.sqlite] [--deletions]
+//   bun run server plan  --guild <id> [--spec medius] [--db ./data/local-server.sqlite] [--deletions] [--prune]
 //   bun run server apply --guild <id> [--spec medius] [--db ...] [--deletions]
 //   bun run server adopt --guild <id> [--name medius] > servers/medius/index.ts
 //
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const db = createDatabase(flag("db") ?? "./data/local-server.sqlite");
   const env = { api, db, config: new ConfigService(db), guildId, spec };
   const deletions = process.argv.includes("--deletions");
-  const plan = await planFor(env, deletions);
+  const plan = await planFor(env, deletions, process.argv.includes("--prune"));
   console.log(renderPlan(plan, spec));
   console.log(`\nfingerprint ${plan.fingerprint.slice(0, 32)}, ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}`);
   if (command === "apply" && plan.ops.length > 0) {

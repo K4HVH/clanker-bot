@@ -24,7 +24,7 @@ export interface ApplyResult {
 }
 
 // Read the server and plan against it. The bot command and the local command both start here.
-export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean): Promise<Plan> {
+export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean, prune = false): Promise<Plan> {
   const state = loadState(env.db, env.guildId);
   const postIds = [...state.entries()]
     .filter(([k]) => k.startsWith("post:"))
@@ -33,7 +33,7 @@ export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean)
       return { channelId: channelId!, messageId: messageId! };
     });
   const live = await readLive(env.api, env.guildId, postIds);
-  return buildPlan({ spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions });
+  return buildPlan({ spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions, prune });
 }
 
 // The order operations run in, whatever order the plan lists them: what a later step names must
@@ -61,6 +61,7 @@ const PHASE: Record<Op["t"], number> = {
   "automod.delete": 12,
   "channel.delete": 13,
   "role.delete": 14,
+  prune: 15,
 };
 
 const bucketOf = (type: number) => (type === 4 ? "category" : type === 2 || type === 13 ? "voice" : "text");
@@ -72,6 +73,7 @@ const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg"
 const rank = (op: Op): number => {
   if (op.t === "channel.create" && (op.type === 5 || op.type === 13)) return PHASE.community + 0.5;
   if (op.t === "channel.order") return PHASE.community + 0.7;
+  if (op.t === "prune" && op.kind === "role") return PHASE.prune + 0.5;
   return PHASE[op.t];
 };
 
@@ -317,6 +319,9 @@ class Runner {
         await api.patch(`/channels/${channelId}/messages/${messageId}`, { content: op.content, allowed_mentions: { parse: [] } }, reason);
         return;
       }
+      case "prune":
+        await api.delete(op.kind === "channel" ? `/channels/${op.id}` : `${this.g}/roles/${op.id}`, reason);
+        return;
       case "post.delete": {
         const [channelId, messageId] = this.need("post", `${op.key}#${op.index}`).split("/");
         try {

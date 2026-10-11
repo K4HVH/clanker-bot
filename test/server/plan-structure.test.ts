@@ -229,3 +229,48 @@ describe("new channels and who can see them", () => {
     expect(p.ops.find((o) => o.t === "channel.create" && o.key === "lobby")).toMatchObject({ overwrites: [], visibleTo: ["verified"], flags: ["widens"] });
   });
 });
+
+describe("former names and pruning", () => {
+  test("a channel and a role bind by a former name, and are renamed", async () => {
+    const f = new FakeDiscord();
+    const role = f.addRole({ name: "Donators", position: 3 });
+    const old = f.addChannel({ name: "📝-changelog" });
+    const p = await plan(f, spec({
+      roles: [{ key: "supporters", name: "Supporters", was: ["Donators"], permissions: [] }],
+      channels: [{ key: "changelog", type: "text", name: "changelog", was: ["📝-changelog"] }],
+    }));
+    expect(p.ops).toEqual([
+      { t: "bind", kind: "role", key: "supporters", id: role.id, label: 'role "Donators"' },
+      { t: "bind", kind: "channel", key: "changelog", id: old.id, label: "#📝-changelog" },
+      { t: "role.update", key: "supporters", changes: [{ field: "name", from: "Donators", to: "Supporters" }], flags: [] },
+      { t: "channel.update", key: "changelog", changes: [{ field: "name", from: "📝-changelog", to: "changelog" }], flags: [] },
+    ]);
+  });
+
+  test("the current name wins over a former one", async () => {
+    const f = new FakeDiscord();
+    f.addChannel({ name: "old" });
+    const now = f.addChannel({ name: "new" });
+    const p = await plan(f, spec({ roles: [], channels: [{ key: "c", type: "text", name: "new", was: ["old"] }] }));
+    expect(p.ops[0]).toMatchObject({ t: "bind", id: now.id });
+  });
+
+  test("prune deletes what the spec doesn't name, flagged; without it they're only listed", async () => {
+    const f = new FakeDiscord();
+    const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+    const general = f.addChannel({ name: "general" });
+    const extraRole = f.addRole({ name: "Extra", position: 2 });
+    const cat = f.addChannel({ name: "Text Channels", type: 4 });
+    const inCat = f.addChannel({ name: "random", parent_id: cat.id });
+    const state: State = new Map([[stateKey("role", "dev"), dev.id], [stateKey("channel", "general"), general.id]]);
+    const listed = await plan(f, spec(), state);
+    expect(listed.ops).toEqual([]);
+    const pruned = buildPlan({ spec: spec(), live: await readLive(f, f.guildId, []), state, settings: {}, deletions: false, prune: true });
+    expect(pruned.ops).toEqual([
+      { t: "prune", kind: "channel", id: inCat.id, label: "#random", flags: ["deletes"] },
+      { t: "prune", kind: "channel", id: cat.id, label: 'category "Text Channels"', flags: ["deletes"] },
+      { t: "prune", kind: "role", id: extraRole.id, label: 'role "Extra"', flags: ["deletes"] },
+    ]);
+    expect(pruned.unmanaged).toEqual([]);
+  });
+});

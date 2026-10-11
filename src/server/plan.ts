@@ -79,7 +79,8 @@ export type Op =
   | { t: "setting.set"; key: string; value: SettingValue; before: unknown }
   | { t: "post.create"; key: string; index: number; channel: string; content: string }
   | { t: "post.edit"; key: string; index: number; content: string }
-  | { t: "post.delete"; key: string; index: number };
+  | { t: "post.delete"; key: string; index: number }
+  | { t: "prune"; kind: "role" | "channel"; id: string; label: string; flags: Flag[] };
 
 export interface Plan {
   ops: Op[];
@@ -95,6 +96,8 @@ export interface PlanInput {
   state: State;
   settings: Record<string, unknown>;
   deletions: boolean;
+  // Delete live roles and channels the spec doesn't name (Discord's defaults on a new server, say).
+  prune?: boolean;
 }
 
 export const CHANNEL_TYPE: Record<ChannelKind | "category", number> = {
@@ -170,7 +173,7 @@ class Planner {
   // holds. An object whose key has left the file is free to bind: that is a key renamed in the file.
   resolve<T extends { id: string; name: string }>(
     kind: "role" | "channel" | "automod",
-    entries: { key: string; name: string; label: string; accepts: (o: T) => boolean }[],
+    entries: { key: string; name: string; was?: string[]; label: string; accepts: (o: T) => boolean }[],
     pool: T[],
     into: Resolved,
     byId: Map<string, string>,
@@ -194,7 +197,10 @@ class Planner {
     }
     for (const id of this.input.state.values()) if (!orphans.has(id)) claimed.add(id);
     for (const e of pending) {
-      const found = pool.filter((o) => o.name === e.name && e.accepts(o) && !claimed.has(o.id));
+      // The current name first; a former name only when nothing has the current one.
+      const named = (name: string) => pool.filter((o) => o.name === name && e.accepts(o) && !claimed.has(o.id));
+      let found = named(e.name);
+      for (const old of e.was ?? []) if (found.length === 0) found = named(old);
       if (found.length > 1) {
         const what = kind === "role" ? "roles" : kind === "channel" ? "channels" : "AutoMod rules";
         this.manual.push(`${found.length} ${what} named "${e.name}": rename one so "${e.key}" can bind`);
@@ -205,7 +211,8 @@ class Planner {
         claimed.add(id);
         const replaces = orphans.get(id);
         if (replaces !== undefined) this.rebound.add(id);
-        this.ops.push({ t: "bind", kind, key: e.key, id, label: e.label, ...(replaces !== undefined ? { replaces } : {}) });
+        const label = kind === "role" ? `role "${found[0]!.name}"` : kind === "channel" ? channelLabel(found[0]!.name, (found[0] as unknown as LiveChannel).type) : e.label;
+        this.ops.push({ t: "bind", kind, key: e.key, id, label, ...(replaces !== undefined ? { replaces } : {}) });
       } else {
         into.set(e.key, null);
       }
@@ -236,7 +243,7 @@ class Planner {
     const pool = live.roles.filter((r) => !r.managed && r.id !== everyone);
     this.resolve(
       "role",
-      spec.roles.map((r) => ({ key: r.key, name: r.name, label: `role "${r.name}"`, accepts: () => true })),
+      spec.roles.map((r) => ({ key: r.key, name: r.name, was: r.was, label: `role "${r.name}"`, accepts: () => true })),
       pool,
       this.roles,
       this.roleKeyById,
@@ -259,6 +266,7 @@ class Planner {
       channelsFlat(this.input.spec).map(({ channel }) => ({
         key: channel.key,
         name: channel.name,
+        was: channel.was,
         label: channelLabel(channel.name, CHANNEL_TYPE[channel.type]),
         accepts: (c: LiveChannel) => c.type === CHANNEL_TYPE[channel.type],
       })),
@@ -775,13 +783,29 @@ class Planner {
     const stateIds = new Set(this.input.state.values());
     const claimed = (id: string) => stateIds.has(id) || this.roleKeyById.has(id) || this.channelKeyById.has(id);
     const lines: string[] = [];
-    for (const r of [...this.live.roles].sort((a, b) => b.position - a.position)) {
-      if (r.id === this.live.guild.id || r.managed || claimed(r.id)) continue;
-      lines.push(`role "${r.name}"`);
-    }
-    for (const c of this.live.channels) {
-      if (claimed(c.id)) continue;
-      lines.push(channelLabel(c.name, c.type));
+    const roles = [...this.live.roles]
+      .sort((a, b) => b.position - a.position)
+      .filter((r) => r.id !== this.live.guild.id && !r.managed && !claimed(r.id));
+    const channels = this.live.channels.filter((c) => !claimed(c.id));
+    if (this.input.prune) {
+      // Channels before their categories, then roles. Community's rules and updates channels can't
+      // be deleted while Community is on; a role above the bot's can't be deleted by it.
+      const g = this.live.guild;
+      const ordered = [...channels.filter((c) => c.type !== 4), ...channels.filter((c) => c.type === 4)];
+      for (const c of ordered) {
+        if (c.id === g.rulesChannelId || c.id === g.publicUpdatesChannelId) {
+          this.manual.push(`${channelLabel(c.name, c.type)} is Community's rules or updates channel: it can't be pruned`);
+          continue;
+        }
+        this.ops.push({ t: "prune", kind: "channel", id: c.id, label: channelLabel(c.name, c.type), flags: ["deletes"] });
+      }
+      for (const r of roles) {
+        if (this.aboveBot(r)) this.manual.push(`Role "${r.name}" is above the bot's role: delete it by hand`);
+        else this.ops.push({ t: "prune", kind: "role", id: r.id, label: `role "${r.name}"`, flags: ["deletes"] });
+      }
+    } else {
+      for (const r of roles) lines.push(`role "${r.name}"`);
+      for (const c of channels) lines.push(channelLabel(c.name, c.type));
     }
     for (const r of this.live.rules) {
       if (stateIds.has(r.id) || this.ruleKeyById.has(r.id)) continue;

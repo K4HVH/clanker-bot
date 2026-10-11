@@ -73,8 +73,9 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
     return;
   }
   const deletions = interaction.options.getBoolean("deletions") ?? false;
+  const prune = interaction.options.getBoolean("prune") ?? false;
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const plan = await planFor({ api: deps.api(guild), db: ctx.db, config: ctx.config, guildId: guild.id, spec: chosen.spec }, deletions);
+  const plan = await planFor({ api: deps.api(guild), db: ctx.db, config: ctx.config, guildId: guild.id, spec: chosen.spec }, deletions, prune);
   const text = renderPlan(plan, chosen.spec);
   const header = `Spec **${chosen.name}**: ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}.`;
   const inline = `${header}\n\`\`\`\n${text}\n\`\`\``;
@@ -83,7 +84,7 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
       ? [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
-              .setCustomId(`${APPLY}:${plan.fingerprint.slice(0, FINGERPRINT_CHARS)}:${deletions ? 1 : 0}:${chosen.name}`)
+              .setCustomId(`${APPLY}:${plan.fingerprint.slice(0, FINGERPRINT_CHARS)}:${deletions ? 1 : 0}${prune ? 1 : 0}:${chosen.name}`)
               .setLabel(`Apply ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}`)
               .setStyle(ButtonStyle.Danger),
           ),
@@ -111,14 +112,14 @@ export async function applyButton(interaction: ButtonInteraction, ctx: AppContex
   try {
     // The button goes the moment it's pressed, so it can't be pressed twice.
     await interaction.update({ content: "Applying...", components: [] });
-    const [, , shown, deletions, name] = interaction.customId.split(":");
+    const [, , shown, flags = "", name] = interaction.customId.split(":");
     const spec = name ? deps.specs[name] : undefined;
     if (!spec) {
       await interaction.editReply({ content: `No spec named "${name}" in this build.`, components: [] });
       return;
     }
     const env = { api: deps.api(guild), db: ctx.db, config: ctx.config, guildId: guild.id, spec };
-    const plan = await planFor(env, deletions === "1");
+    const plan = await planFor(env, flags[0] === "1", flags[1] === "1");
     if (plan.fingerprint.slice(0, FINGERPRINT_CHARS) !== shown) {
       await interaction.editReply({ content: "The server changed since this plan. Run /server plan again.", components: [] });
       return;
@@ -180,6 +181,7 @@ export const serverModule: BotModule = {
           options: (s) =>
             s
               .addBooleanOption((o) => o.setName("deletions").setDescription("Also delete what the spec no longer lists."))
+              .addBooleanOption((o) => o.setName("prune").setDescription("Also delete roles and channels the spec doesn't name."))
               .addStringOption((o) =>
                 o
                   .setName("spec")

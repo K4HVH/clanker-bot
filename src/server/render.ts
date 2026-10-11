@@ -75,6 +75,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
     ["AutoMod", []],
     ["Bot settings", []],
     ["Posts", []],
+    ["Prune: not in the spec", []],
   ];
   const put = (group: string, op: Op, line: string) => {
     const flagged = "flags" in op && op.flags.length > 0;
@@ -133,6 +134,8 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
         return ["Posts", `${op.key}, part ${op.index + 1}: edited (${op.content.length} characters)`];
       case "post.delete":
         return ["Posts", `- ${op.key}, part ${op.index + 1}`];
+      case "prune":
+        return ["Prune: not in the spec", `- ${op.label}`];
     }
   };
 
