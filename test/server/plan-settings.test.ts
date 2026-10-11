@@ -266,3 +266,12 @@ describe("a key that can't be planned", () => {
     expect(p.ops).toEqual([]);
   });
 });
+
+test("a bot without Administrator is told before it fails", async () => {
+  const { f, state } = matching();
+  expect((await plan(f, spec(), state)).manual).toEqual([]);
+  f.roles.find((r) => r.tags?.bot_id === f.botId)!.permissions = String(PermissionFlagsBits.ManageChannels);
+  expect((await plan(f, spec(), state)).manual).toEqual([
+    "Give the bot's role Administrator: turning Community on, AutoMod and posting in read-only channels need it",
+  ]);
+});

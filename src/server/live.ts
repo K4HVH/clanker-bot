@@ -82,6 +82,7 @@ export interface Live {
   posts: Map<string, string | null>; // message id -> content; null when the message is gone
   botId: string;
   botTopPosition: number;
+  botPermissions: bigint; // @everyone's and the bot's roles', combined
 }
 
 interface RawRole {
@@ -164,10 +165,9 @@ export async function readLive(
     // Discord marks the booster role with a null-valued key, so test for the key, not the value.
     booster: r.tags !== undefined && "premium_subscriber" in r.tags,
   }));
-  const botTopPosition = Math.max(
-    0,
-    ...liveRoles.filter((r) => member.roles.includes(r.id)).map((r) => r.position),
-  );
+  const botRoles = liveRoles.filter((r) => member.roles.includes(r.id));
+  const botTopPosition = Math.max(0, ...botRoles.map((r) => r.position));
+  const botPermissions = [...botRoles, ...liveRoles.filter((r) => r.id === guildId)].reduce((acc, r) => acc | r.permissions, 0n);
 
   const posts = new Map<string, string | null>();
   for (const { channelId, messageId } of postIds) {
@@ -236,5 +236,6 @@ export async function readLive(
     posts,
     botId: me.id,
     botTopPosition,
+    botPermissions,
   };
 }

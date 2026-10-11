@@ -793,6 +793,9 @@ class Planner {
 
 export function buildPlan(input: PlanInput): Plan {
   const p = new Planner(input);
+  if ((input.live.botPermissions & toBits(["Administrator"])) === 0n) {
+    p.manual.push("Give the bot's role Administrator: turning Community on, AutoMod and posting in read-only channels need it");
+  }
   p.resolveRoles();
   p.resolveChannels();
   p.resolveAutomod();

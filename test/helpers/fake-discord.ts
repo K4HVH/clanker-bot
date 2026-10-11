@@ -106,7 +106,8 @@ export class FakeDiscord implements DiscordApi {
       mfa_level: 0,
     };
     this.roles.push({ id: guildId, name: "@everyone", color: 0, hoist: false, mentionable: false, permissions: "0", position: 0, managed: false });
-    const botRole = this.addRole({ name: "Bot", managed: true, tags: { bot_id: this.botId }, position: 50 });
+    // The bot holds Administrator, as a server built from a spec needs it to.
+    const botRole = this.addRole({ name: "Bot", managed: true, tags: { bot_id: this.botId }, position: 50, permissions: "8" });
     this.botRoles = [botRole.id];
   }
 
