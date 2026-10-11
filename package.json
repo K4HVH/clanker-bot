@@ -7,7 +7,8 @@
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "server": "bun run scripts/server.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
