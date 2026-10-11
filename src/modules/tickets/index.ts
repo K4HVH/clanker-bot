@@ -204,6 +204,14 @@ async function closeTicketFlow(
   await channel.delete(`Ticket #${num} closed`).catch(() => {});
 }
 
+// Close a ticket by deleting its channel, with no transcript and no mod-log post: for /mod forget,
+// whose request ticket would otherwise be archived with the data it asked to have deleted.
+export async function closeTicketQuietly(channel: { id: string; delete(reason?: string): Promise<unknown> }): Promise<void> {
+  openTicketChannels.delete(channel.id);
+  warnedTickets.delete(channel.id);
+  await channel.delete("Closed at the member's request").catch(() => {});
+}
+
 // Whether `openerId` is out of ticket slots, as a message to show whoever asked. `via` is
 // set when staff are opening on that member's behalf, so the wording addresses them about
 // someone else. Shared by the panel button's pre-check and the open flow itself.
@@ -950,6 +958,7 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
 }
 
 export const ticketsModule: BotModule = {
+  forget: (_ctx, guildId, userId) => clearCheckSession(guildId, userId),
   name: "tickets",
   commands: [
     featureCommand({

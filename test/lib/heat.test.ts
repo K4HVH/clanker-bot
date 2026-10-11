@@ -88,3 +88,21 @@ test("RepeatTracker flags a duplicate within the window, not outside it", () => 
   expect(r.record("k", "hello", 5000, 1000)).toBe(false); // old copy fell out of the window
   expect(r.record("k", "", 300, 1000)).toBe(false); // empty never counts
 });
+
+test("trackers forget one member and keep the rest", () => {
+  const heat = new HeatTracker();
+  heat.record("g", "u1", 1000, 10_000, 5);
+  heat.record("g", "u2", 1000, 10_000, 5);
+  heat.forget("g:u1");
+  expect(heat.record("g", "u1", 1001, 10_000, 1)).toBe(false); // history gone: one message, not two
+  expect(heat.record("g", "u2", 1001, 10_000, 1)).toBe(true);
+  const repeats = new RepeatTracker();
+  repeats.record("g:u1", "hello", 1000, 10_000);
+  repeats.forget("g:u1");
+  expect(repeats.record("g:u1", "hello", 1001, 10_000)).toBe(false);
+  const sprays = new SprayTracker();
+  const opts = { windowMs: 10_000, minChars: 0, similarity: 100, channels: 2 };
+  sprays.record("g:u1", { channelId: "a", text: "buy now", fp: null, now: 1000 }, opts);
+  sprays.forget("g:u1");
+  expect(sprays.record("g:u1", { channelId: "b", text: "buy now", fp: null, now: 1001 }, opts)).toBe(false);
+});

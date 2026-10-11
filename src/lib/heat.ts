@@ -19,6 +19,10 @@ export class HeatTracker {
     }
     return recent.length > maxMessages;
   }
+
+  forget(key: string): void {
+    this.events.delete(key);
+  }
 }
 
 // Levenshtein edit distance. Inputs are capped by the caller (SprayTracker caps at 300 chars),
@@ -97,6 +101,10 @@ export class SprayTracker {
     }
     return channels.size >= opts.channels;
   }
+
+  forget(key: string): void {
+    this.seen.delete(key);
+  }
 }
 
 // Tracks recent message contents per key; returns true when a message duplicates one the
@@ -115,5 +123,9 @@ export class RepeatTracker {
       for (const [k, es] of this.seen) if (es.every((e) => e.ts <= now - windowMs)) this.seen.delete(k);
     }
     return dup;
+  }
+
+  forget(key: string): void {
+    this.seen.delete(key);
   }
 }

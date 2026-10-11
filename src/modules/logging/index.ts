@@ -207,6 +207,7 @@ const onReady: Listener<Events.ClientReady> = {
 };
 
 export const loggingModule: BotModule = {
+  forget: (_ctx, _guildId, userId) => void modRemoved.delete(userId),
   name: "logging",
   listeners: [
     onDelete,

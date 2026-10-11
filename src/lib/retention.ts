@@ -2,6 +2,7 @@ import { type Client, SnowflakeUtil } from "discord.js";
 import type { AppContext } from "../core/context";
 import { runChanges } from "../db/index";
 import { CONFIG_KEYS } from "./config";
+import { suppressDeletion } from "./log-suppress";
 
 // Deletes what the bot recorded once its retention runs out: database rows, and the bot's own posts
 // in the mod and member logs. Discord's Developer Terms have a bot delete data it no longer needs;
@@ -139,6 +140,7 @@ export async function purgeLogPosts(ctx: AppContext, client: Client, guildId: st
         }));
       },
       async remove(messageId) {
+        suppressDeletion(messageId);
         await channel.messages.delete(messageId);
       },
     };

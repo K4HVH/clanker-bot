@@ -965,7 +965,18 @@ const newCodeHandler: ComponentHandler = {
   },
 };
 
+// Cooldown keys are "<guild>:<kind or user>:..." and name the user somewhere after the guild.
+function forgetVerification(guildId: string, userId: string): void {
+  const k = key(guildId, userId);
+  endAllSessions(k);
+  processing.delete(k);
+  for (const map of [renderCooldown, modAlertCooldown]) {
+    for (const entry of map.keys()) if (entry.startsWith(`${guildId}:`) && entry.includes(userId)) map.delete(entry);
+  }
+}
+
 export const verificationModule: BotModule = {
+  forget: (_ctx, guildId, userId) => forgetVerification(guildId, userId),
   name: "verification",
   commands: [
     featureCommand({

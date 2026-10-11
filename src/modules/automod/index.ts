@@ -501,5 +501,12 @@ const onEdit: Listener<Events.MessageUpdate> = {
 
 export const automodModule: BotModule = {
   name: "automod",
+  forget: (_ctx, guildId, userId) => {
+    const key = `${guildId}:${userId}`;
+    heat.forget(key);
+    repeats.forget(key);
+    sprays.forget(key);
+    sprayMsgs.delete(key);
+  },
   listeners: [onCreate, onEdit, seedOnReady] as Listener[],
 };

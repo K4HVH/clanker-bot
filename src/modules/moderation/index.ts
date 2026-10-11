@@ -34,6 +34,7 @@ import {
   seededReply,
   takeForgetToken,
 } from "../../lib/scam-signatures";
+import { runForget } from "./forget";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
 const warnSub: Subcommand = {
@@ -916,6 +917,13 @@ export const moderationModule: BotModule = {
         purge: purgeSub,
         history: historySub,
         clearhistory: clearHistorySub,
+        forget: {
+          description: "Delete everything the bot holds on a member, at their request.",
+          permission: PermissionFlagsBits.ModerateMembers,
+          options: (s) =>
+            s.addUserOption((o) => o.setName("user").setDescription("The member, or the user id of someone who left").setRequired(true)),
+          execute: (interaction, ctx) => runForget(interaction, ctx),
+        },
         scamseed: scamSeedSub,
         scamforget: scamForgetSub,
       },
