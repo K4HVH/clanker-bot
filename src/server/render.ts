@@ -84,7 +84,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
   const describe = (op: Op): [string, string] => {
     switch (op.t) {
       case "bind":
-        return ["Bindings", `bind ${op.label} -> ${op.key}`];
+        return ["Bindings", `bind ${op.label} -> ${op.key}${op.replaces !== undefined ? ` (was ${op.replaces})` : ""}`];
       case "role.create":
         return ["Roles", `+ role "${op.name}": ${perms(op.permissions) || "no permissions"}`];
       case "role.update":

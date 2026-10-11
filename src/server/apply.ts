@@ -140,6 +140,7 @@ class Runner {
     switch (op.t) {
       case "bind":
         this.put(op.kind, op.key, op.id);
+        if (op.replaces !== undefined && op.kind !== "asset") this.drop(op.kind, op.replaces);
         return;
       case "role.create": {
         const r = await api.post<{ id: string }>(

@@ -47,7 +47,7 @@ export interface AutoModBody {
 }
 
 export type Op =
-  | { t: "bind"; kind: "role" | "channel" | "automod" | "asset"; key: string; id: string; label: string }
+  | { t: "bind"; kind: "role" | "channel" | "automod" | "asset"; key: string; id: string; label: string; replaces?: string }
   | { t: "role.create"; key: string; name: string; color: number; hoist: boolean; mentionable: boolean; permissions: bigint; flags: Flag[] }
   | { t: "role.update"; key: string; changes: Change[]; flags: Flag[] }
   | { t: "role.delete"; key: string; name: string; flags: Flag[] }
@@ -141,6 +141,8 @@ class Planner {
   readonly ruleKeyById = new Map<string, string>();
   // Channel keys planned around: everything that names one is skipped too.
   readonly skipped = new Set<string>();
+  // Ids a renamed key took over from its old key, which the old key's deletion must not touch.
+  readonly rebound = new Set<string>();
   // Reserved roles this server doesn't have (no one has boosted it). No member holds them, so a
   // reference to one is left out rather than holding anything up.
   readonly absentRoles = new Set<string>();
@@ -165,7 +167,7 @@ class Planner {
   }
 
   // State first for every key, then binding by name, so a bind never takes an object another key
-  // already holds.
+  // holds. An object whose key has left the file is free to bind: that is a key renamed in the file.
   resolve<T extends { id: string; name: string }>(
     kind: "role" | "channel" | "automod",
     entries: { key: string; name: string; label: string; accepts: (o: T) => boolean }[],
@@ -173,6 +175,11 @@ class Planner {
     into: Resolved,
     byId: Map<string, string>,
   ): void {
+    const inSpec = new Set(entries.map((e) => e.key));
+    const orphans = new Map<string, string>(); // id -> the key it was held under
+    for (const [k, id] of this.input.state) {
+      if (k.startsWith(`${kind}:`) && !inSpec.has(k.slice(kind.length + 1))) orphans.set(id, k.slice(kind.length + 1));
+    }
     const claimed = new Set<string>();
     const pending: typeof entries = [];
     for (const e of entries) {
@@ -185,7 +192,7 @@ class Planner {
         pending.push(e);
       }
     }
-    for (const id of this.input.state.values()) claimed.add(id);
+    for (const id of this.input.state.values()) if (!orphans.has(id)) claimed.add(id);
     for (const e of pending) {
       const found = pool.filter((o) => o.name === e.name && e.accepts(o) && !claimed.has(o.id));
       if (found.length > 1) {
@@ -196,7 +203,9 @@ class Planner {
         into.set(e.key, id);
         byId.set(id, e.key);
         claimed.add(id);
-        this.ops.push({ t: "bind", kind, key: e.key, id, label: e.label });
+        const replaces = orphans.get(id);
+        if (replaces !== undefined) this.rebound.add(id);
+        this.ops.push({ t: "bind", kind, key: e.key, id, label: e.label, ...(replaces !== undefined ? { replaces } : {}) });
       } else {
         into.set(e.key, null);
       }
@@ -742,6 +751,7 @@ class Planner {
       .map(([k, id]) => ({ kind: k.slice(0, k.indexOf(":")), key: k.slice(k.indexOf(":") + 1), id }))
       .sort((a, b) => (this.liveChannel(a.id)?.type === 4 ? 1 : 0) - (this.liveChannel(b.id)?.type === 4 ? 1 : 0));
     for (const { kind, key, id } of gone) {
+      if (this.rebound.has(id)) continue;
       if (kind === "channel" && !channelKeys.has(key)) {
         const live = this.liveChannel(id);
         if (live) out.push({ t: "channel.delete", key, name: live.name, flags: ["deletes"] });

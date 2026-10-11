@@ -90,3 +90,23 @@ test("a server nobody has boosted applies a spec that names the booster role", a
   expect(plan.ops.some((o) => o.t === "setting.set" && o.key === "ticket_check_exempt_roles")).toBe(false);
   expect((await applyPlan({ ...e, spec }, plan)).failed).toBeNull();
 });
+
+test("renaming a key in the file moves the object to the new key", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const id = loadState(e.db, e.guildId).get(stateKey("channel", "general"))!;
+  const renamed = {
+    ...fixture,
+    channels: fixture.channels.map((c) =>
+      c.type === "category" ? { ...c, channels: c.channels.map((ch) => (ch.key === "general" ? { ...ch, key: "chat" } : ch)) } : c,
+    ),
+  };
+  const plan = await planFor({ ...e, spec: renamed }, false);
+  expect(plan.ops).toEqual([{ t: "bind", kind: "channel", key: "chat", id, label: "#general", replaces: "general" }]);
+  expect(plan.held).toEqual([]);
+  await applyPlan({ ...e, spec: renamed }, plan);
+  const state = loadState(e.db, e.guildId);
+  expect(state.get(stateKey("channel", "chat"))).toBe(id);
+  expect(state.has(stateKey("channel", "general"))).toBe(false);
+  expect((await planFor({ ...e, spec: renamed }, false)).ops).toEqual([]);
+});
