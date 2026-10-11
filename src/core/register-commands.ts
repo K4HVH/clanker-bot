@@ -1,5 +1,4 @@
-import { REST, Routes } from "discord.js";
-import type { Env } from "../core/env";
+import { type REST, Routes } from "discord.js";
 import type { BotModule } from "./module";
 
 export function collectCommandData(modules: BotModule[]): unknown[] {
@@ -8,9 +7,15 @@ export function collectCommandData(modules: BotModule[]): unknown[] {
     .map((c) => c.data.toJSON());
 }
 
-export async function registerGuildCommands(env: Env, modules: BotModule[]): Promise<number> {
+// Guild commands, not global ones: they appear in a guild at once, where global commands can take
+// an hour. Called for every guild the bot is in, so a server set up from a spec has /server too.
+export async function registerGuildCommands(
+  rest: Pick<REST, "put">,
+  applicationId: string,
+  guildId: string,
+  modules: BotModule[],
+): Promise<number> {
   const body = collectCommandData(modules);
-  const rest = new REST().setToken(env.token);
-  await rest.put(Routes.applicationGuildCommands(env.applicationId, env.guildId), { body });
+  await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body });
   return body.length;
 }

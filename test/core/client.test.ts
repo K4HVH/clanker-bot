@@ -78,3 +78,13 @@ test("a leave by a cached member fires GuildMemberRemove and drops them from cac
     await client.destroy();
   }
 });
+
+test("registers commands in a guild the bot joins", async () => {
+  const registered: string[] = [];
+  const client = createClient([], silentContext(), async (guildId) => {
+    registered.push(guildId);
+  });
+  client.emit(Events.GuildCreate, { id: "g9" } as never);
+  await Bun.sleep(0);
+  expect(registered).toEqual(["g9"]);
+});
