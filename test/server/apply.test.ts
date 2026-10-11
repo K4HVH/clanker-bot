@@ -303,3 +303,14 @@ test("a role given to the members already here goes to each of them once, and no
   e.f.members.push({ user: { id: "1004" }, roles: [] });
   expect((await planFor(e2, false)).ops).toEqual([]);
 });
+
+test("a post taken out of the file is deleted with the deletions", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const e2 = { ...e, spec: { ...e.spec, posts: [] } };
+  const held = await planFor(e2, false);
+  expect(held.held.map((o) => o.t)).toEqual(["post.delete"]);
+  await applyPlan(e2, await planFor(e2, true));
+  expect(e.f.messages.some((m) => m.content.includes("Rule"))).toBe(false);
+  expect((await planFor(e2, true)).ops).toEqual([]);
+});

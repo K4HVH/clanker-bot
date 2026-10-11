@@ -20,8 +20,17 @@ const FIELD: Record<string, string> = {
 };
 
 // One operation as a line of text, and the plan section it belongs in.
+const roleNameOf = (spec: ServerSpec, key: string) => RESERVED[key] ?? spec.roles.find((r) => r.key === key)?.name ?? key;
+
+const bitsText = (allow: bigint, deny: bigint) => {
+  const parts = [];
+  if (allow !== 0n) parts.push(`allow ${perms(allow)}`);
+  if (deny !== 0n) parts.push(`deny ${perms(deny)}`);
+  return parts.join("; ") || "empty overwrite";
+};
+
 export function describer(spec: ServerSpec): (op: Op) => [string, string] {
-  const roleName = (key: string) => RESERVED[key] ?? spec.roles.find((r) => r.key === key)?.name ?? key;
+  const roleName = (key: string) => roleNameOf(spec, key);
   const flat = channelsFlat(spec);
   const channel = (key: string | null): string => {
     if (key === null) return "top";
@@ -61,12 +70,7 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
     return `${label} ${quoted(c.from)} -> ${quoted(c.to)}`;
   };
   const target = (t: string) => (t.startsWith("member:") ? `member ${t.slice(7)}` : roleName(t));
-  const bits = (allow: bigint, deny: bigint) => {
-    const parts = [];
-    if (allow !== 0n) parts.push(`allow ${perms(allow)}`);
-    if (deny !== 0n) parts.push(`deny ${perms(deny)}`);
-    return parts.join("; ") || "empty overwrite";
-  };
+  const bits = bitsText;
 
   return (op: Op): [string, string] => {
     switch (op.t) {
@@ -161,6 +165,14 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
 
 export const describeOp = (op: Op, spec: ServerSpec): string => describer(spec)(op)[1];
 
+// The plan's size as a reader counts it: what it changes, and apart from that what it only binds.
+export function countText(plan: Plan): string {
+  const binds = plan.ops.filter((o) => o.t === "bind").length;
+  const changes = plan.ops.length - binds;
+  const text = `${changes} change${changes === 1 ? "" : "s"}`;
+  return binds > 0 ? `${text}, ${binds} binding${binds === 1 ? "" : "s"}` : text;
+}
+
 export function renderPlan(plan: Plan, spec: ServerSpec): string {
   const describe = describer(spec);
   const groups: [string, string[]][] = [
@@ -183,6 +195,13 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
   for (const op of plan.ops) {
     const [group, line] = describe(op);
     put(group, op, line);
+    // A new channel's permissions, which no overwrite op shows: it's made with them.
+    if (op.t === "channel.create") {
+      for (const o of op.overwrites) {
+        const who = roleNameOf(spec, o.target);
+        put("Permissions", { t: "overwrite.set", channel: op.key, target: o.target, allow: o.allow, deny: o.deny, before: null, flags: [] }, `${channelLabel(op.name, op.type)} (new), ${who}: ${bitsText(o.allow, o.deny)}`);
+      }
+    }
   }
   const sections: [string, string[]][] = [
     ...groups,

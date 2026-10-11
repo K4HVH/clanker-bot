@@ -1202,7 +1202,16 @@ class Planner {
     const gone = [...state.entries()]
       .map(([k, id]) => ({ kind: k.slice(0, k.indexOf(":")), key: k.slice(k.indexOf(":") + 1), id }))
       .sort((a, b) => (this.liveChannel(a.id)?.type === 4 ? 1 : 0) - (this.liveChannel(b.id)?.type === 4 ? 1 : 0));
+    const postKeys = new Set(spec.posts.map((p) => p.key));
     for (const { kind, key, id } of gone) {
+      if (kind === "post") {
+        // A post taken out of the file goes; one already deleted by hand needs nothing.
+        const [postKey, part] = key.split("#") as [string, string];
+        if (!postKeys.has(postKey) && part !== "menu" && this.live.posts.get(parsePosted(id).message) != null) {
+          out.push({ t: "post.delete", key: postKey, index: Number(part) });
+        }
+        continue;
+      }
       if (this.rebound.has(id)) continue;
       if (kind === "channel" && !channelKeys.has(key)) {
         const live = this.liveChannel(id);

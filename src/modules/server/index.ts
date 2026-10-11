@@ -18,7 +18,7 @@ import { adoptSource } from "../../server/adopt";
 import { type DiscordApi, restApi } from "../../server/api";
 import { applyPlan, applySummary, planFor } from "../../server/apply";
 import { readLive } from "../../server/live";
-import { renderPlan } from "../../server/render";
+import { countText, renderPlan } from "../../server/render";
 import { type ServerSpec, validateSpec } from "../../server/spec";
 import { SPECS } from "../../server/specs";
 import { getSpecName, markApplied, setSpecName } from "../../server/state";
@@ -77,7 +77,7 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const plan = await planFor({ api: deps.api(guild), db: ctx.db, config: ctx.config, guildId: guild.id, spec: chosen.spec }, deletions, prune);
   const text = renderPlan(plan, chosen.spec);
-  const header = `Spec **${chosen.name}**: ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}.`;
+  const header = `Spec **${chosen.name}**: ${countText(plan)}.`;
   const inline = `${header}\n\`\`\`\n${text}\n\`\`\``;
   const components =
     plan.ops.length > 0
@@ -85,7 +85,7 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
               .setCustomId(`${APPLY}:${plan.fingerprint.slice(0, FINGERPRINT_CHARS)}:${deletions ? 1 : 0}${prune ? 1 : 0}:${chosen.name}`)
-              .setLabel(`Apply ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}`)
+              .setLabel("Apply")
               .setStyle(ButtonStyle.Danger),
           ),
         ]

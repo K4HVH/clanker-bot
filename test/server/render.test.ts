@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PermissionFlagsBits as P } from "discord.js";
 import type { Plan } from "../../src/server/plan";
-import { renderPlan } from "../../src/server/render";
+import { countText, renderPlan } from "../../src/server/render";
 import { defineServer } from "../../src/server/spec";
 
 const spec = defineServer({
@@ -122,4 +122,38 @@ test("forum tag changes read as tag names", () => {
     unmanaged: [],
   };
   expect(renderPlan(plan, spec)).toBe('Channels\n  #rules: tags Install -> Install, ✅ Solved (staff only)');
+});
+
+test("a channel the plan makes shows its permissions with it", () => {
+  const plan: Plan = {
+    fingerprint: "f",
+    ops: [
+      {
+        t: "channel.create",
+        key: "rules",
+        type: 0,
+        name: "rules",
+        parent: null,
+        topic: null,
+        slowmode: 0,
+        nsfw: false,
+        overwrites: [{ target: "mod", allow: 0n, deny: P.SendMessages }],
+        visibleTo: ["mod"],
+        flags: ["widens"],
+      },
+    ],
+    held: [],
+    manual: [],
+    unmanaged: [],
+  };
+  expect(renderPlan(plan, spec)).toContain("Permissions\n  #rules (new), Mod: deny Send Messages");
+});
+
+test("the count names changes apart from bindings", () => {
+  const ops = [
+    { t: "bind", kind: "role", key: "dev", id: "1", label: 'role "Dev"' },
+    { t: "guild.update", changes: [], flags: [] },
+  ] as Plan["ops"];
+  expect(countText({ fingerprint: "f", ops, held: [], manual: [], unmanaged: [] })).toBe("1 change, 1 binding");
+  expect(countText({ fingerprint: "f", ops: [ops[1]!], held: [], manual: [], unmanaged: [] })).toBe("1 change");
 });

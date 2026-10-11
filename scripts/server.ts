@@ -16,7 +16,7 @@ import { restApi } from "../src/server/api";
 import { applyPlan, applySummary, planFor } from "../src/server/apply";
 import { assertNotProduction } from "../src/server/guard";
 import { readLive } from "../src/server/live";
-import { renderPlan } from "../src/server/render";
+import { countText, renderPlan } from "../src/server/render";
 import { SPECS } from "../src/server/specs";
 
 function flag(name: string): string | undefined {
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const deletions = process.argv.includes("--deletions");
   const plan = await planFor(env, deletions, process.argv.includes("--prune"));
   console.log(renderPlan(plan, spec));
-  console.log(`\nfingerprint ${plan.fingerprint.slice(0, 32)}, ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}`);
+  console.log(`\nfingerprint ${plan.fingerprint.slice(0, 32)}, ${countText(plan)}`);
   if (command === "apply" && plan.ops.length > 0) {
     const result = await applyPlan({ ...env, reason: "Server plan applied from a checkout" }, plan);
     console.log(`\n${applySummary(result, plan, spec)}`);
