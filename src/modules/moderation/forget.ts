@@ -12,7 +12,7 @@ export interface ForgetDeps {
   modules: Pick<BotModule, "name" | "forget">[];
   posts: typeof forgetPosts;
   channel: (id: string) => Promise<Closable | null>;
-  close: (channel: Closable) => Promise<void>;
+  close: (channel: Closable) => Promise<boolean>;
   log: (ctx: AppContext, guild: Guild, embed: EmbedBuilder) => Promise<void>;
 }
 
@@ -48,7 +48,13 @@ export async function runForget(interaction: ChatInputCommandInteraction, ctx: A
 
   for (const m of d.modules) m.forget?.(ctx, guild.id, user.id);
   const rows = forgetRows(ctx.db, guild.id, user.id);
-  const posts = await d.posts(ctx, guild, user.id);
+  // The rows are gone by now: a scan that fails is reported, and the log and the closing still run.
+  const posts = await d.posts(ctx, guild, user.id).catch((error: unknown) => ({
+    logPosts: 0,
+    dms: 0,
+    failed: 0,
+    unreachable: [`the log channels and DMs (${error instanceof Error ? error.message : String(error)})`],
+  }));
 
   const summary = [
     plural(rows.cases, "case"),
@@ -75,8 +81,19 @@ export async function runForget(interaction: ChatInputCommandInteraction, ctx: A
   if (posts.unreachable.length > 0) embed.addFields({ name: "Not reached", value: posts.unreachable.join(", ") });
   await d.log(ctx, guild, embed);
 
+  const stuck: string[] = [];
   for (const id of [...open.filter((c) => c !== interaction.channelId), ...(here ? [interaction.channelId] : [])]) {
     const channel = id === interaction.channelId && interaction.channel ? (interaction.channel as unknown as Closable) : await d.channel(id);
-    if (channel) await d.close(channel);
+    if (!channel || !(await d.close(channel))) stuck.push(`<#${id}>`);
+  }
+  if (stuck.length > 0) {
+    await d.log(
+      ctx,
+      guild,
+      new EmbedBuilder()
+        .setColor(0xe67e22)
+        .setTitle("Couldn't close a ticket of a member whose data was deleted. Delete it by hand.")
+        .addFields({ name: "Tickets", value: stuck.join(", ") }),
+    );
   }
 }

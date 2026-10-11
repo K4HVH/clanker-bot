@@ -116,8 +116,14 @@ export async function purgeChannel(
       }
       before = m.id;
       if (m.authorId !== botId || m.createdAt >= cutoffs[kindOf(m)]) continue;
-      await api.remove(m.id);
-      deleted++;
+      // One already gone (deleted by hand meanwhile) or refused doesn't stop the rest; a refused one
+      // comes round again on a later run.
+      try {
+        await api.remove(m.id);
+        deleted++;
+      } catch {
+        // next
+      }
     }
   }
   cursor?.set(key, before);

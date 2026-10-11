@@ -44,8 +44,11 @@ function setup(channelId: string, target = "u1") {
   const deps = {
     modules: [{ name: "x", forget: (_c: unknown, g: string, u: string) => void forgotten.push(`${g}:${u}`) }],
     posts: async () => ({ logPosts: 4, dms: 1, failed: 0, unreachable: ["DMs"] }),
-    channel: async (id: string) => ({ id, delete: async () => {} }),
-    close: async (c: { id: string }) => void closed.push(c.id),
+    channel: async (id: string): Promise<{ id: string; delete: () => Promise<void> } | null> => ({ id, delete: async () => {} }),
+    close: async (c: { id: string }) => {
+      closed.push(c.id);
+      return true;
+    },
     log: async (_c: unknown, _g: unknown, e: EmbedBuilder) => void logged.push(e),
   };
   return { ctx, interaction, deps, edits, replies, closed, logged, forgotten };
@@ -92,4 +95,31 @@ test("a reply that can't be sent doesn't stop the log or the closing", async () 
   await runForget(s.interaction as never, s.ctx, s.deps as never);
   expect(s.logged).toHaveLength(1);
   expect(s.closed).toEqual(["c2", "c1"]);
+});
+
+test("a log scan that fails still logs the request and closes their tickets", async () => {
+  const s = setup("c2");
+  s.deps.posts = async () => {
+    throw new Error("Discord is down");
+  };
+  await runForget(s.interaction as never, s.ctx, s.deps as never);
+  expect(s.ctx.db.query("SELECT COUNT(*) AS n FROM cases").get()).toEqual({ n: 0 });
+  expect(JSON.stringify(s.edits.at(-1))).toContain("Not reached: the log channels and DMs (Discord is down)");
+  expect(s.logged).toHaveLength(1);
+  expect(s.closed.sort()).toEqual(["c1", "c2"]);
+});
+
+test("a ticket that can't be closed is reported, so staff delete it by hand", async () => {
+  const s = setup("elsewhere");
+  s.deps.close = async (c: { id: string }) => {
+    if (c.id === "c1") return false;
+    s.closed.push(c.id);
+    return true;
+  };
+  s.deps.channel = async (id: string) => (id === "c2" ? null : { id, delete: async () => {} });
+  await runForget(s.interaction as never, s.ctx, s.deps as never);
+  const last = JSON.stringify(s.logged.at(-1)!.toJSON());
+  expect(last).toContain("Couldn't close a ticket of a member whose data was deleted. Delete it by hand.");
+  expect(last).toContain("<#c1>");
+  expect(last).toContain("<#c2>");
 });

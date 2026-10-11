@@ -17,7 +17,9 @@ export async function handleMenu(interaction: StringSelectMenuInteraction, ctx: 
   const guildId = interaction.guildId;
   const member = interaction.member as unknown as MenuMember | null;
   if (!guildId || !member) return;
-  const reply = (content: string) => interaction.reply({ content, flags: MessageFlags.Ephemeral });
+  // Acknowledged at once: adding and removing roles can outlast the 3 seconds Discord gives a reply.
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const reply = (content: string) => interaction.editReply({ content });
 
   const verified = ctx.config.get<string>(guildId, CONFIG_KEYS.verifiedRoleId);
   if (verified && !member.roles.cache.has(verified)) {

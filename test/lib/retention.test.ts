@@ -122,3 +122,15 @@ test("each run carries on from where the last stopped, so kept posts can't wall 
   for (let run = 0; run < 3; run++) deleted += await purgeChannel(ch, "bot", cutoffs, NOW, 500, 20, cursor, "logs");
   expect(deleted).toBe(10);
 });
+
+test("a post that can't be deleted doesn't stop the run", async () => {
+  const cutoffs = { member: NOW - 90 * DAY, ticket: NOW, moderation: NOW };
+  const ch = channel([msg(9, 100), msg(8, 100), msg(7, 100)]);
+  const remove = ch.remove;
+  ch.remove = async (id) => {
+    if (id === "8") throw Object.assign(new Error("Unknown Message"), { code: 10008 });
+    await remove(id);
+  };
+  expect(await purgeChannel(ch, "bot", cutoffs, NOW, 500)).toBe(2);
+  expect(ch.removed.sort()).toEqual(["7", "9"]);
+});

@@ -55,7 +55,8 @@ function menuInteraction(values: string[], roles: string[]) {
       customId: "roles:start:pings",
       values,
       member: { roles: { cache: { has: (id: string) => held.has(id) }, add: async (id: string) => void held.add(id), remove: async (id: string) => void held.delete(id) } },
-      reply: async (o: unknown) => void replies.push(o),
+      deferReply: async (o: unknown) => void replies.push({ deferred: o }),
+      editReply: async (o: unknown) => void replies.push(o),
     },
   };
 }
@@ -65,7 +66,8 @@ test("picking from a menu gives the picked roles and takes the others in that qu
   const m = menuInteraction(["release-pings"], ["v", "r2"]);
   await handleMenu(m.i as never, ctx, specs);
   expect([...m.held].sort()).toEqual(["r1", "v"]);
-  expect(m.replies).toEqual([{ content: "Done: Release pings added, Box pings removed.", flags: 64 }]);
+  // Acknowledged first: adding and removing roles can outlast the 3 seconds Discord gives a reply.
+  expect(m.replies).toEqual([{ deferred: { flags: 64 } }, { content: "Done: Release pings added, Box pings removed." }]);
 });
 
 test("someone not yet verified is sent to verify first", async () => {
@@ -74,7 +76,7 @@ test("someone not yet verified is sent to verify first", async () => {
   const m = menuInteraction(["release-pings"], []);
   await handleMenu(m.i as never, ctx, specs);
   expect(m.held.size).toBe(0);
-  expect(m.replies).toEqual([{ content: "Verify in <#vc> first.", flags: 64 }]);
+  expect(m.replies).toEqual([{ deferred: { flags: 64 } }, { content: "Verify in <#vc> first." }]);
 });
 
 test("a message in a channel the spec marks is published; others aren't", async () => {

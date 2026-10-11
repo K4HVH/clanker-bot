@@ -206,10 +206,14 @@ async function closeTicketFlow(
 
 // Close a ticket by deleting its channel, with no transcript and no mod-log post: for /mod forget,
 // whose request ticket would otherwise be archived with the data it asked to have deleted.
-export async function closeTicketQuietly(channel: { id: string; delete(reason?: string): Promise<unknown> }): Promise<void> {
+// False when the channel couldn't be deleted, so the caller can say so.
+export async function closeTicketQuietly(channel: { id: string; delete(reason?: string): Promise<unknown> }): Promise<boolean> {
   openTicketChannels.delete(channel.id);
   warnedTickets.delete(channel.id);
-  await channel.delete("Closed at the member's request").catch(() => {});
+  return channel.delete("Closed at the member's request").then(
+    () => true,
+    () => false,
+  );
 }
 
 // Whether `openerId` is out of ticket slots, as a message to show whoever asked. `via` is
