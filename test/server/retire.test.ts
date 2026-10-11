@@ -215,3 +215,11 @@ test("replies to commands are copied like any other message", async () => {
   await applyPlan(e, await planFor(e, true));
   expect(backupOf(f).at(-1)!.content).toEndWith("\na command's answer");
 });
+
+test("deleting a channel says how many invites go with it", async () => {
+  const { e, f, old } = setup();
+  f.invites.push({ code: "a", channel: { id: old.id }, uses: 6, max_age: 0 }, { code: "b", channel: { id: old.id }, uses: 0, max_age: 604800 });
+  const plan = await planFor(e, true);
+  expect(plan.ops.find((o) => o.t === "channel.delete")).toMatchObject({ invites: 2, permanentInvites: 1 });
+  expect(renderPlan(plan, e.spec)).toContain("! - #old, and its 2 invites (1 never expires)");
+});

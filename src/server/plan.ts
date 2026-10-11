@@ -98,7 +98,8 @@ export type Op =
       flags: Flag[];
     }
   | { t: "channel.update"; key: string; changes: Change[]; flags: Flag[] }
-  | { t: "channel.delete"; key: string; name: string; flags: Flag[] }
+  // Deleting a channel deletes its invites: the plan says how many, and how many never expire.
+  | { t: "channel.delete"; key: string; name: string; invites?: number; permanentInvites?: number; flags: Flag[] }
   // A retired channel's messages after `from` (null: from the start) up to `upTo`, copied into `into`.
   | { t: "channel.backup"; key: string; into: string; from: string | null; upTo: string; messages: number; files: number }
   | { t: "onboarding.set"; body: OnboardingBody; enabledBefore: boolean; removed: string[]; flags: Flag[] }
@@ -425,7 +426,7 @@ class Planner {
         this.manual.push(`${label} is Community's rules or updates channel, so it can't be deleted. Pick another in Server Settings > Community > Overview, then plan again`);
         continue;
       }
-      (deletions ? this.ops : this.held).push({ t: "channel.delete", key: r.key, name: live.name, flags: ["deletes"] });
+      (deletions ? this.ops : this.held).push({ t: "channel.delete", key: r.key, name: live.name, ...this.invitesOf(id), flags: ["deletes"] });
     }
   }
 
@@ -1200,6 +1201,11 @@ class Planner {
     });
   }
 
+  invitesOf(channelId: string): { invites?: number; permanentInvites?: number } {
+    const here = this.live.invites.filter((i) => i.channelId === channelId);
+    return here.length > 0 ? { invites: here.length, permanentInvites: here.filter((i) => i.permanent).length } : {};
+  }
+
   planDeletions(): void {
     const { spec, state, deletions } = this.input;
     const roleKeys = new Set(spec.roles.map((r) => r.key));
@@ -1223,7 +1229,7 @@ class Planner {
       if (this.rebound.has(id)) continue;
       if (kind === "channel" && !channelKeys.has(key)) {
         const live = this.liveChannel(id);
-        if (live) out.push({ t: "channel.delete", key, name: live.name, flags: ["deletes"] });
+        if (live) out.push({ t: "channel.delete", key, name: live.name, ...this.invitesOf(id), flags: ["deletes"] });
       } else if (kind === "automod" && !ruleKeys.has(key)) {
         const live = this.live.rules.find((r) => r.id === id);
         if (live) out.push({ t: "automod.delete", key, name: live.name, flags: ["deletes"] });

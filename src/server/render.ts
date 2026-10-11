@@ -94,8 +94,11 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
       }
       case "channel.update":
         return ["Channels", `${channel(op.key)}: ${op.changes.map(change).join(", ")}`];
-      case "channel.delete":
-        return ["Channels", `- #${op.name}`];
+      case "channel.delete": {
+        if (!op.invites) return ["Channels", `- #${op.name}`];
+        const kept = op.permanentInvites ? ` (${op.permanentInvites} never expire${op.permanentInvites === 1 ? "s" : ""})` : "";
+        return ["Channels", `- #${op.name}, and its ${op.invites} invite${op.invites === 1 ? "" : "s"}${kept}`];
+      }
       case "onboarding.set": {
         const b = op.body;
         const was = op.enabledBefore === b.enabled ? "" : ` (was ${op.enabledBefore ? "on" : "off"})`;

@@ -301,7 +301,7 @@ export default defineServer({
     ticket_archive_images: true,
     ticket_close_confirm: true,
     ticket_staff_only_close: false,
-    ticket_min_subject_words: 10,
+    ticket_min_subject_words: 3,
     ticket_check_enabled: true,
     ticket_check_categories: ["reasoning","english"],
     ticket_check_questions: 3,
