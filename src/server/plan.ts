@@ -104,6 +104,7 @@ export const CHANNEL_TYPE: Record<ChannelKind | "category", number> = {
   announcement: 5,
   stage: 13,
   forum: 15,
+  media: 16,
 };
 
 const KIND_NAME: Record<number, string> = Object.fromEntries(
@@ -114,7 +115,7 @@ export const VERIFICATION = ["none", "low", "medium", "high", "highest"] as cons
 export const FILTER = ["off", "no-roles", "all"] as const;
 export const NOTIFY = ["all", "mentions"] as const;
 
-const hasTopic = (type: number) => type === 0 || type === 5 || type === 15;
+const hasTopic = (type: number) => type === 0 || type === 5 || type === 15 || type === 16;
 
 // Discord orders categories, text-like channels and voice-like channels as separate lists, so
 // relative order is compared within one of these buckets at a time.

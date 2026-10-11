@@ -170,7 +170,7 @@ class Runner {
         return;
       }
       case "channel.create": {
-        const textLike = op.type === 0 || op.type === 5 || op.type === 15;
+        const textLike = op.type === 0 || op.type === 5 || op.type === 15 || op.type === 16;
         const body: Record<string, unknown> = {
           name: op.name,
           type: op.type,

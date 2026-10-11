@@ -83,3 +83,18 @@ test("adopt leaves out a channel's permissions when they match its category's", 
   expect(category.channels.find((c) => c.key === "open")?.overwrites).toEqual({});
   expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
 });
+
+test("adopt keeps media channels and leaves out kinds a spec can't hold", async () => {
+  const f = new FakeDiscord();
+  f.addChannel({ name: "clips", type: 16 });
+  f.addChannel({ name: "Server Directory", type: 14 });
+  const live = await readLive(f, f.guildId, []);
+  const source = adoptSource(live, {}, "t", join(import.meta.dir, "../../src/server/spec.ts"));
+  expect(source).toContain('type: "media"');
+  expect(source).toContain("// Server Directory: a type 14 channel, which a spec can't hold");
+  const dir = mkdtempSync(join(tmpdir(), "adopt-"));
+  writeFileSync(join(dir, "index.ts"), source);
+  const spec = (await import(join(dir, "index.ts"))).default as ServerSpec;
+  expect(validateSpec(spec)).toEqual([]);
+  expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
+});

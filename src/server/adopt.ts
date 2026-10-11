@@ -84,9 +84,12 @@ export function adoptSource(
   const displayed = (list: LiveChannel[]) => [...list.filter((c) => !voice(c)).sort(byPosition), ...list.filter(voice).sort(byPosition)];
   const channelKeys = new Set<string>();
   const channelKey = new Map<string, string>();
-  const top = displayed(live.channels.filter((c) => c.parentId === null && c.type !== 4));
-  const categories = live.channels.filter((c) => c.type === 4).sort(byPosition);
-  const ordered = [...top, ...categories.flatMap((cat) => [cat, ...displayed(live.channels.filter((c) => c.parentId === cat.id))])];
+  // Kinds a spec can hold; others (a server directory, say) are listed as comments and left alone.
+  const known = live.channels.filter((c) => KIND[c.type] !== undefined);
+  const unknown = live.channels.filter((c) => KIND[c.type] === undefined);
+  const top = displayed(known.filter((c) => c.parentId === null && c.type !== 4));
+  const categories = known.filter((c) => c.type === 4).sort(byPosition);
+  const ordered = [...top, ...categories.flatMap((cat) => [cat, ...displayed(known.filter((c) => c.parentId === cat.id))])];
   for (const c of ordered) channelKey.set(c.id, keyOf(c.name, channelKeys));
 
   const overwrites = (list: LiveOverwrite[]): { [k: string]: Lit } | null => {
@@ -106,7 +109,7 @@ export function adoptSource(
     return Object.keys(out).length > 0 ? out : null;
   };
   const channel = (c: LiveChannel, category?: LiveChannel): { [k: string]: Lit } => {
-    const out: { [k: string]: Lit } = { key: channelKey.get(c.id)!, type: KIND[c.type] ?? "text", name: c.name };
+    const out: { [k: string]: Lit } = { key: channelKey.get(c.id)!, type: KIND[c.type]!, name: c.name };
     if (c.type !== 4) {
       if (c.topic) out.topic = c.topic;
       if (c.slowmode > 0) out.slowmode = c.slowmode;
@@ -125,7 +128,8 @@ export function adoptSource(
   };
   const channels: Lit[] = [
     ...top.map((c) => channel(c)),
-    ...categories.map((cat) => ({ ...channel(cat), channels: displayed(live.channels.filter((c) => c.parentId === cat.id)).map((c) => channel(c, cat)) })),
+    ...categories.map((cat) => ({ ...channel(cat), channels: displayed(known.filter((c) => c.parentId === cat.id)).map((c) => channel(c, cat)) })),
+    ...unknown.map((c) => new Comment(`${c.name}: a type ${c.type} channel, which a spec can't hold`)),
   ];
 
   const ruleKeys = new Set<string>();
