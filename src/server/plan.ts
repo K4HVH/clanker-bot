@@ -364,7 +364,7 @@ class Planner {
       const id = this.channels.get(channel.key);
       const type = CHANNEL_TYPE[channel.type];
       const plain = channel.type !== "category" ? (channel as ChannelSpec) : undefined;
-      // A channel in a category with no permissions of its own takes the category's, as a synced
+      // A channel in a category with no permissions set takes the category's, as a synced
       // channel does in Discord. `overwrites: {}` means none.
       const own = channel.overwrites ?? (parent !== null ? categories.get(parent)?.overwrites : undefined);
       const desired = this.desiredOverwrites(own);
@@ -419,7 +419,7 @@ class Planner {
   }
 
   // The roles in the spec that could view a channel with these overwrites, in Discord's order:
-  // @everyone's and the role's own permissions, then the @everyone overwrite, then the role's.
+  // @everyone's and the role's permissions, then the @everyone overwrite, then the role's.
   // Administrator holders see every channel, so they aren't named.
   viewers(desired: OverwriteBits[]): string[] {
     const view = toBits(["ViewChannel"]);

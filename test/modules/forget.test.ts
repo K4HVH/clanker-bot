@@ -80,7 +80,7 @@ test("forget run elsewhere still closes their open tickets", async () => {
 test("the bot itself can't be forgotten", async () => {
   const s = setup("c9", "bot");
   await runForget(s.interaction as never, s.ctx, s.deps as never);
-  expect(s.replies).toEqual([{ content: "The bot's own records aren't a member's data.", flags: 64 }]);
+  expect(s.replies).toEqual([{ content: "That's the bot: there's no member data to delete.", flags: 64 }]);
   expect(s.ctx.db.query("SELECT COUNT(*) AS n FROM cases").get()).toEqual({ n: 1 });
 });
 

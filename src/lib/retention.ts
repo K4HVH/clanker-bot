@@ -4,7 +4,7 @@ import { runChanges } from "../db/index";
 import { CONFIG_KEYS } from "./config";
 import { suppressDeletion } from "./log-suppress";
 
-// Deletes what the bot recorded once its retention runs out: database rows, and the bot's own posts
+// Deletes what the bot recorded once its retention runs out: database rows, and the bot's posts
 // in the mod and member logs. Discord's Developer Terms have a bot delete data it no longer needs;
 // the retention settings say when that is.
 
@@ -85,7 +85,7 @@ export function kindOf(m: LogMessage): LogKind {
   return "moderation";
 }
 
-// Walks back through a channel deleting the bot's posts past their own cutoff, up to `cap` per run.
+// Walks back through a channel deleting the bot's posts past their cutoff, up to `cap` per run.
 // Posts still kept (moderation inside its year, other people's messages) can fill many pages, so a
 // run carries on from where the last one stopped (`cursor`, by channel) and starts again from the
 // most recent cutoff once it reaches the channel's start. Older-than-14-days messages can't be bulk

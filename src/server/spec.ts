@@ -8,7 +8,7 @@ import { isPermissionName, type PermissionName } from "./permissions";
 
 export type Overwrite = Partial<Record<PermissionName, boolean>>; // true allow, false deny, absent inherit
 
-// Role keys that name roles Discord makes: @everyone, the server booster role, and the bot's own
+// Role keys that name roles Discord makes: @everyone, the server booster role, and the bot's
 // managed role. A spec references them in overwrites and settings but never defines them.
 export const RESERVED_ROLES = ["everyone", "booster", "bot"] as const;
 

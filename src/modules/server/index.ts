@@ -172,7 +172,7 @@ export const serverModule: BotModule = {
   commands: [
     featureCommand({
       name: "server",
-      description: "The server as code: plan and apply its spec.",
+      description: "Plan and apply this server's spec.",
       defaultMemberPermissions: PermissionFlagsBits.Administrator,
       subcommands: {
         plan: {
@@ -189,7 +189,7 @@ export const serverModule: BotModule = {
           execute: (interaction, ctx) => planCommand(interaction, ctx),
         },
         adopt: {
-          description: "Download a spec matching this server as it is.",
+          description: "Download a spec matching this server.",
           execute: (interaction, ctx) => adoptCommand(interaction, ctx),
         },
       },

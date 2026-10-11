@@ -163,7 +163,7 @@ class Runner {
         return;
       case "role.order": {
         // Permute the positions these roles already hold, so roles the spec doesn't manage, and
-        // the bot's own, keep theirs.
+        // the bot's, keep theirs.
         const roles = await api.get<{ id: string; position: number }[]>(`${this.g}/roles`);
         const ids = op.keys.map((k) => this.role(k));
         const slots = ids.map((id) => roles.find((r) => r.id === id)!.position).sort((a, b) => b - a);

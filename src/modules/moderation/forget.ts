@@ -26,7 +26,7 @@ export async function runForget(interaction: ChatInputCommandInteraction, ctx: A
   const guild = interaction.guild!;
   const user = interaction.options.getUser("user", true);
   if (user.id === interaction.client.user.id) {
-    await interaction.reply({ content: "The bot's own records aren't a member's data.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "That's the bot: there's no member data to delete.", flags: MessageFlags.Ephemeral });
     return;
   }
   const d: ForgetDeps = deps ?? {

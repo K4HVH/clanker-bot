@@ -31,7 +31,7 @@ export interface AllowDeny {
 }
 
 // Whether a permission overwrite change lets a role do something it couldn't before: a bit newly
-// allowed, or a deny lifted (which hands the decision back to the role's own permissions).
+// allowed, or a deny lifted (which hands the decision back to the role's permissions).
 export function widens(before: AllowDeny | null, after: AllowDeny): boolean {
   const was = before ?? { allow: 0n, deny: 0n };
   return (after.allow & ~was.allow) !== 0n || (was.deny & ~after.deny) !== 0n;

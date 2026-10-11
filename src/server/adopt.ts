@@ -116,7 +116,7 @@ export function adoptSource(
       if (c.nsfw) out.nsfw = true;
     }
     const ow = overwrites(c.overwrites);
-    // A channel matching its category's permissions is written without its own: it takes them.
+    // A channel whose permissions match its category's is written without any: it takes the category's.
     // One that differs, even by having none, is written out.
     if (category) {
       const parent = overwrites(category.overwrites);
