@@ -37,7 +37,7 @@ test("renders a plan as grouped lines", () => {
       { t: "overwrite.delete", channel: "admin", target: "member:42", before: { allow: P.ViewChannel, deny: 0n }, flags: [] },
       { t: "guild.update", changes: [{ field: "explicitContentFilter", from: "off", to: "all" }], flags: [] },
       { t: "community", enable: true, flags: [] },
-      { t: "automod.create", key: "rule-2", body: { name: "Rule 2", enabled: true, keywords: ["a", "b"], regex: ["c"], allow: [], actions: [{ type: 1 }, { type: 2, channel: "updates" }], exemptRoles: [], exemptChannels: [] } },
+      { t: "automod.create", key: "rule-2", body: { name: "Rule 2", trigger: 1, mentionLimit: null, raidProtection: null, enabled: true, keywords: ["a", "b"], regex: ["c"], allow: [], actions: [{ type: 1 }, { type: 2, channel: "updates" }], exemptRoles: [], exemptChannels: [] } },
       { t: "setting.set", key: "mod_log_channel_id", value: { channel: "updates" }, before: "999" },
       { t: "setting.set", key: "timeout_minutes", value: 15, before: 10 },
       { t: "post.create", key: "rules", index: 0, channel: "rules", content: "x".repeat(812) },

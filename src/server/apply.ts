@@ -513,7 +513,18 @@ class Runner {
         return;
       }
       case "automod.create": {
-        const r = await api.post<{ id: string }>(`${this.g}/auto-moderation/rules`, { ...this.ruleBody(op.body), event_type: 1, trigger_type: 1 }, reason);
+        // A server has one spam and one mention-spam rule at most, and Discord makes the mention-spam
+        // one itself when Community comes on: one already there is taken over and set to the file.
+        if (op.body.trigger !== 1) {
+          const rules = await api.get<{ id: string; trigger_type: number }[]>(`${this.g}/auto-moderation/rules`);
+          const there = rules.find((r) => r.trigger_type === op.body.trigger);
+          if (there) {
+            await api.patch(`${this.g}/auto-moderation/rules/${there.id}`, this.ruleBody(op.body), reason);
+            this.put("automod", op.key, there.id);
+            return;
+          }
+        }
+        const r = await api.post<{ id: string }>(`${this.g}/auto-moderation/rules`, { ...this.ruleBody(op.body), event_type: 1, trigger_type: op.body.trigger }, reason);
         this.put("automod", op.key, r.id);
         return;
       }
@@ -621,7 +632,12 @@ class Runner {
     return {
       name: b.name,
       enabled: b.enabled,
-      trigger_metadata: { keyword_filter: b.keywords, regex_patterns: b.regex, allow_list: b.allow },
+      trigger_metadata:
+        b.trigger === 1
+          ? { keyword_filter: b.keywords, regex_patterns: b.regex, allow_list: b.allow }
+          : b.trigger === 5
+            ? { mention_total_limit: b.mentionLimit, mention_raid_protection_enabled: b.raidProtection }
+            : {},
       actions: b.actions.map((a) => {
         if (a.type === 1) return { type: 1, metadata: a.message === undefined ? {} : { custom_message: a.message } };
         if (a.type === 2) return { type: 2, metadata: { channel_id: this.channel(a.channel!) } };

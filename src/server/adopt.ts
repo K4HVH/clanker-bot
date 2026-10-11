@@ -170,9 +170,15 @@ export function adoptSource(
 
   const ruleKeys = new Set<string>();
   const automod: Lit[] = live.rules
-    .filter((r) => r.triggerType === 1)
+    .filter((r) => r.triggerType === 1 || r.triggerType === 3 || r.triggerType === 5)
     .map((r) => {
       const out: { [k: string]: Lit } = { key: keyOf(r.name, ruleKeys), name: r.name };
+      if (r.triggerType === 3) out.trigger = "spam";
+      if (r.triggerType === 5) {
+        out.trigger = "mentions";
+        if (r.mentionLimit !== null) out.mentionLimit = r.mentionLimit;
+        if (r.raidProtection) out.raidProtection = true;
+      }
       if (!r.enabled) out.enabled = false;
       if (r.keywords.length) out.keywords = r.keywords;
       if (r.regex.length) out.regex = r.regex;

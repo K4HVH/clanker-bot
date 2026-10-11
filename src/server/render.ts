@@ -125,7 +125,12 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Server", `${op.key} from ${op.file}`];
       case "automod.create": {
         const b = op.body;
-        const parts = [`${b.keywords.length} keyword${b.keywords.length === 1 ? "" : "s"}`, `${b.regex.length} regex${b.regex.length === 1 ? "" : "es"}`];
+        const parts =
+          b.trigger === 3
+            ? ["Discord's spam check"]
+            : b.trigger === 5
+              ? [`${b.mentionLimit} mentions in a message${b.raidProtection ? ", raid protection" : ""}`]
+              : [`${b.keywords.length} keyword${b.keywords.length === 1 ? "" : "s"}`, `${b.regex.length} regex${b.regex.length === 1 ? "" : "es"}`];
         for (const a of b.actions) parts.push(a.type === 1 ? "block" : a.type === 2 ? `alert ${channel(a.channel ?? null)}` : `timeout ${a.seconds}s`);
         return ["AutoMod", `+ AutoMod "${b.name}": ${parts.join(", ")}`];
       }

@@ -135,6 +135,11 @@ export interface GuildSpec {
 export interface AutoModSpec {
   key: string;
   name: string;
+  // keyword (the default): the lists below. spam: Discord's suspected-spam check. mentions: too many
+  // mentions in one message. A server has at most one spam and one mentions rule.
+  trigger?: "keyword" | "spam" | "mentions";
+  mentionLimit?: number; // mentions: how many in one message trigger it (1 to 50)
+  raidProtection?: boolean; // mentions: also act on a sudden rush of mentions across messages
   enabled?: boolean;
   keywords?: string[];
   regex?: string[];
@@ -311,11 +316,20 @@ export function validateSpec(spec: ServerSpec): string[] {
   }
 
   const ruleKeys = new Set<string>();
-  if (spec.automod.length > AUTOMOD.rules) errors.push(`automod: at most ${AUTOMOD.rules} keyword rules`);
+  const ofKind = (k: string) => spec.automod.filter((r) => (r.trigger ?? "keyword") === k).length;
+  if (ofKind("keyword") > AUTOMOD.rules) errors.push(`automod: at most ${AUTOMOD.rules} keyword rules`);
   for (const rule of spec.automod) {
     const at = `automod "${rule.key}"`;
     if (ruleKeys.has(rule.key)) errors.push(`automod key "${rule.key}" used twice`);
     ruleKeys.add(rule.key);
+    const kind = rule.trigger ?? "keyword";
+    if (kind !== "keyword" && (rule.keywords || rule.regex || rule.allow)) errors.push(`${at}: keywords, regex and allow are for keyword rules`);
+    if (kind !== "mentions" && (rule.mentionLimit !== undefined || rule.raidProtection !== undefined)) {
+      errors.push(`${at}: mentionLimit and raidProtection are for mentions rules`);
+    }
+    if (rule.mentionLimit !== undefined && (!Number.isInteger(rule.mentionLimit) || rule.mentionLimit < 1 || rule.mentionLimit > 50)) {
+      errors.push(`${at}: mentionLimit must be 1 to 50`);
+    }
     const list = (items: string[] | undefined, max: number, len: number, what: string) => {
       if (!items) return;
       if (items.length > max) errors.push(`${at}: at most ${max} ${what}${max === 1 ? "" : "s"}`);
@@ -334,6 +348,7 @@ export function validateSpec(spec: ServerSpec): string[] {
     for (const r of rule.exemptRoles ?? []) if (!roleKeys.has(r)) errors.push(`${at}: unknown role "${r}"`);
     for (const c of rule.exemptChannels ?? []) if (!channelKeys.has(c)) errors.push(`${at}: unknown channel "${c}"`);
   }
+  for (const k of ["spam", "mentions"]) if (ofKind(k) > 1) errors.push(`automod: at most one ${k} rule`);
 
   const menuKeys = new Set<string>();
   for (const menu of spec.menus ?? []) {

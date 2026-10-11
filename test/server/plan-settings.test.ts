@@ -149,6 +149,9 @@ test("an AutoMod rule is created, bound and updated", async () => {
       key: "rule-2",
       body: {
         name: "Rule 2",
+        trigger: 1,
+        mentionLimit: null,
+        raidProtection: null,
         enabled: true,
         keywords: ["*cheat*"],
         regex: ["sell.*hack"],

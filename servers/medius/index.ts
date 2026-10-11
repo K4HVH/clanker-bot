@@ -222,7 +222,12 @@ export default defineServer({
     { key: "tools", name: "🔧-tools", was: ["tools"], into: "backup" },
     { key: "box-intro", name: "🔲-medius-box", was: ["box-intro"], into: "backup" },
   ],
-  automod: [],
+  // Discord's own spam checks, as Medius has them (the mention-spam rule is the one Discord makes when
+  // Community comes on). No keyword rules: rule 2 is enforced by staff.
+  automod: [
+    { key: "spam", name: "Block Suspected Spam Content", trigger: "spam", block: true, alert: "logs", exemptChannels: ["logs"] },
+    { key: "mention-spam", name: "Block Mention Spam", trigger: "mentions", mentionLimit: 20, raidProtection: true, block: true },
+  ],
   onboarding: {
     enabled: true,
     defaultChannels: ["verify"],

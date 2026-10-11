@@ -64,6 +64,7 @@ test("an adopted server plans nothing but bindings", async () => {
     "channel:general",
     "channel:abcurves",
     "channel:vc",
+    "automod:block-suspected-spam-content",
     "automod:rule-2",
   ]);
   expect(verify.id).toBeDefined();

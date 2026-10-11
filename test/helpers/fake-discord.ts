@@ -47,7 +47,13 @@ export interface RawRule {
   name: string;
   event_type: number;
   trigger_type: number;
-  trigger_metadata: { keyword_filter?: string[]; regex_patterns?: string[]; allow_list?: string[] };
+  trigger_metadata: {
+    keyword_filter?: string[];
+    regex_patterns?: string[];
+    allow_list?: string[];
+    mention_total_limit?: number;
+    mention_raid_protection_enabled?: boolean;
+  };
   actions: { type: number; metadata?: { channel_id?: string; custom_message?: string; duration_seconds?: number } }[];
   enabled: boolean;
   exempt_roles: string[];
@@ -99,6 +105,7 @@ export class FakeDiscord implements DiscordApi {
   onboarding: RawOnboarding = { enabled: false, mode: 0, default_channel_ids: [], prompts: [] };
   botRoles: string[] = [];
   members: { user: { id: string; bot?: boolean }; roles: string[] }[] = [];
+  onCommunity?: () => void; // what Discord does itself when Community comes on
   writes: Write[] = [];
   private next = 1000;
   private refusals: { when: (w: Write) => boolean; status: number; code?: number; message?: string }[] = [];
@@ -284,6 +291,10 @@ export class FakeDiscord implements DiscordApi {
       ) as T;
     }
     if (route === `${g}/auto-moderation/rules`) {
+      const trigger = Number(b.trigger_type);
+      if ((trigger === 3 || trigger === 5) && this.rules.some((r) => r.trigger_type === trigger)) {
+        throw new FakeError("Maximum number of rules of this type reached", 400, 50035);
+      }
       return structuredClone(this.addRule(b as unknown as RawRule)) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)\/messages$/))) {
@@ -314,7 +325,8 @@ export class FakeDiscord implements DiscordApi {
     if (route === g) {
       const b = body as Body;
       const features = b.features as string[] | undefined;
-      if (features?.includes("COMMUNITY") && !(this.guild.features as string[]).includes("COMMUNITY")) {
+      const turningOn = features?.includes("COMMUNITY") && !(this.guild.features as string[]).includes("COMMUNITY");
+      if (turningOn) {
         const merged = { ...this.guild, ...b };
         if (merged.explicit_content_filter !== 2 || Number(merged.verification_level) < 1 || !merged.rules_channel_id || !merged.public_updates_channel_id) {
           throw new FakeError("community requirements not met", 400);
@@ -323,6 +335,7 @@ export class FakeDiscord implements DiscordApi {
       // Discord ignores a new rules or updates channel unless the feature list comes with it.
       const { rules_channel_id, public_updates_channel_id, ...rest } = b;
       Object.assign(this.guild, features ? b : rest);
+      if (turningOn) this.onCommunity?.();
       return structuredClone(this.guild) as T;
     }
     if (route === `${g}/roles`) {

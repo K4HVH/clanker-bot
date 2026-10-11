@@ -58,6 +58,8 @@ export interface LiveRule {
   name: string;
   enabled: boolean;
   triggerType: number;
+  mentionLimit: number | null;
+  raidProtection: boolean | null;
   keywords: string[];
   regex: string[];
   allow: string[];
@@ -156,7 +158,13 @@ interface RawRule {
   name: string;
   enabled: boolean;
   trigger_type: number;
-  trigger_metadata?: { keyword_filter?: string[]; regex_patterns?: string[]; allow_list?: string[] };
+  trigger_metadata?: {
+    keyword_filter?: string[];
+    regex_patterns?: string[];
+    allow_list?: string[];
+    mention_total_limit?: number;
+    mention_raid_protection_enabled?: boolean;
+  };
   actions: { type: number; metadata?: { channel_id?: string; custom_message?: string; duration_seconds?: number } }[];
   exempt_roles: string[];
   exempt_channels: string[];
@@ -296,6 +304,8 @@ export async function readLive(
       name: r.name,
       enabled: r.enabled,
       triggerType: r.trigger_type,
+      mentionLimit: r.trigger_metadata?.mention_total_limit ?? null,
+      raidProtection: r.trigger_metadata?.mention_raid_protection_enabled ?? null,
       keywords: r.trigger_metadata?.keyword_filter ?? [],
       regex: r.trigger_metadata?.regex_patterns ?? [],
       allow: r.trigger_metadata?.allow_list ?? [],

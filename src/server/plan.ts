@@ -60,8 +60,13 @@ export function forumBody(f: ForumSpec): ForumBody {
   return out;
 }
 
+export const TRIGGER = { keyword: 1, spam: 3, mentions: 5 } as const;
+
 export interface AutoModBody {
   name: string;
+  trigger: number; // 1 keyword, 3 spam, 5 mention spam
+  mentionLimit: number | null;
+  raidProtection: boolean | null;
   enabled: boolean;
   keywords: string[];
   regex: string[];
@@ -807,8 +812,13 @@ class Planner {
   resolveAutomod(): void {
     this.resolve<LiveRule>(
       "automod",
-      this.input.spec.automod.map((r) => ({ key: r.key, name: r.name, label: `AutoMod "${r.name}"`, accepts: () => true })),
-      this.live.rules.filter((r) => r.triggerType === 1),
+      this.input.spec.automod.map((r) => ({
+        key: r.key,
+        name: r.name,
+        label: `AutoMod "${r.name}"`,
+        accepts: (l: LiveRule) => l.triggerType === TRIGGER[r.trigger ?? "keyword"],
+      })),
+      this.live.rules.filter((r) => (Object.values(TRIGGER) as number[]).includes(r.triggerType)),
       this.rules,
       this.ruleKeyById,
     );
@@ -988,8 +998,12 @@ class Planner {
     if (rule.block !== undefined) actions.push(typeof rule.block === "string" ? { type: 1, message: rule.block } : { type: 1 });
     if (rule.alert !== undefined) actions.push({ type: 2, channel: rule.alert });
     if (rule.timeoutSeconds !== undefined) actions.push({ type: 3, seconds: rule.timeoutSeconds });
+    const trigger = TRIGGER[rule.trigger ?? "keyword"];
     return {
       name: rule.name,
+      trigger,
+      mentionLimit: trigger === 5 ? (rule.mentionLimit ?? 20) : null,
+      raidProtection: trigger === 5 ? (rule.raidProtection ?? false) : null,
       enabled: rule.enabled ?? true,
       keywords: rule.keywords ?? [],
       regex: rule.regex ?? [],
@@ -1003,6 +1017,9 @@ class Planner {
   liveBody(rule: LiveRule): AutoModBody {
     return {
       name: rule.name,
+      trigger: rule.triggerType,
+      mentionLimit: rule.triggerType === 5 ? rule.mentionLimit : null,
+      raidProtection: rule.triggerType === 5 ? rule.raidProtection : null,
       enabled: rule.enabled,
       keywords: rule.keywords,
       regex: rule.regex,
