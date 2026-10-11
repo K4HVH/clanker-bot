@@ -7,6 +7,9 @@ import { renderPlan } from "../../src/server/render";
 import { defineServer, type ServerSpec, validateSpec } from "../../src/server/spec";
 import { FakeDiscord } from "../helpers/fake-discord";
 
+const INVITES_UNREAD =
+  "The bot can't list the server's invites, so the plan can't say which go with the channels it deletes. Check them in Server Settings > Invites before you apply, or give the bot's role Manage Server and plan again";
+
 const spec = (over: Partial<ServerSpec> = {}): ServerSpec =>
   defineServer({
     name: "t",
@@ -214,6 +217,16 @@ test("replies to commands are copied like any other message", async () => {
   say("a command's answer", { type: 20 });
   await applyPlan(e, await planFor(e, true));
   expect(backupOf(f).at(-1)!.content).toEndWith("\na command's answer");
+});
+
+test("a plan that can't list the invites says so when it deletes a channel", async () => {
+  const { e, f } = setup();
+  f.invitesHidden = true;
+  const plan = await planFor(e, true);
+  expect(plan.ops.some((o) => o.t === "channel.delete")).toBe(true);
+  expect(plan.manual).toContain(INVITES_UNREAD);
+  f.invitesHidden = false;
+  expect((await planFor(e, true)).manual).not.toContain(INVITES_UNREAD);
 });
 
 test("deleting a channel says how many invites go with it", async () => {

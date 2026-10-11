@@ -1203,7 +1203,7 @@ class Planner {
   }
 
   invitesOf(channelId: string): { invites?: number; permanentInvites?: number } {
-    const here = this.live.invites.filter((i) => i.channelId === channelId);
+    const here = (this.live.invites ?? []).filter((i) => i.channelId === channelId);
     return here.length > 0 ? { invites: here.length, permanentInvites: here.filter((i) => i.permanent).length } : {};
   }
 
@@ -1320,6 +1320,11 @@ export function buildPlan(input: PlanInput): Plan {
   p.planPosts();
   p.planRetired();
   p.planDeletions();
+  if (input.live.invites === null && [...p.ops, ...p.held].some((o) => o.t === "channel.delete")) {
+    p.manual.push(
+      "The bot can't list the server's invites, so the plan can't say which go with the channels it deletes. Check them in Server Settings > Invites before you apply, or give the bot's role Manage Server and plan again",
+    );
+  }
   p.listUnmanaged();
   const plan = { ops: p.ops, held: p.held, manual: p.manual, unmanaged: p.unmanaged };
   return { ...plan, fingerprint: fingerprint({ ...plan, live: input.live, settings: input.settings }) };

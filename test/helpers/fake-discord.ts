@@ -107,6 +107,7 @@ export class FakeDiscord implements DiscordApi {
   members: { user: { id: string; bot?: boolean }; roles: string[] }[] = [];
   onCommunity?: () => void; // what Discord does itself when Community comes on
   invites: { code: string; channel: { id: string }; uses: number; max_age: number }[] = [];
+  invitesHidden = false; // the bot lacks Manage Server
   writes: Write[] = [];
   private next = 1000;
   private refusals: { when: (w: Write) => boolean; status: number; code?: number; message?: string }[] = [];
@@ -244,7 +245,10 @@ export class FakeDiscord implements DiscordApi {
       return structuredClone(page.reverse()) as T;
     }
     if (route === `/guilds/${this.guildId}/onboarding`) return structuredClone(this.onboarding) as T;
-    if (route === `/guilds/${this.guildId}/invites`) return structuredClone(this.invites) as T;
+    if (route === `/guilds/${this.guildId}/invites`) {
+      if (this.invitesHidden) throw new FakeError("Missing Permissions", 403, 50013);
+      return structuredClone(this.invites) as T;
+    }
     if (route === `/guilds/${this.guildId}/threads/active`) {
       return { threads: structuredClone(this.channels.filter((c) => c.type === 11 || c.type === 12)) } as T;
     }

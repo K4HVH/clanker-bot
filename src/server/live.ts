@@ -112,7 +112,7 @@ export interface RawOnboarding {
 export interface Live {
   guild: LiveGuild;
   onboarding: RawOnboarding | null; // null where Discord won't show it
-  invites: { channelId: string; permanent: boolean }[]; // empty where the bot can't list them
+  invites: { channelId: string; permanent: boolean }[] | null; // null where the bot can't list them
   roles: LiveRole[];
   channels: LiveChannel[];
   rules: LiveRule[];
@@ -203,7 +203,7 @@ export async function readLive(
     api.get<{ id: string }>("/users/@me"),
   ]);
   const member = await api.get<{ roles: string[] }>(`/guilds/${guildId}/members/${me.id}`);
-  let invites: Live["invites"] = [];
+  let invites: Live["invites"] = null;
   try {
     const raw = await api.get<{ channel: { id: string } | null; max_age: number }[]>(`/guilds/${guildId}/invites`);
     invites = raw.filter((i) => i.channel).map((i) => ({ channelId: i.channel!.id, permanent: i.max_age === 0 }));
