@@ -220,25 +220,22 @@ export default defineServer({
     { key: "box-intro", name: "🔲-medius-box", was: ["box-intro"], into: "backup" },
   ],
   automod: [],
-  menus: [
-    {
-      key: "start",
-      questions: [
-        {
-          key: "pings",
-          title: "Pings",
-          multiple: true,
-          options: [
-            { label: "Releases", description: "Each Medius release", role: "release-pings" },
-            { label: "Medius box", description: "Medius box news", role: "box-pings" },
-          ],
-        },
-      ],
-    },
-  ],
+  onboarding: {
+    enabled: true,
+    defaultChannels: ["verify"],
+    questions: [
+      {
+        title: "Pings",
+        options: [
+          { title: "Releases", description: "Each Medius release", roles: ["release-pings"] },
+          { title: "Medius box", description: "Medius box news", roles: ["box-pings"] },
+        ],
+      },
+    ],
+  },
   posts: [
     { key: "rules", channel: "rules", file: "rules.md" },
-    { key: "welcome", channel: "start-here", file: "welcome.md", menu: "start" },
+    { key: "welcome", channel: "start-here", file: "welcome.md" },
     { key: "help", channel: "help", file: "help.md" },
   ],
   bot: {

@@ -1,4 +1,5 @@
 import type { DiscordApi } from "../../src/server/api";
+import type { RawOnboarding } from "../../src/server/live";
 
 // An in-memory guild behind DiscordApi, holding raw API objects in Discord's own field names, so
 // the snapshot reader and the executor are tested against the shapes the real API returns. Every
@@ -95,6 +96,7 @@ export class FakeDiscord implements DiscordApi {
   channels: RawChannel[] = [];
   rules: RawRule[] = [];
   messages: RawMessage[] = [];
+  onboarding: RawOnboarding = { enabled: false, mode: 0, default_channel_ids: [], prompts: [] };
   botRoles: string[] = [];
   writes: Write[] = [];
   private next = 1000;
@@ -226,6 +228,7 @@ export class FakeDiscord implements DiscordApi {
         .slice(0, Number(q.get("limit") ?? "50"));
       return structuredClone(page.reverse()) as T;
     }
+    if (route === `/guilds/${this.guildId}/onboarding`) return structuredClone(this.onboarding) as T;
     if (route === `/guilds/${this.guildId}/threads/active`) {
       return { threads: structuredClone(this.channels.filter((c) => c.type === 11 || c.type === 12)) } as T;
     }
@@ -360,6 +363,29 @@ export class FakeDiscord implements DiscordApi {
 
   async put(route: `/${string}`, body: unknown, reason?: string): Promise<void> {
     this.record({ method: "PUT", route, body, reason });
+    if (route === `/guilds/${this.guildId}/onboarding`) {
+      const b = body as RawOnboarding;
+      if (b.enabled && !(this.guild.features as string[]).includes("COMMUNITY")) throw new FakeError("onboarding needs Community", 400);
+      // As Discord does: an id it doesn't know is a new prompt or option, which gets one of its own.
+      const known = new Set(this.onboarding.prompts.flatMap((p) => [p.id, ...p.options.map((o) => o.id)]));
+      const id = (x: string) => (known.has(x) ? x : this.id());
+      this.onboarding = {
+        enabled: b.enabled,
+        mode: b.mode,
+        default_channel_ids: b.default_channel_ids,
+        // GET gives an option's emoji as an object, whatever the PUT sent.
+        prompts: b.prompts.map((p) => ({
+          ...p,
+          id: id(p.id),
+          options: p.options.map((o) => {
+            const sent = o as typeof o & { emoji_id?: string | null; emoji_animated?: boolean };
+            const { emoji_name, emoji_id, emoji_animated, ...rest } = sent;
+            return { ...rest, id: id(o.id), emoji: { id: emoji_id ?? null, name: emoji_name ?? null, animated: emoji_animated ?? false } };
+          }),
+        })),
+      };
+      return;
+    }
     const m = route.match(/^\/channels\/(\d+)\/permissions\/(\d+)$/);
     if (!m) throw new Error(`fake: no route PUT ${route}`);
     const b = body as { type: 0 | 1; allow: string; deny: string };

@@ -90,6 +90,19 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Channels", `${channel(op.key)}: ${op.changes.map(change).join(", ")}`];
       case "channel.delete":
         return ["Channels", `- #${op.name}`];
+      case "onboarding.set": {
+        const b = op.body;
+        const head = `${b.enabled ? "on" : "off"}${op.enabledBefore === b.enabled ? "" : ` (was ${op.enabledBefore ? "on" : "off"})`}, default channels ${b.defaultChannels.map(channel).join(", ") || "none"}`;
+        const questions = b.prompts.map((p) => {
+          const how = [p.inOnboarding ? "before joining" : "in Channels & Roles", ...(p.required ? ["required"] : []), ...(p.single ? ["one answer"] : [])].join(", ");
+          const answers = p.options.map((o) => {
+            const gives = [...o.roles.map((k) => `@${roleName(k)}`), ...o.channels.map(channel)];
+            return gives.length > 0 ? `${o.title} (${gives.join(", ")})` : o.title;
+          });
+          return `"${p.title}", ${how}: ${answers.join(", ")}`;
+        });
+        return ["Onboarding", [head, ...questions].join("\n  ")];
+      }
       case "channel.backup": {
         const files = op.files > 0 ? ` and ${op.files} file${op.files === 1 ? "" : "s"}` : "";
         return ["Channels", `${channel(op.key)}: copy ${op.messages} message${op.messages === 1 ? "" : "s"}${files} into ${channel(op.into)}`];
@@ -145,6 +158,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
     ["Channels", []],
     ["Permissions", []],
     ["Server", []],
+    ["Onboarding", []],
     ["AutoMod", []],
     ["Bot settings", []],
     ["Posts", []],

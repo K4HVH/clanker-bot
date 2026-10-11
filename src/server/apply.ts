@@ -4,9 +4,9 @@ import type { BotDatabase } from "../db/index";
 import type { ConfigService } from "../lib/config";
 import type { DiscordApi, Upload } from "./api";
 import { after, chunk, copyable, type History, type HistoryMessage, readHistory, readThreadCount, sentAt } from "./history";
-import { type Live, readLive } from "./live";
+import { type Live, type RawOnboarding, readLive } from "./live";
 import { parsePosted } from "./posts";
-import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, retiredChannels, VERIFICATION } from "./plan";
+import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, parseEmoji, retiredChannels, VERIFICATION } from "./plan";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -19,6 +19,26 @@ export interface ApplyEnv {
   spec: ServerSpec;
   reason: string; // shown in Discord's audit log on every change
   download?: (url: string) => Promise<Uint8Array>; // a retired channel's files, to upload again
+}
+
+// Each wanted item with the live id it keeps: the live one of the same title, else the one in its place
+// if no other item claimed it, else a new id.
+export function matchIds<W extends { title: string }, L extends { id: string; title: string }>(want: W[], live: L[], fresh: () => string): [W, string, L | undefined][] {
+  const taken = new Set<string>();
+  const byTitle = want.map((w) => {
+    const l = live.find((x) => x.title === w.title && !taken.has(x.id));
+    if (l) taken.add(l.id);
+    return l;
+  });
+  return want.map((w, i) => {
+    let l = byTitle[i];
+    const placed = live[i];
+    if (!l && placed && !taken.has(placed.id) && !want.some((x) => x.title === placed.title)) {
+      l = placed;
+      taken.add(placed.id);
+    }
+    return [w, l?.id ?? fresh(), l];
+  });
 }
 
 async function fetchFile(url: string): Promise<Uint8Array> {
@@ -102,6 +122,7 @@ const PHASE: Record<Op["t"], number> = {
   "post.delete": 11,
   "automod.delete": 12,
   "channel.backup": 11,
+  "onboarding.set": 10.5,
   "channel.delete": 13,
   "role.delete": 14,
   prune: 15,
@@ -320,6 +341,32 @@ class Runner {
         // Done: a channel that takes the name later isn't retired again.
         if (retired && !this.state.has(stateKey("backup", op.key))) this.put("backup", op.key, "0");
         this.drop("channel", op.key);
+        return;
+      }
+      case "onboarding.set": {
+        // Questions and answers keep the ids they have (members' choices hang off them): matched
+        // by title, then a renamed one by its place. Ids Discord doesn't know mark new ones.
+        const live = await api.get<RawOnboarding>(`${this.g}/onboarding`);
+        let fresh = 0;
+        const prompts = matchIds(op.body.prompts, live.prompts, () => String(++fresh)).map(([p, id, was]) => ({
+          id,
+          type: p.type,
+          title: p.title,
+          single_select: p.single,
+          required: p.required,
+          in_onboarding: p.inOnboarding,
+          options: matchIds(p.options, was?.options ?? [], () => String(++fresh)).map(([o, optionId]) => ({
+            id: optionId,
+            title: o.title,
+            description: o.description,
+            ...parseEmoji(o.emoji),
+            emoji_animated: false,
+            role_ids: o.roles.map((k) => this.role(k)),
+            channel_ids: o.channels.map((k) => this.channel(k)),
+          })),
+        }));
+        const body = { enabled: op.body.enabled, mode: op.body.mode, default_channel_ids: op.body.defaultChannels.map((k) => this.channel(k)), prompts };
+        await api.put(`${this.g}/onboarding`, body, reason);
         return;
       }
       case "channel.backup": {

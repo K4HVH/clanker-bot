@@ -1,7 +1,7 @@
 import { REGISTRY_BY_KEY } from "../lib/config";
 import type { Live, LiveChannel, LiveOverwrite } from "./live";
 import { toNames } from "./permissions";
-import { above, CHANNEL_TYPE, FILTER, NOTIFY, VERIFICATION } from "./plan";
+import { above, CHANNEL_TYPE, emojiRef, FILTER, NOTIFY, VERIFICATION } from "./plan";
 import { RESERVED_ROLES } from "./spec";
 
 // /server adopt: a spec matching the live server and the bot's settings, as TypeScript source to
@@ -219,6 +219,36 @@ export function adoptSource(
   }
   if (g.mfaLevel === 1) guild.requireMfa = true;
 
+  const ob = live.onboarding;
+  // A role or channel adopt has no key for is left out, with a comment saying so.
+  const roleRef = (id: string): Lit => roleKey.get(id) ?? new Comment(`unknown role ${id}`);
+  const channelRef = (id: string): Lit => channelKey.get(id) ?? new Comment(`unknown channel ${id}`);
+  const onboarding: { [k: string]: Lit } | null =
+    ob && (ob.enabled || ob.prompts.length > 0)
+      ? {
+          enabled: ob.enabled,
+          ...(ob.mode === 0 ? { mode: "default" } : {}),
+          defaultChannels: ob.default_channel_ids.map(channelRef),
+          questions: ob.prompts.map((p) => {
+            const q: { [k: string]: Lit } = { title: p.title };
+            if (p.type === 1) q.dropdown = true;
+            if (p.single_select) q.single = true;
+            if (p.required) q.required = true;
+            if (!p.in_onboarding) q.afterJoin = true;
+            q.options = p.options.map((o) => {
+              const out: { [k: string]: Lit } = { title: o.title };
+              if (o.description) out.description = o.description;
+              const emoji = emojiRef(o.emoji?.id ?? null, o.emoji?.name ?? o.emoji_name ?? null);
+              if (emoji) out.emoji = emoji;
+              if (o.role_ids.length > 0) out.roles = o.role_ids.map(roleRef);
+              if (o.channel_ids.length > 0) out.channels = o.channel_ids.map(channelRef);
+              return out;
+            });
+            return q;
+          }),
+        }
+      : null;
+
   const spec = lit(
     {
       name: specName,
@@ -228,6 +258,7 @@ export function adoptSource(
       roles,
       ...(Object.keys(botLook).length > 0 ? { botRole: botLook } : {}),
       channels,
+      ...(onboarding ? { onboarding } : {}),
       automod,
       posts: [],
       bot,

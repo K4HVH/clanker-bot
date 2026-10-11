@@ -94,6 +94,7 @@ export type Op =
   | { t: "channel.delete"; key: string; name: string; flags: Flag[] }
   // A retired channel's messages after `from` (null: from the start) up to `upTo`, copied into `into`.
   | { t: "channel.backup"; key: string; into: string; from: string | null; upTo: string; messages: number; files: number }
+  | { t: "onboarding.set"; body: OnboardingBody; enabledBefore: boolean }
   | { t: "channel.order"; items: { key: string; parent: string | null }[] }
   | { t: "overwrite.set"; channel: string; target: string; allow: bigint; deny: bigint; before: AllowDeny | null; flags: Flag[] }
   | { t: "overwrite.delete"; channel: string; target: string; before: AllowDeny; flags: Flag[] }
@@ -118,6 +119,29 @@ export type Op =
   | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
   | { t: "prune"; kind: "role" | "channel"; id: string; label: string; flags: Flag[] };
+
+// An onboarding answer's emoji as a spec writes it: Unicode, or "name:id" for one of the server's.
+export const emojiRef = (id: string | null, name: string | null): string | null => (id ? `${name}:${id}` : name);
+
+export function parseEmoji(ref: string | null): { emoji_id: string | null; emoji_name: string | null } {
+  const custom = ref?.match(/^(.+):(\d+)$/);
+  return custom ? { emoji_id: custom[2]!, emoji_name: custom[1]! } : { emoji_id: null, emoji_name: ref };
+}
+
+// Onboarding as the plan compares it: roles and channels by key, lists in a fixed order.
+export interface OnboardingBody {
+  enabled: boolean;
+  mode: number;
+  defaultChannels: string[];
+  prompts: {
+    title: string;
+    type: number;
+    single: boolean;
+    required: boolean;
+    inOnboarding: boolean;
+    options: { title: string; description: string; emoji: string | null; roles: string[]; channels: string[] }[];
+  }[];
+}
 
 export interface Plan {
   ops: Op[];
@@ -773,6 +797,66 @@ class Planner {
     return !!this.input.spec.guild.community && this.communityMissing().length === 0;
   }
 
+  planOnboarding(): void {
+    const want = this.input.spec.onboarding;
+    const live = this.live.onboarding;
+    if (!want) return;
+    if (!this.communityAfter()) {
+      // Without Community there is no onboarding to set: off is what the file asks for, or a step.
+      if (want.enabled) this.manual.push("Onboarding needs Community on: turn it on in the file (guild.community)");
+      return;
+    }
+    if (!live) {
+      this.manual.push("The bot can't read this server's onboarding. Give its role Manage Server in Server Settings > Roles, then plan again");
+      return;
+    }
+    const options = want.questions.flatMap((q) => q.options);
+    const channels = [...want.defaultChannels, ...options.flatMap((o) => o.channels ?? [])];
+    // What it names can't be planned yet: the manual steps say why.
+    if (!channels.every((k) => this.usable(k)) || !options.flatMap((o) => o.roles ?? []).every((k) => this.roles.has(k))) return;
+    const sorted = (list: string[]) => [...list].sort();
+    const body: OnboardingBody = {
+      enabled: want.enabled,
+      mode: want.mode === "default" ? 0 : 1,
+      defaultChannels: sorted(want.defaultChannels),
+      prompts: want.questions.map((q) => ({
+        title: q.title,
+        type: q.dropdown ? 1 : 0,
+        single: q.single ?? false,
+        required: q.required ?? false,
+        inOnboarding: !q.afterJoin,
+        options: q.options.map((o) => ({
+          title: o.title,
+          description: o.description ?? "",
+          emoji: o.emoji ?? null,
+          roles: sorted(o.roles ?? []),
+          channels: sorted(o.channels ?? []),
+        })),
+      })),
+    };
+    const key = (id: string, byId: Map<string, string>) => byId.get(id) ?? `id:${id}`;
+    const have: OnboardingBody = {
+      enabled: live.enabled,
+      mode: live.mode,
+      defaultChannels: sorted(live.default_channel_ids.map((id) => key(id, this.channelKeyById))),
+      prompts: live.prompts.map((p) => ({
+        title: p.title,
+        type: p.type,
+        single: p.single_select,
+        required: p.required,
+        inOnboarding: p.in_onboarding,
+        options: p.options.map((o) => ({
+          title: o.title,
+          description: o.description ?? "",
+          emoji: emojiRef(o.emoji?.id ?? null, o.emoji?.name ?? o.emoji_name ?? null),
+          roles: sorted(o.role_ids.map((id) => key(id, this.roleKeyById))),
+          channels: sorted(o.channel_ids.map((id) => key(id, this.channelKeyById))),
+        })),
+      })),
+    };
+    if (stableJson(body) !== stableJson(have)) this.ops.push({ t: "onboarding.set", body, enabledBefore: live.enabled });
+  }
+
   planGuild(): void {
     const g = this.input.spec.guild;
     const live = this.live.guild;
@@ -1094,6 +1178,7 @@ export function buildPlan(input: PlanInput): Plan {
   p.planRoles();
   p.planChannels();
   p.planGuild();
+  p.planOnboarding();
   p.planAssets();
   p.planAutomod();
   p.planSettings();

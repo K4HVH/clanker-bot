@@ -84,8 +84,32 @@ export interface LiveGuild {
   mfaLevel: number;
 }
 
+export interface RawOnboarding {
+  enabled: boolean;
+  mode: number;
+  default_channel_ids: string[];
+  prompts: {
+    id: string;
+    type: number;
+    title: string;
+    single_select: boolean;
+    required: boolean;
+    in_onboarding: boolean;
+    options: {
+      id: string;
+      title: string;
+      description: string | null;
+      emoji?: { id: string | null; name: string | null; animated?: boolean } | null;
+      emoji_name?: string | null;
+      role_ids: string[];
+      channel_ids: string[];
+    }[];
+  }[];
+}
+
 export interface Live {
   guild: LiveGuild;
+  onboarding: RawOnboarding | null; // null where Discord won't show it
   roles: LiveRole[];
   channels: LiveChannel[];
   rules: LiveRule[];
@@ -169,6 +193,13 @@ export async function readLive(
     api.get<{ id: string }>("/users/@me"),
   ]);
   const member = await api.get<{ roles: string[] }>(`/guilds/${guildId}/members/${me.id}`);
+  let onboarding: RawOnboarding | null = null;
+  try {
+    onboarding = await api.get<RawOnboarding>(`/guilds/${guildId}/onboarding`);
+  } catch (error) {
+    const status = statusOf(error);
+    if (status !== 403 && status !== 404) throw error;
+  }
 
   const liveRoles: LiveRole[] = roles.map((r) => ({
     id: r.id,
@@ -210,6 +241,7 @@ export async function readLive(
   }
 
   return {
+    onboarding,
     guild: {
       id: g.id,
       name: g.name,

@@ -79,6 +79,32 @@ export interface CategorySpec {
   channels: ChannelSpec[];
 }
 
+// Discord's onboarding: the questions a member answers when joining, whose answers give roles and
+// channels. Questions and answers are matched to the server's by title, then by place.
+export interface OnboardingSpec {
+  enabled: boolean;
+  mode?: "default" | "advanced"; // what counts towards Discord's rules for turning it on; advanced by default
+  defaultChannels: string[];
+  questions: OnboardingQuestion[];
+}
+
+export interface OnboardingQuestion {
+  title: string;
+  options: OnboardingOption[];
+  dropdown?: boolean;
+  single?: boolean; // one answer only
+  required?: boolean;
+  afterJoin?: boolean; // only in Channels & Roles, not asked when joining
+}
+
+export interface OnboardingOption {
+  title: string;
+  description?: string;
+  emoji?: string; // a Unicode emoji, or "name:id" for one of the server's
+  roles?: string[];
+  channels?: string[];
+}
+
 // A channel the server no longer keeps: its messages are copied into `into`, then it is deleted.
 export interface RetiredSpec {
   key: string;
@@ -157,6 +183,7 @@ export interface ServerSpec {
   botRole?: BotRoleSpec;
   channels: (ChannelSpec | CategorySpec)[];
   retired?: RetiredSpec[];
+  onboarding?: OnboardingSpec;
   automod: AutoModSpec[];
   posts: PostSpec[];
   menus?: MenuSpec[];
@@ -216,6 +243,20 @@ export function validateSpec(spec: ServerSpec): string[] {
   }
   const writable = new Set(flat.filter(({ channel }) => channel.type === "text" || channel.type === "announcement").map(({ channel }) => channel.key));
   for (const r of spec.retired ?? []) if (!writable.has(r.into)) errors.push(`retired "${r.key}": unknown channel "${r.into}"`);
+  const ob = spec.onboarding;
+  if (ob) {
+    for (const k of ob.defaultChannels) if (!textKeys.has(k)) errors.push(`onboarding: unknown channel "${k}"`);
+    for (const q of ob.questions) {
+      if (q.options.length === 0) errors.push(`onboarding "${q.title}": no answers`);
+      for (const o of q.options) {
+        for (const k of o.roles ?? []) {
+          if ((RESERVED_ROLES as readonly string[]).includes(k)) errors.push(`onboarding "${q.title}", "${o.title}": role "${k}" is one Discord makes, which onboarding can't give`);
+          else if (!roleKeys.has(k)) errors.push(`onboarding "${q.title}", "${o.title}": unknown role "${k}"`);
+        }
+        for (const k of o.channels ?? []) if (!textKeys.has(k)) errors.push(`onboarding "${q.title}", "${o.title}": unknown channel "${k}"`);
+      }
+    }
+  }
   for (const { channel } of flat) {
     // Discord lowercases text-like channel names and turns spaces into dashes. A name written any
     // other way would never bind, and would plan a rename on every run.
