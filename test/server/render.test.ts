@@ -43,7 +43,7 @@ test("renders a plan as grouped lines", () => {
       { t: "post.create", key: "rules", index: 0, channel: "rules", content: "x".repeat(812) },
     ],
     held: [{ t: "channel.delete", key: "old", name: "old", flags: ["deletes"] }],
-    manual: ["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App"],
+    manual: ["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. First turn on 2FA (User Settings > My Account > Enable Authenticator App) for your account and for the account that owns the bot's application: without it the bot can't give roles, kick or ban once this is on"],
     unmanaged: ['role "Cool People"'],
   };
   expect(renderPlan(plan, spec)).toBe(
@@ -83,7 +83,7 @@ test("renders a plan as grouped lines", () => {
       "  - #old",
       "",
       "Manual steps",
-      "  Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
+      "  Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. First turn on 2FA (User Settings > My Account > Enable Authenticator App) for your account and for the account that owns the bot's application: without it the bot can't give roles, kick or ban once this is on",
       "",
       "Unmanaged",
       '  role "Cool People"',

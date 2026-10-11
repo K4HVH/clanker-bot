@@ -147,7 +147,7 @@ export default defineServer({
           name: "✅-device-reports",
           was: ["✅-compatibility", "device-reports"],
           slowmode: 60,
-          topic: "Devices that work through the box, and your firmware version. Not working: create a ticket. Devices: https://medius.k4tech.net/guide/compatibility",
+          topic: "Post each device you've tried: whether it works through the box, and your firmware version. For help with one that doesn't, open a ticket. List: https://medius.k4tech.net/guide/compatibility",
         },
         {
           key: "suggestions-bugs",

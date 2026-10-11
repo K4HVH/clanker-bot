@@ -939,7 +939,7 @@ class Planner {
     if (community) this.ops.push(community);
     if (g.requireMfa && live.mfaLevel === 0) {
       this.manual.push(
-        "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
+        "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. First turn on 2FA (User Settings > My Account > Enable Authenticator App) for your account and for the account that owns the bot's application: without it the bot can't give roles, kick or ban once this is on",
       );
     }
   }

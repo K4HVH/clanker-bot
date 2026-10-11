@@ -121,7 +121,7 @@ test("2FA for moderation is a manual step when the file asks for it", async () =
   const { f, state } = matching();
   expect((await plan(f, spec(), state)).manual).toEqual([]);
   expect((await plan(f, spec({ guild: { requireMfa: true } }), state)).manual).toEqual([
-    "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
+    "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. First turn on 2FA (User Settings > My Account > Enable Authenticator App) for your account and for the account that owns the bot's application: without it the bot can't give roles, kick or ban once this is on",
   ]);
   f.guild.mfa_level = 1;
   expect((await plan(f, spec({ guild: { requireMfa: true } }), state)).manual).toEqual([]);

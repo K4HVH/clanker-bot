@@ -15,7 +15,7 @@ function env(f = new FakeDiscord()): ApplyEnv & { f: FakeDiscord } {
 test("an empty server is built to the spec, after which the plan is empty", async () => {
   const e = env();
   const plan = await planFor(e, false);
-  expect(plan.manual).toEqual(["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App"]);
+  expect(plan.manual).toEqual(["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. First turn on 2FA (User Settings > My Account > Enable Authenticator App) for your account and for the account that owns the bot's application: without it the bot can't give roles, kick or ban once this is on"]);
   const result = await applyPlan(e, plan);
   expect(result).toEqual({ done: plan.ops.length, failed: null, remaining: 0 });
   const again = await planFor(e, false);
