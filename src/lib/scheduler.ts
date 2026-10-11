@@ -24,6 +24,7 @@ export const defaultExecutors: Record<ScheduledActionType, ActionExecutor> = {
   unban: async (ctx, client, action) => {
     const guild = await client.guilds.fetch(action.guildId);
     await guild.bans.remove(action.userId, action.reason ?? "Temp-ban expired").catch(() => {});
+    if (action.quiet) return; // forgotten at their request: lift the ban, write nothing about them
     const record = createCase(ctx.db, {
       guildId: action.guildId,
       userId: action.userId,

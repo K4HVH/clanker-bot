@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
   user_id    TEXT    NOT NULL,
   reason     TEXT,
   run_at     INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  quiet      INTEGER NOT NULL DEFAULT 0  -- 1 = its member was forgotten: act, record nothing
 );
 CREATE INDEX IF NOT EXISTS scheduled_actions_run_at_idx ON scheduled_actions (run_at);
 

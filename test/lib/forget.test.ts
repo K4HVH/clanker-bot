@@ -22,15 +22,19 @@ function seed() {
 
 test("everything held on one member goes, and only theirs", () => {
   const db = seed();
-  expect(forgetRows(db, "g", "u1", NOW)).toEqual({ cases: 1, tickets: 1, checks: 1, challenges: 1, scheduled: 1, signatures: 1 });
+  expect(forgetRows(db, "g", "u1")).toEqual({ cases: 1, tickets: 1, checks: 1, challenges: 1, scheduled: 0, signatures: 1 });
   const count = (sql: string) => (db.query(sql).get() as { n: number }).n;
   expect(count("SELECT COUNT(*) AS n FROM cases WHERE user_id = 'u1'")).toBe(0);
   expect(count("SELECT COUNT(*) AS n FROM cases WHERE user_id = 'u2'")).toBe(1);
   expect(count("SELECT COUNT(*) AS n FROM tickets WHERE opener_id = 'u2'")).toBe(1);
   expect(count("SELECT COUNT(*) AS n FROM ticket_check_results WHERE user_id = 'u2'")).toBe(1);
   expect(count("SELECT COUNT(*) AS n FROM verification_challenges WHERE user_id = 'u2'")).toBe(1);
-  // The pending unban stays until it lifts the ban; the one already past is gone.
-  expect(db.query("SELECT run_at FROM scheduled_actions WHERE user_id = 'u1'").all()).toEqual([{ run_at: NOW + 86_400_000 }]);
+  // Every unban stays, even one overdue but not yet run, or the ban would never lift; each now lifts
+  // quietly, writing no case and posting nothing about them.
+  expect(db.query("SELECT run_at, quiet, reason FROM scheduled_actions WHERE user_id = 'u1' ORDER BY run_at").all()).toEqual([
+    { run_at: NOW - 1000, quiet: 1, reason: null },
+    { run_at: NOW + 86_400_000, quiet: 1, reason: null },
+  ]);
   expect(db.query("SELECT case_id, value FROM scam_signature").all()).toEqual([{ case_id: null, value: "scam.example" }]);
 });
 
@@ -55,14 +59,14 @@ test("the bot's posts naming the member are deleted across pages", async () => {
   const many = Array.from({ length: 150 }, (_, i) => ({ id: String(1000 + i), authorId: "bot", text: i % 2 ? "User (u1)" : "User (u2)" }));
   const logs = channel("#logs", [...many, { id: "5", authorId: "someone", text: "u1 said hi" }]);
   const result = await forgetIn([logs], "bot", (m) => m.text.includes("u1"));
-  expect(result).toEqual({ deleted: 75, unreachable: [] });
+  expect(result).toEqual({ deleted: 75, failed: 0, unreachable: [] });
   expect(logs.removed).not.toContain("5");
 });
 
 test("a channel that can't be read is reported, the rest still run", async () => {
   const dm = channel("DMs", [], true);
   const logs = channel("#logs", [{ id: "10", authorId: "bot", text: "(u1)" }]);
-  expect(await forgetIn([dm, logs], "bot", () => true)).toEqual({ deleted: 1, unreachable: ["DMs"] });
+  expect(await forgetIn([dm, logs], "bot", () => true)).toEqual({ deleted: 1, failed: 0, unreachable: ["DMs"] });
 });
 
 test("the bot's deletions are marked so the member log doesn't echo them", async () => {
@@ -71,4 +75,33 @@ test("the bot's deletions are marked so the member log doesn't echo them", async
   const ch = scanOf("#logs", { messages: { fetch: async () => new Map(), delete: async () => {} } });
   await ch.remove("777");
   expect(suppressedDeletions.has("777")).toBe(true);
+});
+
+test("a delete that fails is counted, and the scan goes on", async () => {
+  const logs = channel("#logs", [
+    { id: "30", authorId: "bot", text: "(u1)" },
+    { id: "20", authorId: "bot", text: "(u1)" },
+    { id: "10", authorId: "bot", text: "(u1)" },
+  ]);
+  const remove = logs.remove;
+  logs.remove = async (id) => {
+    if (id === "20") throw new Error("Unknown Message");
+    await remove(id);
+  };
+  expect(await forgetIn([logs], "bot", () => true)).toEqual({ deleted: 2, failed: 1, unreachable: [] });
+});
+
+test("the scan stops at the retention horizon", async () => {
+  const logs = channel("#logs", [
+    { id: "300", authorId: "bot", text: "(u1)" },
+    { id: "100", authorId: "bot", text: "(u1)" },
+  ]);
+  expect(await forgetIn([logs], "bot", () => true, "200")).toEqual({ deleted: 1, failed: 0, unreachable: [] });
+});
+
+test("a post naming someone only as its moderator isn't about them", async () => {
+  const { subjectText } = await import("../../src/lib/forget");
+  const embed = { title: "Warn", fields: [{ name: "User", value: "x (u2)" }, { name: "Moderator", value: "y (u1)" }, { name: "Closed by", value: "z (u1)" }] };
+  expect(subjectText("", [embed])).toContain("u2");
+  expect(subjectText("", [embed])).not.toContain("u1");
 });

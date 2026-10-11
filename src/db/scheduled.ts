@@ -10,10 +10,11 @@ export interface ScheduledAction {
   reason: string | null;
   runAt: number;
   createdAt: number;
+  quiet: boolean; // its member was forgotten: carry it out, record nothing
 }
 
 const COLUMNS = `id, guild_id AS guildId, type, user_id AS userId, reason,
-  run_at AS runAt, created_at AS createdAt`;
+  run_at AS runAt, created_at AS createdAt, quiet = 1 AS quiet`;
 
 export function scheduleAction(
   db: BotDatabase,
