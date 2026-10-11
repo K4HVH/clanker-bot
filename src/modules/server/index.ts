@@ -19,7 +19,7 @@ import { type DiscordApi, restApi } from "../../server/api";
 import { applyPlan, planFor } from "../../server/apply";
 import { readLive } from "../../server/live";
 import { renderPlan } from "../../server/render";
-import type { ServerSpec } from "../../server/spec";
+import { type ServerSpec, validateSpec } from "../../server/spec";
 import { SPECS } from "../../server/specs";
 import { getSpecName, markApplied, setSpecName } from "../../server/state";
 
@@ -61,6 +61,15 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
   const chosen = specFor(ctx, deps, guild.id, interaction.options.getString("spec"));
   if (typeof chosen === "string") {
     await interaction.reply({ content: chosen, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  // Tests validate every spec before it ships; this catches an image built without them.
+  const errors = validateSpec(chosen.spec);
+  if (errors.length > 0) {
+    await interaction.reply({
+      content: `Spec "${chosen.name}" is invalid:\n${errors.map((e) => `- ${e}`).join("\n")}`.slice(0, 2000),
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
   const deletions = interaction.options.getBoolean("deletions") ?? false;

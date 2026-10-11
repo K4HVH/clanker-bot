@@ -84,3 +84,12 @@ test("a failure during Apply is reported, not lost", async () => {
   await applyButton(i, ctx, { api: () => broken, specs: { fixture } });
   expect(sent.edits.at(-1)).toEqual({ content: "Apply failed: Discord is down", components: [] });
 });
+
+test("a spec that fails validation is refused before anything is read", async () => {
+  const f = new FakeDiscord();
+  const ctx: AppContext = silentContext();
+  const broken = { ...fixture, bot: { no_such_setting: true } };
+  const { i, sent } = interaction(f, f.ownerId);
+  await planCommand(i, ctx, { api: () => f, specs: { fixture: broken } });
+  expect(sent.replies).toEqual([{ content: 'Spec "fixture" is invalid:\n- bot: unknown setting "no_such_setting"', flags: 64 }]);
+});

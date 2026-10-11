@@ -18,6 +18,8 @@ jobs:
       - run: bun test
 
   docker:
+    # No image is published from a commit whose tests or typecheck fail.
+    needs: check
     runs-on: ubuntu-latest
     permissions:
       contents: read

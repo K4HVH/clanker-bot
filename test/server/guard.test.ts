@@ -7,3 +7,7 @@ test("the local command refuses the production server", () => {
   );
   expect(() => assertNotProduction("g2", { DISCORD_GUILD_ID: "g1" })).not.toThrow();
 });
+
+test("without the production id set, the local command applies nowhere", () => {
+  expect(() => assertNotProduction("g2", {})).toThrow("DISCORD_GUILD_ID is not set: run from the checkout, where .env names the production server.");
+});
