@@ -123,7 +123,9 @@ export function channelsFlat(spec: ServerSpec): FlatChannel[] {
 const AUTOMOD = { keywords: 1000, keywordLen: 60, regex: 10, regexLen: 260, allow: 100, block: 150, rules: 6 };
 const MAX_SLOWMODE = 21600;
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+// One field of a `{ channel }` / `{ role }` / `{ roles }` reference, or undefined for anything else.
+const field = (v: unknown, name: string): unknown =>
+  typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>)[name] : undefined;
 
 export function validateSpec(spec: ServerSpec): string[] {
   const errors: string[] = [];
@@ -217,15 +219,18 @@ export function validateSpec(spec: ServerSpec): string[] {
     const at = `bot.${key}`;
     if (setting.type === "channel") {
       if (value === null) continue;
-      if (!isObject(value) || typeof value.channel !== "string") errors.push(`${at}: expects { channel: key }`);
-      else if (!channelKeys.has(value.channel)) errors.push(`${at}: unknown channel "${value.channel}"`);
+      const channel = field(value, "channel");
+      if (typeof channel !== "string") errors.push(`${at}: expects { channel: key }`);
+      else if (!channelKeys.has(channel)) errors.push(`${at}: unknown channel "${channel}"`);
     } else if (setting.type === "role") {
       if (value === null) continue;
-      if (!isObject(value) || typeof value.role !== "string") errors.push(`${at}: expects { role: key }`);
-      else if (!roleKeys.has(value.role)) errors.push(`${at}: unknown role "${value.role}"`);
+      const role = field(value, "role");
+      if (typeof role !== "string") errors.push(`${at}: expects { role: key }`);
+      else if (!roleKeys.has(role)) errors.push(`${at}: unknown role "${role}"`);
     } else if (setting.type === "roles") {
-      if (!isObject(value) || !Array.isArray(value.roles)) errors.push(`${at}: expects { roles: [keys] }`);
-      else for (const r of value.roles as string[]) if (!roleKeys.has(r)) errors.push(`${at}: unknown role "${r}"`);
+      const roles = field(value, "roles");
+      if (!Array.isArray(roles)) errors.push(`${at}: expects { roles: [keys] }`);
+      else for (const r of roles) if (!roleKeys.has(String(r))) errors.push(`${at}: unknown role "${r}"`);
     } else if (!validateSetting(setting, value)) {
       const ranged = setting.type === "int" && typeof value === "number" && Number.isInteger(value);
       errors.push(ranged ? `${at}: out of range` : `${at}: expects ${setting.type}`);
