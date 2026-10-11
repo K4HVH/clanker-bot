@@ -38,6 +38,8 @@ const ALERTED = [
 ];
 
 const IGNORED = [
+  "someone on unknowncheats says medius is detected",
+  "mpgh used to be big",
   "my cheat doesn't work with medius",
   "colorbot vs aimbot, which is smoother?",
   "anyone got the discord.gg/abc invite",

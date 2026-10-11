@@ -857,7 +857,8 @@ export default defineServer({
     {
       key: "rule-2-links",
       name: "Rule 2: cheat forum and shop links",
-      keywords: ["*unknowncheats*", "*mpgh*", "*elitepvpers*", "*captaindma*", "*verse-solutions*"],
+      // Domains, not names: naming a forum in conversation is talk, which stays allowed.
+      keywords: ["*unknowncheats.me*", "*mpgh.net*", "*elitepvpers.com*", "*captaindma.com*", "*verse-solutions.com*"],
       block: "Blocked under rule 2: no sharing or selling cheats. Mistake? Open a ticket.",
       alert: "logs",
       exemptRoles: ["dev"],
