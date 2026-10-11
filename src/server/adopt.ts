@@ -105,7 +105,7 @@ export function adoptSource(
     }
     return Object.keys(out).length > 0 ? out : null;
   };
-  const channel = (c: LiveChannel): { [k: string]: Lit } => {
+  const channel = (c: LiveChannel, category?: LiveChannel): { [k: string]: Lit } => {
     const out: { [k: string]: Lit } = { key: channelKey.get(c.id)!, type: KIND[c.type] ?? "text", name: c.name };
     if (c.type !== 4) {
       if (c.topic) out.topic = c.topic;
@@ -113,12 +113,19 @@ export function adoptSource(
       if (c.nsfw) out.nsfw = true;
     }
     const ow = overwrites(c.overwrites);
-    if (ow) out.overwrites = ow;
+    // A channel matching its category's permissions is written without its own: it takes them.
+    // One that differs, even by having none, is written out.
+    if (category) {
+      const parent = overwrites(category.overwrites);
+      if (JSON.stringify(ow ?? {}) !== JSON.stringify(parent ?? {})) out.overwrites = ow ?? {};
+    } else if (ow) {
+      out.overwrites = ow;
+    }
     return out;
   };
   const channels: Lit[] = [
-    ...top.map(channel),
-    ...categories.map((cat) => ({ ...channel(cat), channels: displayed(live.channels.filter((c) => c.parentId === cat.id)).map(channel) })),
+    ...top.map((c) => channel(c)),
+    ...categories.map((cat) => ({ ...channel(cat), channels: displayed(live.channels.filter((c) => c.parentId === cat.id)).map((c) => channel(c, cat)) })),
   ];
 
   const ruleKeys = new Set<string>();

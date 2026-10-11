@@ -62,6 +62,7 @@ export type Op =
       slowmode: number;
       nsfw: boolean;
       overwrites: OverwriteBits[];
+      visibleTo: string[]; // role keys, Administrator holders aside, that could view it
       flags: Flag[];
     }
   | { t: "channel.update"; key: string; changes: Change[]; flags: Flag[] }
@@ -317,6 +318,7 @@ class Planner {
   planChannels(): void {
     const { spec } = this.input;
     const flat = channelsFlat(spec);
+    const categories = new Map(spec.channels.filter((c): c is CategorySpec => c.type === "category").map((c) => [c.key, c]));
     const reparented = new Set<string>();
     for (const { channel, parent } of flat) {
       if (!this.channels.has(channel.key)) continue;
@@ -324,8 +326,12 @@ class Planner {
       const id = this.channels.get(channel.key);
       const type = CHANNEL_TYPE[channel.type];
       const plain = channel.type !== "category" ? (channel as ChannelSpec) : undefined;
-      const desired = this.desiredOverwrites(channel.overwrites);
+      // A channel in a category with no permissions of its own takes the category's, as a synced
+      // channel does in Discord. `overwrites: {}` means none.
+      const own = channel.overwrites ?? (parent !== null ? categories.get(parent)?.overwrites : undefined);
+      const desired = this.desiredOverwrites(own);
       if (id === null) {
+        const visibleTo = this.viewers(desired);
         this.ops.push({
           t: "channel.create",
           key: channel.key,
@@ -336,7 +342,8 @@ class Planner {
           slowmode: plain?.slowmode ?? 0,
           nsfw: plain?.nsfw ?? false,
           overwrites: desired,
-          flags: this.visibleToEveryone(desired) || desired.some((o) => o.allow !== 0n) ? ["widens"] : [],
+          visibleTo,
+          flags: visibleTo.length > 0 ? ["widens"] : [],
         });
         continue;
       }
@@ -363,24 +370,41 @@ class Planner {
         }
       }
       if (changes.length > 0) this.ops.push({ t: "channel.update", key: channel.key, changes, flags: [] });
-      this.planOverwrites(channel, live, desired);
+      this.planOverwrites(channel, own, live, desired);
     }
     this.planOrder(flat, reparented);
   }
 
-  // Whether @everyone could see a channel with these overwrites: its base permissions grant view
-  // and no overwrite for it takes view away.
-  visibleToEveryone(desired: OverwriteBits[]): boolean {
-    const base = toBits(this.input.spec.everyone.permissions);
-    const ow = desired.find((o) => o.target === "everyone");
+  // The roles in the spec that could view a channel with these overwrites, in Discord's order:
+  // @everyone's and the role's own permissions, then the @everyone overwrite, then the role's.
+  // Administrator holders see every channel, so they aren't named.
+  viewers(desired: OverwriteBits[]): string[] {
     const view = toBits(["ViewChannel"]);
-    if (ow && (ow.deny & view) !== 0n) return false;
-    return (base & view) !== 0n || (ow !== undefined && (ow.allow & view) !== 0n);
+    const admin = toBits(["Administrator"]);
+    const base = toBits(this.input.spec.everyone.permissions);
+    const ow = (target: string) => desired.find((o) => o.target === target);
+    const apply = (bits: bigint, o: OverwriteBits | undefined) => (o ? (bits & ~o.deny) | o.allow : bits);
+    const sees = (own: bigint, key: string | null) => {
+      let bits = base | own;
+      if ((bits & admin) !== 0n) return false;
+      bits = apply(bits, ow("everyone"));
+      if (key !== null) bits = apply(bits, ow(key));
+      return (bits & view) !== 0n;
+    };
+    const out: string[] = [];
+    if (sees(0n, null)) out.push("everyone");
+    for (const role of this.input.spec.roles) if (sees(toBits(role.permissions), role.key)) out.push(role.key);
+    return out;
   }
 
-  planOverwrites(channel: ChannelSpec | CategorySpec, live: LiveChannel, desired: OverwriteBits[]): void {
+  planOverwrites(
+    channel: ChannelSpec | CategorySpec,
+    own: Record<string, Overwrite> | undefined,
+    live: LiveChannel,
+    desired: OverwriteBits[],
+  ): void {
     const label = channelLabel(live.name, live.type);
-    const blocked = new Set(Object.keys(channel.overwrites ?? {}).filter((k) => !this.roles.has(k)));
+    const blocked = new Set(Object.keys(own ?? {}).filter((k) => !this.roles.has(k)));
     const seen = new Set<string>();
     const sets: Op[] = [];
     const deletes: Op[] = [];

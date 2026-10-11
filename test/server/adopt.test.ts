@@ -66,3 +66,20 @@ test("an adopted server plans nothing but bindings", async () => {
   ]);
   expect(verify.id).toBeDefined();
 });
+
+test("adopt leaves out a channel's permissions when they match its category's", async () => {
+  const f = new FakeDiscord();
+  const deny = [{ id: f.guildId, type: 0 as const, allow: "0", deny: String(P.ViewChannel) }];
+  const cat = f.addChannel({ name: "Admin", type: 4, permission_overwrites: deny });
+  f.addChannel({ name: "logs", parent_id: cat.id, permission_overwrites: deny });
+  f.addChannel({ name: "open", parent_id: cat.id, position: 1 });
+  const live = await readLive(f, f.guildId, []);
+  const source = adoptSource(live, {}, "t", join(import.meta.dir, "../../src/server/spec.ts"));
+  const dir = mkdtempSync(join(tmpdir(), "adopt-"));
+  writeFileSync(join(dir, "index.ts"), source);
+  const spec = (await import(join(dir, "index.ts"))).default as ServerSpec;
+  const category = spec.channels[0] as { channels: { key: string; overwrites?: unknown }[] };
+  expect(category.channels.find((c) => c.key === "logs")?.overwrites).toBeUndefined();
+  expect(category.channels.find((c) => c.key === "open")?.overwrites).toEqual({});
+  expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
+});

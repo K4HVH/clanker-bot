@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { PermissionFlagsBits } from "discord.js";
 import { readLive } from "../../src/server/live";
 import { buildPlan, type Op } from "../../src/server/plan";
@@ -200,4 +200,32 @@ test("an order op names only the groups that move", async () => {
     ],
   }), state);
   expect(p.ops.find((o) => o.t === "channel.order")).toEqual({ t: "channel.order", items: [{ key: "b", parent: null }, { key: "a", parent: null }] });
+});
+
+describe("new channels and who can see them", () => {
+  const roles: ServerSpec["roles"] = [
+    { key: "dev", name: "Dev", permissions: ["Administrator"] },
+    { key: "verified", name: "Verified", permissions: ["ViewChannel", "SendMessages"] },
+  ];
+  const admin = (children: ServerSpec["channels"][number][]) =>
+    ({ key: "admin", type: "category", name: "Admin", overwrites: { everyone: { ViewChannel: false } }, channels: children }) as ServerSpec["channels"][number];
+
+  test("a channel without its own permissions takes its category's, so a staff channel stays hidden", async () => {
+    const f = new FakeDiscord();
+    const p = await plan(f, spec({ roles, channels: [admin([{ key: "mod-chat", type: "text", name: "mod-chat" }])] }));
+    const create = p.ops.find((o) => o.t === "channel.create" && o.key === "mod-chat");
+    expect(create).toMatchObject({ overwrites: [{ target: "everyone", allow: 0n, deny: V }], visibleTo: [], flags: [] });
+  });
+
+  test("a channel any non-admin role can see is flagged, naming the roles", async () => {
+    const f = new FakeDiscord();
+    const p = await plan(f, spec({ roles, channels: [{ key: "open", type: "text", name: "open" }] }));
+    expect(p.ops.find((o) => o.t === "channel.create")).toMatchObject({ visibleTo: ["verified"], flags: ["widens"] });
+  });
+
+  test("explicitly empty permissions mean none, not the category's", async () => {
+    const f = new FakeDiscord();
+    const p = await plan(f, spec({ roles, channels: [admin([{ key: "lobby", type: "text", name: "lobby", overwrites: {} }])] }));
+    expect(p.ops.find((o) => o.t === "channel.create" && o.key === "lobby")).toMatchObject({ overwrites: [], visibleTo: ["verified"], flags: ["widens"] });
+  });
 });

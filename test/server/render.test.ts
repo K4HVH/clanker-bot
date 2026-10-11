@@ -30,7 +30,7 @@ test("renders a plan as grouped lines", () => {
       { t: "role.create", key: "mod", name: "Mod", color: 0, hoist: false, mentionable: false, permissions: P.KickMembers | P.BanMembers, flags: [] },
       { t: "role.update", key: "dev", changes: [{ field: "permissions", from: P.SendMessages, to: P.Administrator }], flags: ["widens"] },
       { t: "role.order", keys: ["dev", "mod"] },
-      { t: "channel.create", key: "updates", type: 0, name: "discord-updates", parent: "admin", topic: null, slowmode: 0, nsfw: false, overwrites: [], flags: [] },
+      { t: "channel.create", key: "updates", type: 0, name: "discord-updates", parent: "admin", topic: null, slowmode: 0, nsfw: false, overwrites: [], visibleTo: [], flags: [] },
       { t: "channel.update", key: "rules", changes: [{ field: "topic", from: "", to: "Read me" }], flags: [] },
       { t: "channel.order", items: [{ key: "rules", parent: null }, { key: "admin", parent: null }, { key: "updates", parent: "admin" }] },
       { t: "overwrite.set", channel: "rules", target: "everyone", allow: P.ViewChannel, deny: P.SendMessages, before: null, flags: ["widens"] },

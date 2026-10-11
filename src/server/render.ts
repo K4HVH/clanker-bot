@@ -96,7 +96,8 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
       case "channel.create": {
         const kind = Object.entries(CHANNEL_TYPE).find(([, t]) => t === op.type)?.[0] ?? "channel";
         const where = op.parent === null ? "top" : `in ${channel(op.parent)}`;
-        return ["Channels", `+ ${channelLabel(op.name, op.type)} (${kind}, ${where})`];
+        const seen = op.visibleTo.length > 0 ? `, visible to ${op.visibleTo.map(roleName).join(", ")}` : "";
+        return ["Channels", `+ ${channelLabel(op.name, op.type)} (${kind}, ${where})${seen}`];
       }
       case "channel.update":
         return ["Channels", `${channel(op.key)}: ${op.changes.map(change).join(", ")}`];
