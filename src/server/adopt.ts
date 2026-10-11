@@ -1,7 +1,7 @@
 import { REGISTRY_BY_KEY } from "../lib/config";
 import type { Live, LiveChannel, LiveOverwrite } from "./live";
 import { toNames } from "./permissions";
-import { CHANNEL_TYPE, FILTER, NOTIFY, VERIFICATION } from "./plan";
+import { above, CHANNEL_TYPE, FILTER, NOTIFY, VERIFICATION } from "./plan";
 import { RESERVED_ROLES } from "./spec";
 
 // /server adopt: a spec matching the live server and the bot's settings, as TypeScript source to
@@ -65,7 +65,7 @@ export function adoptSource(
 
   const roles = live.roles
     .filter((r) => r.id !== live.guild.id && !r.managed)
-    .sort((a, b) => b.position - a.position)
+    .sort((a, b) => (above(a, b) ? -1 : 1))
     .map((r) => {
       const key = keyOf(r.name, roleKeys);
       roleKey.set(r.id, key);
@@ -76,6 +76,17 @@ export function adoptSource(
       out.permissions = toNames(r.permissions);
       return out;
     });
+
+  const botLook: { [k: string]: Lit } = {};
+  if (botRole) {
+    if (botRole.color !== 0) botLook.color = botRole.color;
+    if (botRole.hoist) botLook.hoist = true;
+    if (botRole.mentionable) botLook.mentionable = true;
+    const over = live.roles
+      .filter((r) => r.id !== live.guild.id && !r.managed && above(r, botRole))
+      .sort((a, b) => (above(a, b) ? 1 : -1))[0];
+    if (over) botLook.after = roleKey.get(over.id)!;
+  }
 
   // Display order: channels outside a category first, then each category with its text-like
   // channels before its voice ones, each by position.
@@ -89,7 +100,10 @@ export function adoptSource(
   const unknown = live.channels.filter((c) => KIND[c.type] === undefined);
   const top = displayed(known.filter((c) => c.parentId === null && c.type !== 4));
   const categories = known.filter((c) => c.type === 4).sort(byPosition);
-  const ordered = [...top, ...categories.flatMap((cat) => [cat, ...displayed(known.filter((c) => c.parentId === cat.id))])];
+  // The bot opens and closes tickets in their category: the file keeps that category's channels out.
+  const ticketCategory = typeof settings.ticket_category_id === "string" ? settings.ticket_category_id : null;
+  const children = (cat: LiveChannel) => (cat.id === ticketCategory ? [] : displayed(known.filter((c) => c.parentId === cat.id)));
+  const ordered = [...top, ...categories.flatMap((cat) => [cat, ...children(cat)])];
   for (const c of ordered) channelKey.set(c.id, keyOf(c.name, channelKeys));
 
   const overwrites = (list: LiveOverwrite[]): { [k: string]: Lit } | null => {
@@ -146,7 +160,11 @@ export function adoptSource(
   };
   const channels: Lit[] = [
     ...top.map((c) => channel(c)),
-    ...categories.map((cat) => ({ ...channel(cat), channels: displayed(known.filter((c) => c.parentId === cat.id)).map((c) => channel(c, cat)) })),
+    ...categories.map((cat) => ({
+      ...channel(cat),
+      ...(cat.id === ticketCategory ? { others: "keep" } : {}),
+      channels: children(cat).map((c) => channel(c, cat)),
+    })),
     ...unknown.map((c) => new Comment(`${c.name}: a type ${c.type} channel, which a spec can't hold`)),
   ];
 
@@ -208,6 +226,7 @@ export function adoptSource(
       guild,
       everyone: { permissions: toNames(live.roles.find((r) => r.id === g.id)?.permissions ?? 0n) },
       roles,
+      ...(Object.keys(botLook).length > 0 ? { botRole: botLook } : {}),
       channels,
       automod,
       posts: [],

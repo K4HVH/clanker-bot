@@ -97,3 +97,8 @@ test("voice channels and categories keep their capitals and spaces", () => {
   s.channels.push({ key: "lounge", type: "voice", name: "The Lounge" });
   expect(validateSpec(s)).toEqual([]);
 });
+
+test("the bot's role sits under a role the file names", () => {
+  expect(errorsAfter((s) => (s.botRole = { after: "nobody" }))).toEqual(['botRole.after: unknown role "nobody"']);
+  expect(errorsAfter((s) => (s.botRole = { after: "dev" }))).toEqual([]);
+});

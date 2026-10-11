@@ -57,8 +57,13 @@ export interface RawMessage {
   id: string;
   channel_id: string;
   content: string;
-  author: { id: string };
+  author: { id: string; username?: string; global_name?: string | null };
   components?: unknown[];
+  type?: number;
+  timestamp?: string;
+  flags?: number;
+  attachments?: { filename: string; url: string; size: number }[];
+  embeds?: Record<string, unknown>[];
 }
 
 export interface Write {
@@ -66,6 +71,7 @@ export interface Write {
   route: string;
   body?: unknown;
   reason?: string;
+  files?: { name: string; data: Uint8Array }[];
 }
 
 export class FakeError extends Error {
@@ -141,8 +147,8 @@ export class FakeDiscord implements DiscordApi {
     return rule;
   }
 
-  addMessage(channelId: string, content: string, authorId = this.botId): RawMessage {
-    const m: RawMessage = { id: this.id(), channel_id: channelId, content, author: { id: authorId } };
+  addMessage(channelId: string, content: string, authorId = this.botId, extra: Partial<RawMessage> = {}): RawMessage {
+    const m: RawMessage = { id: this.id(), channel_id: channelId, content, author: { id: authorId }, type: 0, timestamp: new Date(0).toISOString(), ...extra };
     this.messages.push(m);
     return m;
   }
@@ -211,13 +217,24 @@ export class FakeDiscord implements DiscordApi {
     }
     if ((m = route.match(/^\/channels\/(\d+)$/))) return structuredClone(this.channel(m[1]!)) as T;
     if ((m = route.match(/^\/channels\/(\d+)\/messages(\?.*)?$/))) {
-      return structuredClone(this.messages.filter((x) => x.channel_id === m![1]).reverse()) as T;
+      // As Discord does: the `limit` messages just after `after`, newest first.
+      const q = new URLSearchParams(m[2]?.slice(1) ?? "");
+      const after = BigInt(q.get("after") ?? "0");
+      const page = this.messages
+        .filter((x) => x.channel_id === m![1] && BigInt(x.id) > after)
+        .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1))
+        .slice(0, Number(q.get("limit") ?? "50"));
+      return structuredClone(page.reverse()) as T;
     }
+    if (route === `/guilds/${this.guildId}/threads/active`) {
+      return { threads: structuredClone(this.channels.filter((c) => c.type === 11 || c.type === 12)) } as T;
+    }
+    if (/^\/channels\/\d+\/threads\/archived\/(public|private)$/.test(route)) return { threads: [] } as T;
     throw new Error(`fake: no route GET ${route}`);
   }
 
-  async post<T>(route: `/${string}`, body: unknown, reason?: string): Promise<T> {
-    this.record({ method: "POST", route, body, reason });
+  async post<T>(route: `/${string}`, body: unknown, reason?: string, files?: { name: string; data: Uint8Array }[]): Promise<T> {
+    this.record({ method: "POST", route, body, reason, ...(files ? { files } : {}) });
     const b = body as Body;
     const g = `/guilds/${this.guildId}`;
     let m: RegExpMatchArray | null;
@@ -261,8 +278,11 @@ export class FakeDiscord implements DiscordApi {
     }
     if ((m = route.match(/^\/channels\/(\d+)\/messages$/))) {
       this.channel(m[1]!);
-      const msg = this.addMessage(m[1]!, String(b.content));
+      const msg = this.addMessage(m[1]!, String(b.content ?? ""));
       if (b.components) msg.components = b.components as unknown[];
+      if (b.flags) msg.flags = Number(b.flags);
+      if (b.embeds) msg.embeds = b.embeds as Record<string, unknown>[];
+      if (files) msg.attachments = files.map((x, i) => ({ filename: x.name, size: x.data.length, url: `https://cdn.example/${msg.id}/${i}` }));
       return structuredClone(msg) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)\/threads$/))) {
@@ -290,7 +310,9 @@ export class FakeDiscord implements DiscordApi {
           throw new FakeError("community requirements not met", 400);
         }
       }
-      Object.assign(this.guild, b);
+      // Discord ignores a new rules or updates channel unless the feature list comes with it.
+      const { rules_channel_id, public_updates_channel_id, ...rest } = b;
+      Object.assign(this.guild, features ? b : rest);
       return structuredClone(this.guild) as T;
     }
     if (route === `${g}/roles`) {
@@ -340,18 +362,23 @@ export class FakeDiscord implements DiscordApi {
     this.record({ method: "PUT", route, body, reason });
     const m = route.match(/^\/channels\/(\d+)\/permissions\/(\d+)$/);
     if (!m) throw new Error(`fake: no route PUT ${route}`);
-    const c = this.channel(m[1]!);
     const b = body as { type: 0 | 1; allow: string; deny: string };
-    c.permission_overwrites = c.permission_overwrites.filter((o) => o.id !== m[2]);
-    c.permission_overwrites.push({ id: m[2]!, type: b.type, allow: b.allow, deny: b.deny });
+    this.editOverwrites(this.channel(m[1]!), (list) => [...list.filter((o) => o.id !== m[2]), { id: m[2]!, type: b.type, allow: b.allow, deny: b.deny }]);
+  }
+
+  // As Discord does: an edit to a category's overwrites is copied onto each child whose overwrites
+  // matched the category's.
+  editOverwrites(c: RawChannel, edit: (list: RawChannel["permission_overwrites"]) => RawChannel["permission_overwrites"]): void {
+    const key = (list: RawChannel["permission_overwrites"]) => JSON.stringify([...list].map((o) => `${o.id}:${o.type}:${o.allow}:${o.deny}`).sort());
+    const synced = c.type === 4 ? this.channels.filter((x) => x.parent_id === c.id && key(x.permission_overwrites) === key(c.permission_overwrites)) : [];
+    for (const x of [c, ...synced]) x.permission_overwrites = edit(x.permission_overwrites);
   }
 
   async delete(route: `/${string}`, reason?: string): Promise<void> {
     this.record({ method: "DELETE", route, reason });
     let m: RegExpMatchArray | null;
     if ((m = route.match(/^\/channels\/(\d+)\/permissions\/(\d+)$/))) {
-      const c = this.channel(m[1]!);
-      c.permission_overwrites = c.permission_overwrites.filter((o) => o.id !== m![2]);
+      this.editOverwrites(this.channel(m[1]!), (list) => list.filter((o) => o.id !== m![2]));
       return;
     }
     if ((m = route.match(/^\/channels\/(\d+)\/messages\/(\d+)$/))) {

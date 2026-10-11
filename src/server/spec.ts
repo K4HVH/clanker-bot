@@ -22,6 +22,15 @@ export interface RoleSpec {
   permissions: PermissionName[];
 }
 
+// The bot's managed role. The bot can't edit or move the role it holds, so the plan lists any difference
+// as a manual step.
+export interface BotRoleSpec {
+  color?: number;
+  hoist?: boolean;
+  mentionable?: boolean;
+  after?: string; // the role key it sits directly under
+}
+
 export interface EveryoneSpec {
   permissions: PermissionName[];
 }
@@ -56,8 +65,6 @@ export interface ForumSpec {
   sort?: "activity" | "created";
   layout?: "list" | "gallery";
   threadSlowmode?: number;
-  solvedTag?: string; // the tag /solved puts on a post
-  answers?: boolean; // Clanker answers a new post with matching answers from the site's Help
 }
 
 export interface CategorySpec {
@@ -67,7 +74,17 @@ export interface CategorySpec {
   was?: string[];
   overwrites?: Record<string, Overwrite>;
   members?: "managed";
+  // Channels in it that the file doesn't list (tickets the bot opens) are left alone: never pruned.
+  others?: "keep";
   channels: ChannelSpec[];
+}
+
+// A channel the server no longer keeps: its messages are copied into `into`, then it is deleted.
+export interface RetiredSpec {
+  key: string;
+  name: string;
+  was?: string[];
+  into: string;
 }
 
 export interface GuildSpec {
@@ -137,7 +154,9 @@ export interface ServerSpec {
   guild: GuildSpec;
   everyone: EveryoneSpec;
   roles: RoleSpec[];
+  botRole?: BotRoleSpec;
   channels: (ChannelSpec | CategorySpec)[];
+  retired?: RetiredSpec[];
   automod: AutoModSpec[];
   posts: PostSpec[];
   menus?: MenuSpec[];
@@ -180,6 +199,8 @@ export function validateSpec(spec: ServerSpec): string[] {
     for (const p of role.permissions) if (!isPermissionName(p)) errors.push(`role "${role.key}": unknown permission "${p}"`);
   }
   for (const p of spec.everyone.permissions) if (!isPermissionName(p)) errors.push(`everyone: unknown permission "${p}"`);
+  const after = spec.botRole?.after;
+  if (after !== undefined && !seenRoles.has(after)) errors.push(`botRole.after: unknown role "${after}"`);
 
   const flat = channelsFlat(spec);
   const channelKeys = new Set<string>();
@@ -189,6 +210,12 @@ export function validateSpec(spec: ServerSpec): string[] {
     channelKeys.add(channel.key);
     if (channel.type !== "category") textKeys.add(channel.key);
   }
+  for (const r of spec.retired ?? []) {
+    if (channelKeys.has(r.key)) errors.push(`channel key "${r.key}" used twice`);
+    channelKeys.add(r.key);
+  }
+  const writable = new Set(flat.filter(({ channel }) => channel.type === "text" || channel.type === "announcement").map(({ channel }) => channel.key));
+  for (const r of spec.retired ?? []) if (!writable.has(r.into)) errors.push(`retired "${r.key}": unknown channel "${r.into}"`);
   for (const { channel } of flat) {
     // Discord lowercases text-like channel names and turns spaces into dashes. A name written any
     // other way would never bind, and would plan a rename on every run.
@@ -211,9 +238,6 @@ export function validateSpec(spec: ServerSpec): string[] {
       if (tags.length > 20) errors.push(`channel "${channel.key}": at most 20 tags`);
       if (new Set(tags.map((t) => t.name)).size !== tags.length) errors.push(`channel "${channel.key}": tag names must differ`);
       for (const t of tags) if (t.name.length === 0 || t.name.length > 20) errors.push(`channel "${channel.key}": tag "${t.name}" must be 1 to 20 characters`);
-      if (forum.solvedTag !== undefined && !tags.some((t) => t.name === forum.solvedTag)) {
-        errors.push(`channel "${channel.key}": solvedTag "${forum.solvedTag}" isn't one of its tags`);
-      }
     }
     if (channel.type !== "category" && channel.topic !== undefined) {
       const max = channel.type === "forum" || channel.type === "media" ? 4096 : 1024;

@@ -3,6 +3,7 @@ import { createDatabase } from "../../src/db/index";
 import { ConfigService } from "../../src/lib/config";
 import { type ApplyEnv, applyPlan, planFor } from "../../src/server/apply";
 import { loadState, putState, stateKey } from "../../src/server/state";
+import { defineServer } from "../../src/server/spec";
 import { FakeDiscord } from "../helpers/fake-discord";
 import fixture from "./fixture/index";
 
@@ -139,4 +140,125 @@ describe("what Apply can't do comes with instructions", () => {
     const result = await applyPlan(e, await planFor(e, false));
     expect(result.failed?.hint).toBe('Discord refused a value from the spec. Check it, then plan again. Or do it by hand: + role "Dev": Administrator');
   });
+});
+
+describe("a category's overwrite changes", () => {
+  // Discord copies a category's overwrite edits onto each child whose overwrites match the category's.
+  const deny = String(1n << 11n); // Send Messages
+  const setup = () => {
+    const f = new FakeDiscord();
+    const verified = f.addRole({ name: "Verified", position: 2 });
+    const ow = () => [{ id: verified.id, type: 0 as const, allow: "0", deny }];
+    const cat = f.addChannel({ name: "cat", type: 4, permission_overwrites: ow() });
+    const news = f.addChannel({ name: "news", parent_id: cat.id, permission_overwrites: ow() });
+    const chat = f.addChannel({ name: "chat", parent_id: cat.id, permission_overwrites: ow() });
+    const spec = defineServer({
+      name: "t",
+      dir: import.meta.dir,
+      guild: {},
+      everyone: { permissions: [] },
+      roles: [{ key: "verified", name: "Verified", permissions: [] }],
+      channels: [
+        {
+          key: "cat",
+          type: "category",
+          name: "cat",
+          channels: [
+            { key: "news", type: "text", name: "news", overwrites: { verified: { SendMessages: false } } },
+            { key: "chat", type: "text", name: "chat" },
+            { key: "fresh", type: "text", name: "fresh", overwrites: { verified: { SendMessages: false } } },
+          ],
+        },
+      ],
+      automod: [],
+      posts: [],
+      bot: {},
+    });
+    return { e: { ...env(f), spec }, f, ow, news, chat };
+  };
+
+  test("reach a child that matched it, which then keeps what the file gives it", async () => {
+    const { e, f, ow, news, chat } = setup();
+    expect((await applyPlan(e, await planFor(e, false))).failed).toBeNull();
+    expect((await planFor(e, false)).ops).toEqual([]);
+    expect(news.permission_overwrites).toEqual(ow());
+    expect(chat.permission_overwrites).toEqual([]);
+    expect(f.channels.find((c) => c.name === "fresh")!.permission_overwrites).toEqual(ow());
+  });
+});
+
+describe("a category's overwrites edited one at a time", () => {
+  const S = String(1n << 11n); // Send Messages
+  const base = (f: FakeDiscord, channels: Parameters<typeof defineServer>[0]["channels"], roles = [{ key: "verified", name: "Verified", permissions: [] as [] }]) => {
+    const spec = defineServer({ name: "t", dir: import.meta.dir, guild: {}, everyone: { permissions: [] }, roles, channels, automod: [], posts: [], bot: {} });
+    return { ...env(f), spec };
+  };
+
+  test("a new announcement channel is made after the edits, with what the file gives it", async () => {
+    const f = new FakeDiscord();
+    (f.guild.features as string[]).push("COMMUNITY");
+    const verified = f.addRole({ name: "Verified", position: 2 });
+    const ow = () => [{ id: verified.id, type: 0 as const, allow: "0", deny: S }];
+    f.addChannel({ name: "cat", type: 4, permission_overwrites: ow() });
+    const e = base(f, [
+      { key: "cat", type: "category", name: "cat", channels: [{ key: "notice", type: "announcement", name: "notice", overwrites: { verified: { SendMessages: false } } }] },
+    ]);
+    expect((await applyPlan(e, await planFor(e, false))).failed).toBeNull();
+    expect((await planFor(e, false)).ops).toEqual([]);
+    expect(f.channels.find((c) => c.name === "notice")!.permission_overwrites).toEqual(ow());
+  });
+
+  test("a child matching the category part way through follows the edits after that", async () => {
+    const f = new FakeDiscord();
+    const verified = f.addRole({ name: "Verified", position: 2 });
+    const dev = f.addRole({ name: "Dev", position: 3 });
+    const v = { id: verified.id, type: 0 as const, allow: "0", deny: S };
+    const d = { id: dev.id, type: 0 as const, allow: S, deny: "0" };
+    f.addChannel({ name: "cat", type: 4, permission_overwrites: [v] });
+    const child = f.addChannel({ name: "child", parent_id: f.channels.find((c) => c.name === "cat")!.id, permission_overwrites: [v, d] });
+    const e = base(
+      f,
+      [
+        {
+          key: "cat",
+          type: "category",
+          name: "cat",
+          overwrites: { verified: { SendMessages: false }, dev: { SendMessages: true }, everyone: { AddReactions: false } },
+          channels: [{ key: "child", type: "text", name: "child", overwrites: { verified: { SendMessages: false }, dev: { SendMessages: true } } }],
+        },
+      ],
+      [
+        { key: "dev", name: "Dev", permissions: [] },
+        { key: "verified", name: "Verified", permissions: [] },
+      ],
+    );
+    expect((await applyPlan(e, await planFor(e, false))).failed).toBeNull();
+    expect((await planFor(e, false)).ops).toEqual([]);
+    expect(child.permission_overwrites).toEqual([v, d]);
+  });
+});
+
+test("moving Community's updates channel sends the feature list, which Discord needs to take it", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const updates = e.spec.guild.community && e.spec.guild.community.updates;
+  const moved = { ...e.spec, guild: { ...e.spec.guild, community: { rules: "rules", updates: "general" } } };
+  const e2 = { ...e, spec: moved };
+  expect((await applyPlan(e2, await planFor(e2, false))).failed).toBeNull();
+  expect((await planFor(e2, false)).ops).toEqual([]);
+  expect(e.f.guild.public_updates_channel_id).toBe(loadState(e.db, e.guildId).get(stateKey("channel", "general")));
+  expect(updates).toBe("staff-updates");
+});
+
+test("prune and the unmanaged list leave alone what sits in a category that keeps others", async () => {
+  const e = env();
+  await applyPlan(e, await planFor(e, false));
+  const spec = { ...e.spec, channels: [...e.spec.channels, { key: "tickets", type: "category" as const, name: "Tickets", others: "keep" as const, channels: [] }] };
+  const e2 = { ...e, spec };
+  await applyPlan(e2, await planFor(e2, false));
+  const tickets = e.f.channels.find((c) => c.name === "Tickets")!;
+  e.f.addChannel({ name: "ticket-0001", parent_id: tickets.id });
+  const plan = await planFor(e2, false, true);
+  expect(plan.ops).toEqual([]);
+  expect(plan.unmanaged.some((u) => u.includes("ticket-0001"))).toBe(false);
 });

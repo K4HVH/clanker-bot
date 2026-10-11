@@ -26,7 +26,8 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
   const channel = (key: string | null): string => {
     if (key === null) return "top";
     const c = flat.find((f) => f.channel.key === key)?.channel;
-    return c ? channelLabel(c.name, CHANNEL_TYPE[c.type]) : key;
+    const retired = spec.retired?.find((r) => r.key === key);
+    return c ? channelLabel(c.name, CHANNEL_TYPE[c.type]) : retired ? `#${retired.name}` : key;
   };
   const value = (v: unknown): string => {
     if (v === null || v === undefined) return "unset";
@@ -89,6 +90,10 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Channels", `${channel(op.key)}: ${op.changes.map(change).join(", ")}`];
       case "channel.delete":
         return ["Channels", `- #${op.name}`];
+      case "channel.backup": {
+        const files = op.files > 0 ? ` and ${op.files} file${op.files === 1 ? "" : "s"}` : "";
+        return ["Channels", `${channel(op.key)}: copy ${op.messages} message${op.messages === 1 ? "" : "s"}${files} into ${channel(op.into)}`];
+      }
       case "channel.order":
         return ["Channels", `order: ${op.items.map((i) => channel(i.key)).join(", ")}`];
       case "overwrite.set":

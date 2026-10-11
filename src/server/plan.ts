@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REGISTRY_BY_KEY } from "../lib/config";
-import type { Live, LiveChannel, LiveRole, LiveRule } from "./live";
+import { after, copyable, type History } from "./history";
+import type { Live, LiveChannel, LiveOverwrite, LiveRole, LiveRule } from "./live";
 import { menuComponents, parsePosted, splitPost } from "./posts";
 import { type AllowDeny, keepUnnamed, permissionDiff, toBits, widens } from "./permissions";
 import {
@@ -13,6 +14,7 @@ import {
   channelsFlat,
   type AutoModSpec,
   type Overwrite,
+  type RetiredSpec,
   type ServerSpec,
   type SettingValue,
 } from "./spec";
@@ -90,6 +92,8 @@ export type Op =
     }
   | { t: "channel.update"; key: string; changes: Change[]; flags: Flag[] }
   | { t: "channel.delete"; key: string; name: string; flags: Flag[] }
+  // A retired channel's messages after `from` (null: from the start) up to `upTo`, copied into `into`.
+  | { t: "channel.backup"; key: string; into: string; from: string | null; upTo: string; messages: number; files: number }
   | { t: "channel.order"; items: { key: string; parent: string | null }[] }
   | { t: "overwrite.set"; channel: string; target: string; allow: bigint; deny: bigint; before: AllowDeny | null; flags: Flag[] }
   | { t: "overwrite.delete"; channel: string; target: string; before: AllowDeny; flags: Flag[] }
@@ -131,6 +135,7 @@ export interface PlanInput {
   deletions: boolean;
   // Delete live roles and channels the spec doesn't name (Discord's defaults on a new server, say).
   prune?: boolean;
+  histories?: Map<string, History>; // retired channels' messages, by channel id
 }
 
 export const CHANNEL_TYPE: Record<ChannelKind | "category", number> = {
@@ -166,6 +171,14 @@ export const channelLabel = (name: string, type: number): string =>
 // A key resolves to a live id, to null when it will be created, or stays out of the map when it
 // can't be planned (two candidates share its name): everything that references it is skipped.
 type Resolved = Map<string, string | null>;
+
+// Discord's role order: by position, and the older role (lower id) first when two positions tie.
+export const above = (a: LiveRole, b: LiveRole) => a.position > b.position || (a.position === b.position && BigInt(a.id) < BigInt(b.id));
+
+const sameOverwrites = (a: LiveOverwrite[], b: LiveOverwrite[]) => {
+  const key = (list: LiveOverwrite[]) => list.map((o) => `${o.id}:${o.type}:${o.allow}:${o.deny}`).sort().join();
+  return key(a) === key(b);
+};
 
 class Planner {
   readonly ops: Op[] = [];
@@ -299,17 +312,65 @@ class Planner {
   resolveChannels(): void {
     this.resolve<LiveChannel>(
       "channel",
-      channelsFlat(this.input.spec).map(({ channel }) => ({
-        key: channel.key,
-        name: channel.name,
-        was: channel.was,
-        label: channelLabel(channel.name, CHANNEL_TYPE[channel.type]),
-        accepts: (c: LiveChannel) => c.type === CHANNEL_TYPE[channel.type] || convertible(c.type, CHANNEL_TYPE[channel.type]),
-      })),
+      [
+        ...channelsFlat(this.input.spec).map(({ channel }) => ({
+          key: channel.key,
+          name: channel.name,
+          was: channel.was,
+          label: channelLabel(channel.name, CHANNEL_TYPE[channel.type]),
+          accepts: (c: LiveChannel) => c.type === CHANNEL_TYPE[channel.type] || convertible(c.type, CHANNEL_TYPE[channel.type]),
+        })),
+        ...this.retiring().map((r) => ({ key: r.key, name: r.name, was: r.was, label: `#${r.name}`, accepts: (c: LiveChannel) => c.type === 0 || c.type === 5 })),
+      ],
       this.live.channels,
       this.channels,
       this.channelKeyById,
     );
+  }
+
+  // Retired channels not yet gone. One copied and deleted is done: a new channel that takes its
+  // name later is left alone.
+  retiring(): RetiredSpec[] {
+    const { spec, state } = this.input;
+    return (spec.retired ?? []).filter((r) => !(state.has(stateKey("backup", r.key)) && !state.has(stateKey("channel", r.key))));
+  }
+
+  retiredIds(): string[] {
+    return this.retiring().flatMap((r) => (this.channels.get(r.key) ? [this.channels.get(r.key)!] : []));
+  }
+
+  planRetired(): void {
+    const { state, histories, deletions } = this.input;
+    const g = this.live.guild;
+    for (const r of this.retiring()) {
+      const id = this.channels.get(r.key);
+      if (!id) continue;
+      const live = this.liveChannel(id)!;
+      const label = channelLabel(live.name, live.type);
+      const history = histories?.get(id);
+      if (!history) {
+        this.manual.push(`${label}: its messages weren't read, so it is neither copied nor deleted. Plan again`);
+        continue;
+      }
+      const from = state.get(stateKey("backup", r.key)) ?? null;
+      const left = history.messages.filter((m) => copyable(m) && (from === null || after(m.id, from)));
+      if (left.length > 0) {
+        const files = left.reduce((n, m) => n + (m.attachments?.length ?? 0), 0);
+        this.ops.push({ t: "channel.backup", key: r.key, into: r.into, from, upTo: left.at(-1)!.id, messages: left.length, files });
+      }
+      if (history.threads > 0) {
+        const n = history.threads;
+        this.manual.push(
+          `${label} has ${n} thread${n === 1 ? "" : "s"}, whose messages aren't copied, so the plan keeps the channel. Copy or delete ${n === 1 ? "the thread" : "them"} by hand, then plan again`,
+        );
+        continue;
+      }
+      if ((id === g.rulesChannelId || id === g.publicUpdatesChannelId) && !this.input.spec.guild.community) {
+        this.manual.push(`${label} is Community's rules or updates channel, so it can't be deleted. Pick another in Server Settings > Community > Overview, then plan again`);
+        continue;
+      }
+      (deletions ? this.ops : this.held).push({ t: "channel.delete", key: r.key, name: live.name, flags: ["deletes"] });
+    }
   }
 
   aboveBot(role: LiveRole): boolean {
@@ -375,6 +436,8 @@ class Planner {
       });
     }
 
+    this.planBotRole();
+
     const members = spec.roles.filter((r) => {
       if (!this.roles.has(r.key)) return false;
       const id = this.roles.get(r.key);
@@ -388,6 +451,41 @@ class Planner {
         .map((r) => r.key);
       if (created || liveOrder.join() !== existing.map((r) => r.key).join()) {
         this.ops.push({ t: "role.order", keys: members.map((r) => r.key) });
+      }
+    }
+  }
+
+  planBotRole(): void {
+    const want = this.input.spec.botRole;
+    const live = (key: string) => {
+      const id = this.roles.get(key);
+      return id ? this.liveRole(id) : undefined;
+    };
+    const bot = live("bot");
+    if (!want || !bot) return;
+    const steps: string[] = [];
+    if (want.color !== undefined && bot.color !== want.color) steps.push(`colour #${want.color.toString(16).padStart(6, "0")}`);
+    const toggle = (on: boolean | undefined, live: boolean, label: string) => {
+      if (on !== undefined && on !== live) steps.push(`turn ${on ? "on" : "off"} "${label}"`);
+    };
+    toggle(want.hoist, bot.hoist, "Display role members separately from online members");
+    toggle(want.mentionable, bot.mentionable, "Allow anyone to @mention this role");
+    if (steps.length > 0) this.manual.push(`The bot can't change its role "${bot.name}". In Server Settings > Roles > ${bot.name}: ${steps.join("; ")}`);
+    if (want.after === undefined) return;
+    const roles = this.input.spec.roles;
+    const at = roles.findIndex((r) => r.key === want.after);
+    for (const role of roles.slice(0, at + 1)) {
+      const over = live(role.key);
+      if (this.roles.get(role.key) === null) {
+        this.manual.push(`Once the plan has made role "${role.name}", drag it above the bot's role "${bot.name}" in Server Settings > Roles`);
+      } else if (over && above(bot, over)) {
+        this.manual.push(`Drag role "${over.name}" above the bot's role "${bot.name}" in Server Settings > Roles`);
+      }
+    }
+    for (const role of roles.slice(at + 1)) {
+      const under = live(role.key);
+      if (under && above(under, bot)) {
+        this.manual.push(`Drag the bot's role "${bot.name}" above role "${under.name}" in Server Settings > Roles`);
       }
     }
   }
@@ -408,6 +506,15 @@ class Planner {
     const flat = channelsFlat(spec);
     const categories = new Map(spec.channels.filter((c): c is CategorySpec => c.type === "category").map((c) => [c.key, c]));
     const reparented = new Set<string>();
+    // Discord copies each edit to a category's overwrites onto every child whose overwrites match the
+    // category's at that moment. A child that matches it before any of this plan's edits is planned
+    // against what the category ends up with.
+    const edited = new Map<string, { steps: LiveOverwrite[][]; after: LiveOverwrite[] }>();
+    const follows = (parent: string | null, have: (LiveOverwrite | OverwriteBits)[]) => {
+      const cat = parent === null ? undefined : edited.get(parent);
+      const mine = have.map((o) => this.overwriteId(o));
+      return cat?.steps.some((step) => sameOverwrites(mine, step)) ? cat.after : undefined;
+    };
     for (const { channel, parent } of flat) {
       if (!this.channels.has(channel.key)) continue;
       if (parent !== null && !this.channels.has(parent)) {
@@ -442,6 +549,12 @@ class Planner {
           ...(plain?.forum ? { forum: forumBody(plain.forum) } : {}),
           flags: visibleTo.length > 0 ? ["widens"] : [],
         });
+        // Announcement and stage channels are made after the overwrite edits (they wait for Community).
+        const after = type === 5 || type === 13 ? undefined : follows(parent, desired);
+        if (after) {
+          const made: LiveChannel = { id: "", type, name: channel.name, topic: null, slowmode: 0, nsfw: false, parentId: null, position: 0, overwrites: after, forum: null };
+          this.planOverwrites(channel, own, made, desired);
+        }
         continue;
       }
       const live = this.liveChannel(id!)!;
@@ -487,7 +600,13 @@ class Planner {
         }
       }
       if (changes.length > 0) this.ops.push({ t: "channel.update", key: channel.key, changes, flags: [] });
-      this.planOverwrites(channel, own, live, desired);
+      const from = this.ops.length;
+      this.planOverwrites(channel, own, { ...live, overwrites: follows(parent, live.overwrites) ?? live.overwrites }, desired);
+      const mine = this.ops.slice(from);
+      if (channel.type === "category" && mine.length > 0) {
+        const steps = mine.map((_, i) => this.afterOverwrites(live.overwrites, mine.slice(0, i)));
+        edited.set(channel.key, { steps, after: this.afterOverwrites(live.overwrites, mine) });
+      }
     }
     this.planOrder(flat, reparented);
   }
@@ -513,6 +632,30 @@ class Planner {
     return this.input.spec.roles.filter((role) => sees(toBits(role.permissions), role.key)).map((r) => r.key);
   }
 
+  // A role created by this plan has no id yet: its overwrites carry a stand-in until it does.
+  overwriteId(o: LiveOverwrite | OverwriteBits): LiveOverwrite {
+    if ("id" in o) return o;
+    return { id: this.roles.get(o.target) ?? `pending:${o.target}`, type: 0, allow: o.allow, deny: o.deny };
+  }
+
+  roleKeyOf(id: string): string | undefined {
+    return this.roleKeyById.get(id) ?? (id.startsWith("pending:") ? id.slice("pending:".length) : undefined);
+  }
+
+  afterOverwrites(list: LiveOverwrite[], ops: Op[]): LiveOverwrite[] {
+    let out = [...list];
+    for (const op of ops) {
+      if (op.t === "overwrite.set") {
+        const o = this.overwriteId({ target: op.target, allow: op.allow, deny: op.deny });
+        out = [...out.filter((x) => x.id !== o.id), o];
+      } else if (op.t === "overwrite.delete") {
+        const id = op.target.startsWith("member:") ? op.target.slice("member:".length) : (this.roles.get(op.target) ?? `pending:${op.target}`);
+        out = out.filter((x) => x.id !== id);
+      }
+    }
+    return out;
+  }
+
   planOverwrites(
     channel: ChannelSpec | CategorySpec,
     own: Record<string, Overwrite> | undefined,
@@ -533,7 +676,7 @@ class Planner {
         }
         continue;
       }
-      const key = this.roleKeyById.get(o.id);
+      const key = this.roleKeyOf(o.id);
       if (key === undefined) {
         const name = this.liveRole(o.id)?.name ?? o.id;
         this.unmanaged.push(`${label}: permissions for role "${name}"`);
@@ -858,7 +1001,7 @@ class Planner {
   planDeletions(): void {
     const { spec, state, deletions } = this.input;
     const roleKeys = new Set(spec.roles.map((r) => r.key));
-    const channelKeys = new Set(channelsFlat(spec).map((c) => c.channel.key));
+    const channelKeys = new Set([...channelsFlat(spec).map((c) => c.channel.key), ...(spec.retired ?? []).map((r) => r.key)]);
     const ruleKeys = new Set(spec.automod.map((r) => r.key));
     const out: Op[] = [];
     // Children before their category, so a category is never deleted out from under them.
@@ -893,7 +1036,14 @@ class Planner {
     const roles = [...this.live.roles]
       .sort((a, b) => b.position - a.position)
       .filter((r) => r.id !== this.live.guild.id && !r.managed && !claimed(r.id));
-    const channels = this.live.channels.filter((c) => !claimed(c.id));
+    const keeps = new Set(
+      this.input.spec.channels.flatMap((c) => (c.type === "category" && c.others === "keep" && this.channels.get(c.key) ? [this.channels.get(c.key)!] : [])),
+    );
+    // A retired channel that couldn't bind (two share its name) is never pruned uncopied.
+    const retiredNames = new Set(this.retiring().flatMap((r) => [r.name, ...(r.was ?? [])]));
+    const channels = this.live.channels.filter(
+      (c) => !claimed(c.id) && !(c.parentId !== null && keeps.has(c.parentId)) && !(this.input.prune && retiredNames.has(c.name)),
+    );
     if (this.input.prune) {
       // Channels before their categories, then roles. Community's rules and updates channels can't
       // be deleted while Community is on; a role above the bot's can't be deleted by it.
@@ -924,6 +1074,13 @@ class Planner {
   }
 }
 
+// The live ids of the retired channels a plan would copy: their messages are read before planning.
+export function retiredChannels(input: PlanInput): string[] {
+  const p = new Planner(input);
+  p.resolveChannels();
+  return p.retiredIds();
+}
+
 export function buildPlan(input: PlanInput): Plan {
   const p = new Planner(input);
   if ((input.live.botPermissions & toBits(["Administrator"])) === 0n) {
@@ -941,6 +1098,7 @@ export function buildPlan(input: PlanInput): Plan {
   p.planAutomod();
   p.planSettings();
   p.planPosts();
+  p.planRetired();
   p.planDeletions();
   p.listUnmanaged();
   const plan = { ops: p.ops, held: p.held, manual: p.manual, unmanaged: p.unmanaged };

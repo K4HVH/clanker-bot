@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { BotDatabase } from "../db/index";
 import type { ConfigService } from "../lib/config";
-import type { DiscordApi } from "./api";
+import type { DiscordApi, Upload } from "./api";
+import { after, chunk, copyable, type History, type HistoryMessage, readHistory, readThreadCount, sentAt } from "./history";
 import { type Live, readLive } from "./live";
 import { parsePosted } from "./posts";
-import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, VERIFICATION } from "./plan";
+import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, retiredChannels, VERIFICATION } from "./plan";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -17,6 +18,13 @@ export interface ApplyEnv {
   guildId: string;
   spec: ServerSpec;
   reason: string; // shown in Discord's audit log on every change
+  download?: (url: string) => Promise<Uint8Array>; // a retired channel's files, to upload again
+}
+
+async function fetchFile(url: string): Promise<Uint8Array> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`couldn't download ${url}: ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 export interface ApplyResult {
@@ -45,6 +53,8 @@ export function failureHint(op: Op, error: unknown, spec: ServerSpec): string {
     case 10011:
     case 10008:
       return "Something was deleted while this ran. Plan again.";
+    case 40005:
+      return "A file in that message is bigger than the bot may upload to this server. Keep the file somewhere else, delete the message, then plan again.";
     default:
       return `Plan again. If it fails the same way: ${byHand.slice(4)}`;
   }
@@ -57,7 +67,14 @@ export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean,
   const postIds = posted.map((p) => ({ channelId: p.channel, messageId: p.message }));
   const threadIds = posted.filter((p) => p.forum !== undefined).map((p) => p.channel);
   const live = await readLive(env.api, env.guildId, postIds, threadIds);
-  return buildPlan({ spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions, prune });
+  const input = { spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions, prune };
+  const retired = retiredChannels(input);
+  if (retired.length === 0) return buildPlan(input);
+  const histories = new Map<string, History>();
+  for (const id of retired) {
+    histories.set(id, { messages: await readHistory(env.api, id), threads: await readThreadCount(env.api, env.guildId, id) });
+  }
+  return buildPlan({ ...input, histories });
 }
 
 // The order operations run in, whatever order the plan lists them: what a later step names must
@@ -84,6 +101,7 @@ const PHASE: Record<Op["t"], number> = {
   "post.title": 11,
   "post.delete": 11,
   "automod.delete": 12,
+  "channel.backup": 11,
   "channel.delete": 13,
   "role.delete": 14,
   prune: 15,
@@ -161,6 +179,45 @@ class Runner {
 
   channel(key: string): string {
     return this.need("channel", key);
+  }
+
+  // One message as its author wrote it, under a line naming them and when; files uploaded again,
+  // and no one pinged. A message that fails part way is taken back, so a rerun posts it once.
+  private async copy(into: string, m: HistoryMessage): Promise<void> {
+    const { api, reason } = this.env;
+    const download = this.env.download ?? fetchFile;
+    const who = m.author.global_name ?? m.author.username ?? m.author.id;
+    const forwarded = (m.message_snapshots ?? []).map((s) => s.message);
+    const lines = [
+      `-# ${who}, <t:${sentAt(m)}:f>`,
+      m.content,
+      ...forwarded.flatMap((f) => ["[forwarded]", f.content]),
+      m.poll ? `[poll: ${m.poll.question.text ?? ""}]` : "",
+      (m.flags ?? 0) & 32768 ? "[a component message, which can't be copied]" : "",
+      (m.sticker_items ?? []).map((s) => `[sticker: ${s.name}]`).join(" "),
+    ];
+    const parts = chunk(lines.filter((s) => s !== "").join("\n"));
+    const files: Upload[] = [];
+    for (const a of [...(m.attachments ?? []), ...forwarded.flatMap((f) => f.attachments ?? [])]) {
+      files.push({ name: a.filename, data: await download(a.url) });
+    }
+    const embeds = (m.embeds ?? []).filter((e) => e.type === "rich").map(({ type, video, provider, ...rest }) => rest);
+    const flags = (m.flags ?? 0) & 4; // links shown without previews stay that way
+    const posts: { content: string; files?: Upload[]; embeds?: Record<string, unknown>[] }[] = parts.map((content) => ({ content }));
+    const last = posts.at(-1)!;
+    if (files.length > 0) last.files = files.slice(0, 10);
+    if (embeds.length > 0) last.embeds = embeds.slice(0, 10);
+    for (let i = 10; i < files.length; i += 10) posts.push({ content: "", files: files.slice(i, i + 10) });
+    const sent: string[] = [];
+    try {
+      for (const p of posts) {
+        const body = { content: p.content, allowed_mentions: { parse: [] }, ...(flags ? { flags } : {}), ...(p.embeds ? { embeds: p.embeds } : {}) };
+        sent.push((await api.post<{ id: string }>(`/channels/${into}/messages`, body, reason, p.files)).id);
+      }
+    } catch (error) {
+      for (const id of sent) await api.delete(`/channels/${into}/messages/${id}`, reason).catch(() => {});
+      throw error;
+    }
   }
 
   private optionalChannel(key: unknown): string | null {
@@ -246,10 +303,48 @@ class Runner {
         await api.patch(`/channels/${id}`, body, reason);
         return;
       }
-      case "channel.delete":
-        await api.delete(`/channels/${this.channel(op.key)}`, reason);
+      case "channel.delete": {
+        const id = this.channel(op.key);
+        const retired = this.env.spec.retired?.some((r) => r.key === op.key);
+        if (retired) {
+          // Whatever arrived after the plan read the channel would go with it.
+          const since = this.state.get(stateKey("backup", op.key)) ?? "0";
+          const left = (await readHistory(api, id, since)).filter(copyable).length;
+          if (left > 0) {
+            throw new Error(`#${op.name} has ${left} message${left === 1 ? "" : "s"} the plan didn't copy. Plan again to copy ${left === 1 ? "it" : "them"} before the channel goes`);
+          }
+          const threads = await readThreadCount(api, this.env.guildId, id);
+          if (threads > 0) throw new Error(`#${op.name} has ${threads} thread${threads === 1 ? "" : "s"} the plan didn't see. Plan again`);
+        }
+        await api.delete(`/channels/${id}`, reason);
+        // Done: a channel that takes the name later isn't retired again.
+        if (retired && !this.state.has(stateKey("backup", op.key))) this.put("backup", op.key, "0");
         this.drop("channel", op.key);
         return;
+      }
+      case "channel.backup": {
+        const source = this.channel(op.key);
+        const into = this.channel(op.into);
+        const name = this.live.channels.find((c) => c.id === source)?.name ?? op.key;
+        if (op.from === null) {
+          await api.post(`/channels/${into}/messages`, { content: `# ${name}`, allowed_mentions: { parse: [] } }, reason);
+          this.put("backup", op.key, "0");
+        }
+        const since = this.state.get(stateKey("backup", op.key)) ?? "0";
+        for (const m of await readHistory(api, source, since)) {
+          if (after(m.id, op.upTo)) break;
+          if (copyable(m)) {
+            try {
+              await this.copy(into, m);
+            } catch (error) {
+              const { message, code, status } = error as { message?: string; code?: unknown; status?: unknown };
+              throw Object.assign(new Error(`Message ${m.id} in #${name}: ${message ?? String(error)}`), { code, status });
+            }
+          }
+          this.put("backup", op.key, m.id);
+        }
+        return;
+      }
       case "channel.order": {
         // As for roles: within each parent and bucket, permute the positions the channels hold.
         const live = await api.get<{ id: string; type: number; position: number }[]>(`${this.g}/channels`);
@@ -309,6 +404,10 @@ class Runner {
             default:
               body[c.field] = c.to;
           }
+        }
+        // Discord ignores a new rules or updates channel unless the feature list comes with it.
+        if ("rules_channel_id" in body || "public_updates_channel_id" in body) {
+          body.features = (await api.get<{ features: string[] }>(this.g)).features;
         }
         await api.patch(this.g, body, reason);
         return;
@@ -481,6 +580,6 @@ export function applySummary(result: ApplyResult, plan: Plan, spec: ServerSpec):
       `${result.remaining} change${result.remaining === 1 ? "" : "s"} not applied.`,
     );
   }
-  if (plan.manual.length > 0) lines.push("", "Do these by hand:", ...plan.manual.map((m) => `- ${m}`));
+  if (plan.manual.length > 0) lines.push("", "Manual steps:", ...plan.manual.map((m) => `- ${m}`));
   return lines.join("\n");
 }

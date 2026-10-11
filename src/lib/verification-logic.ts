@@ -64,5 +64,5 @@ export function memberHasRole(
 
 // What a member sees once the captcha is solved; it names where to go next when that's set.
 export function verifiedText(welcomeChannelId?: string): string {
-  return welcomeChannelId ? `✅ You're verified. Welcome! Pick what you want to see in <#${welcomeChannelId}>.` : "✅ You're verified. Welcome!";
+  return welcomeChannelId ? `✅ You're verified. Welcome! Start in <#${welcomeChannelId}>.` : "✅ You're verified. Welcome!";
 }

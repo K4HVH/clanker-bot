@@ -101,7 +101,7 @@ test("the Apply result lists what's left to do by hand", async () => {
   const { i, sent } = interaction(f, f.ownerId, { customId: `server:apply:${plan.fingerprint.slice(0, 32)}:0:fixture` });
   await applyButton(i, ctx, deps(f));
   const text = JSON.stringify(sent.edits.at(-1));
-  expect(text).toContain("Do these by hand:");
+  expect(text).toContain("Manual steps:");
   expect(text).toContain("Require 2FA for moderator actions");
 });
 
@@ -115,4 +115,20 @@ test("a refused write in the Apply result says what to do", async () => {
   const text = JSON.stringify(sent.edits.at(-1));
   expect(text).toContain("Stopped at");
   expect(text).toContain("give the bot's role Administrator and drag it to the top");
+});
+
+test("the Apply result still arrives when Discord no longer takes edits to the reply", async () => {
+  const f = new FakeDiscord();
+  const ctx: AppContext = silentContext();
+  const plan = await planFor({ api: f, db: ctx.db, config: ctx.config, guildId: f.guildId, spec: fixture }, false);
+  const posted: unknown[] = [];
+  const { i } = interaction(f, f.ownerId, {
+    customId: `server:apply:${plan.fingerprint.slice(0, 32)}:0:fixture`,
+    editReply: async () => {
+      throw new Error("Invalid Webhook Token");
+    },
+    channel: { send: async (o: unknown) => void posted.push(o) },
+  });
+  await applyButton(i, ctx, deps(f));
+  expect(JSON.stringify(posted.at(-1))).toContain(`Applied ${plan.ops.length} changes.`);
 });

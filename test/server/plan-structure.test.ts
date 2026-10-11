@@ -294,3 +294,68 @@ test("a channel @everyone can see is said to be visible to everyone, not role by
   }));
   expect(p.ops.find((o) => o.t === "channel.create")).toMatchObject({ visibleTo: ["everyone"], flags: ["widens"] });
 });
+
+test("the bot's role unlike the file is a manual step with the values", async () => {
+  const f = new FakeDiscord();
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+  const s = spec({ channels: [], botRole: { color: 0x1abc9c, hoist: true, mentionable: true } });
+  const p = await plan(f, s, new Map([[stateKey("role", "dev"), dev.id]]));
+  expect(p.ops).toEqual([]);
+  expect(p.manual).toEqual([
+    `The bot can't change its role "Bot". In Server Settings > Roles > Bot: colour #1abc9c; turn on "Display role members separately from online members"; turn on "Allow anyone to @mention this role"`,
+  ]);
+});
+
+test("the bot's role matching the file needs nothing", async () => {
+  const f = new FakeDiscord();
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+  const bot = f.roles.find((r) => r.tags?.bot_id === f.botId)!;
+  Object.assign(bot, { color: 0x1abc9c, hoist: true });
+  const p = await plan(f, spec({ channels: [], botRole: { color: 0x1abc9c, hoist: true } }), new Map([[stateKey("role", "dev"), dev.id]]));
+  expect(p.manual).toEqual([]);
+});
+
+test("the bot's role placed under a role is a manual step until it sits there", async () => {
+  const f = new FakeDiscord();
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+  const cool = f.addRole({ name: "Cool", position: 2 });
+  const s = spec({
+    channels: [],
+    roles: [
+      { key: "dev", name: "Dev", permissions: ["Administrator"] },
+      { key: "cool", name: "Cool", permissions: [] },
+    ],
+    botRole: { after: "dev" },
+  });
+  const state: State = new Map([[stateKey("role", "dev"), dev.id], [stateKey("role", "cool"), cool.id]]);
+  const above = await plan(f, s, state);
+  expect(above.manual).toEqual([`Drag role "Dev" above the bot's role "Bot" in Server Settings > Roles`]);
+
+  dev.position = 60;
+  expect((await plan(f, s, state)).manual).toEqual([]);
+
+  cool.position = 55;
+  expect((await plan(f, s, state)).manual).toContain(`Drag the bot's role "Bot" above role "Cool" in Server Settings > Roles`);
+});
+
+test("a role meant above the bot's place but below the bot is a manual step", async () => {
+  const f = new FakeDiscord();
+  const top = f.addRole({ name: "Top", position: 3 });
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 60 });
+  const s = spec({
+    channels: [],
+    roles: [
+      { key: "top", name: "Top", permissions: [] },
+      { key: "dev", name: "Dev", permissions: ["Administrator"] },
+    ],
+    botRole: { after: "dev" },
+  });
+  const p = await plan(f, s, new Map([[stateKey("role", "top"), top.id], [stateKey("role", "dev"), dev.id]]));
+  expect(p.manual).toEqual([`Drag role "Top" above the bot's role "Bot" in Server Settings > Roles`]);
+});
+
+test("the bot's place under a role this plan makes is a manual step now", async () => {
+  const f = new FakeDiscord();
+  const p = await plan(f, spec({ channels: [], botRole: { after: "dev" } }));
+  expect(p.manual).toEqual([`Once the plan has made role "Dev", drag it above the bot's role "Bot" in Server Settings > Roles`]);
+});

@@ -26,6 +26,7 @@ test("an adopted server plans nothing but bindings", async () => {
   f.guild.mfa_level = 1;
   const dev = f.addRole({ name: "Dev", permissions: String(P.Administrator), position: 60, hoist: true, mentionable: true, color: 1 });
   const verified = f.addRole({ name: "Verified", permissions: String(P.SendMessages | P.ViewChannel), position: 2 });
+  Object.assign(f.roles.find((r) => r.tags?.bot_id === f.botId)!, { color: 0x1abc9c, hoist: true });
   f.addRole({ name: "Server Booster", managed: true, tags: { premium_subscriber: null }, position: 1 });
   f.roles.find((r) => r.id === f.guildId)!.permissions = String(P.CreateInstantInvite | P.ReadMessageHistory);
   const verify = f.addChannel({ name: "verify", position: 0, rate_limit_per_user: 15, permission_overwrites: [{ id: f.guildId, type: 0, allow: String(P.ViewChannel), deny: "0" }, { id: verified.id, type: 0, allow: "0", deny: String(P.ViewChannel) }] });
@@ -51,6 +52,7 @@ test("an adopted server plans nothing but bindings", async () => {
 
   expect(validateSpec(spec)).toEqual([]);
   expect(spec.channels.map((c) => c.key)).toEqual(["verify", "home"]);
+  expect(spec.botRole).toEqual({ color: 0x1abc9c, hoist: true, after: "dev" });
   const plan = buildPlan({ spec, live, state: new Map(), settings, deletions: false });
   expect(plan.manual).toEqual([]);
   expect(new Set(plan.ops.map((o) => o.t))).toEqual(new Set(["bind"]));
@@ -126,4 +128,26 @@ test("adopt writes a forum's tags and settings", async () => {
     threadSlowmode: 30,
   });
   expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
+});
+
+test("adopt places the bot under the lowest role above it, ties broken by id", async () => {
+  const f = new FakeDiscord();
+  const first = f.addRole({ name: "First", position: 60 });
+  f.addRole({ name: "Second", position: 60 });
+  const live = await readLive(f, f.guildId, []);
+  // Discord shows the role with the lower id first when positions tie, so Second sits lower.
+  expect(first.id < f.roles.find((r) => r.name === "Second")!.id).toBe(true);
+  for (const roles of [live.roles, [...live.roles].reverse()]) {
+    expect(adoptSource({ ...live, roles }, {}, "t")).toContain('after: "second"');
+  }
+});
+
+test("adopt keeps the ticket category's channels out of the file", async () => {
+  const f = new FakeDiscord();
+  const tickets = f.addChannel({ name: "Tickets", type: 4 });
+  f.addChannel({ name: "ticket-0001", parent_id: tickets.id });
+  const live = await readLive(f, f.guildId, []);
+  const source = adoptSource(live, { ticket_category_id: tickets.id }, "t");
+  expect(source).not.toContain("ticket-0001");
+  expect(source).toContain('others: "keep"');
 });

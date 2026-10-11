@@ -133,15 +133,19 @@ export async function applyButton(interaction: ButtonInteraction, ctx: AppContex
       guild,
       new EmbedBuilder().setColor(0x5865f2).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
     );
-    await interaction.editReply(
+    const reply =
       summary.length <= INLINE_MAX
         ? { content: summary, components: [] }
         : {
             content: `Applied ${result.done} change${result.done === 1 ? "" : "s"}. The rest, with what to do by hand, is attached.`,
             files: [new AttachmentBuilder(Buffer.from(summary, "utf8"), { name: "apply.txt" })],
             components: [],
-          },
-    );
+          };
+    // A long Apply outlasts the 15 minutes Discord allows for editing the reply: post it instead.
+    await interaction.editReply(reply).catch(async () => {
+      const channel = interaction.channel as { send?: (o: typeof reply) => Promise<unknown> } | null;
+      await channel?.send?.(reply);
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     ctx.logger.error("server apply failed", { guildId: guild.id, error: message });

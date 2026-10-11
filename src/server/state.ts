@@ -1,6 +1,6 @@
 import { type BotDatabase, many, one, run } from "../db/index";
 
-export type StateKind = "role" | "channel" | "automod" | "post" | "asset";
+export type StateKind = "role" | "channel" | "automod" | "post" | "asset" | "backup";
 
 // `${kind}:${key}` -> Discord id (for an asset, the applied file's hash).
 export type State = Map<string, string>;
