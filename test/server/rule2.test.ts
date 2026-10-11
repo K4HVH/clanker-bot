@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { ruleMatches } from "../../src/server/automod-match";
 import { SPECS } from "../../src/server/specs";
 
 // Rule 2 is enforced by Discord's AutoMod, which runs Rust's regex crate. These samples are written
@@ -6,18 +7,7 @@ import { SPECS } from "../../src/server/specs";
 
 const rule = SPECS.medius!.automod.find((r) => r.key === "rule-2")!;
 
-// Discord keyword semantics: "*x*" anywhere, "x*" word start, "*x" word end, "x" whole word.
-function keywordHit(text: string, keyword: string): boolean {
-  const lower = text.toLowerCase();
-  const core = keyword.replace(/^\*|\*$/g, "").toLowerCase();
-  const escaped = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const start = keyword.startsWith("*") ? "" : "(?<![\\p{L}\\p{N}])";
-  const end = keyword.endsWith("*") ? "" : "(?![\\p{L}\\p{N}])";
-  return new RegExp(`${start}${escaped}${end}`, "u").test(lower);
-}
-
-const regexes = (rule.regex ?? []).map((r) => new RegExp(r.replace(/^\(\?i\)/, ""), "i"));
-const blocked = (text: string) => regexes.some((r) => r.test(text)) || (rule.keywords ?? []).some((k) => keywordHit(text, k));
+const blocked = (text: string) => ruleMatches(rule, text);
 
 const MATCH = [
   "selling aimbot 15$ dm me",
