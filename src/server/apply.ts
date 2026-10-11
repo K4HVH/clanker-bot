@@ -220,7 +220,11 @@ class Runner {
         }
         const c = await api.post<{ id: string }>(`${this.g}/channels`, body, reason);
         this.put("channel", op.key, c.id);
-        if (lateTopic !== null) await api.patch(`/channels/${c.id}`, { topic: lateTopic }, reason);
+        // Discord drops a forum's flags (require a tag) on create; a modify sets them.
+        const late: Record<string, unknown> = {};
+        if (lateTopic !== null) late.topic = lateTopic;
+        if (body.flags !== undefined) late.flags = body.flags;
+        if (Object.keys(late).length > 0) await api.patch(`/channels/${c.id}`, late, reason);
         return;
       }
       case "channel.update": {

@@ -251,7 +251,8 @@ export class FakeDiscord implements DiscordApi {
           parent_id: parent,
           position: siblings.length,
           permission_overwrites: ((b.permission_overwrites as RawOverwrite[] | undefined) ?? []).map((o) => ({ ...o })),
-          ...this.forumFields(b),
+          // Discord drops `flags` on create (seen on a real server, 2026-10-11): only a modify sets them.
+          ...this.forumFields({ ...b, flags: undefined }),
         }),
       ) as T;
     }
