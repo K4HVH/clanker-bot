@@ -87,32 +87,53 @@ export async function planCommand(interaction: ChatInputCommandInteraction, ctx:
   );
 }
 
+// Servers with an Apply running. A second click, or the Apply of a plan made mid-run, would plan
+// against a half-built server whose fingerprint still matches and build everything again.
+const applying = new Set<string>();
+
 export async function applyButton(interaction: ButtonInteraction, ctx: AppContext, deps: ServerDeps = live): Promise<void> {
   if (!(await ownerOnly(interaction))) return;
-  const [, , shown, deletions, name] = interaction.customId.split(":");
-  const spec = name ? deps.specs[name] : undefined;
   const guild = interaction.guild!;
-  await interaction.deferUpdate();
-  if (!spec) {
-    await interaction.editReply({ content: `No spec named "${name}" in this build.`, components: [] });
+  if (applying.has(guild.id)) {
+    await interaction.reply({ content: "An apply is already running on this server.", flags: MessageFlags.Ephemeral });
     return;
   }
-  const api = deps.api(guild);
-  const env = { api, db: ctx.db, config: ctx.config, guildId: guild.id, spec };
-  const plan = await planFor(env, deletions === "1");
-  if (plan.fingerprint.slice(0, FINGERPRINT_CHARS) !== shown) {
-    await interaction.editReply({ content: "The server changed since this plan. Run /server plan again.", components: [] });
-    return;
+  applying.add(guild.id);
+  try {
+    // The button goes the moment it's pressed, so it can't be pressed twice.
+    await interaction.update({ content: "Applying...", components: [] });
+    const [, , shown, deletions, name] = interaction.customId.split(":");
+    const spec = name ? deps.specs[name] : undefined;
+    if (!spec) {
+      await interaction.editReply({ content: `No spec named "${name}" in this build.`, components: [] });
+      return;
+    }
+    const env = { api: deps.api(guild), db: ctx.db, config: ctx.config, guildId: guild.id, spec };
+    const plan = await planFor(env, deletions === "1");
+    if (plan.fingerprint.slice(0, FINGERPRINT_CHARS) !== shown) {
+      await interaction.editReply({ content: "The server changed since this plan. Run /server plan again.", components: [] });
+      return;
+    }
+    setSpecName(ctx.db, guild.id, name!);
+    const result = await applyPlan({ ...env, reason: `Server plan applied by ${interaction.user.username}` }, plan);
+    markApplied(ctx.db, guild.id, Date.now());
+    const lines = [`Applied ${result.done} change${result.done === 1 ? "" : "s"}.`];
+    if (result.failed) {
+      lines.push(`Stopped at: ${result.failed.op.t} (${result.failed.error}). ${result.remaining} not applied: run /server plan again.`);
+    }
+    await logModAlert(
+      ctx,
+      guild,
+      new EmbedBuilder().setColor(0x5865f2).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
+    );
+    await interaction.editReply({ content: lines.join("\n").slice(0, 2000), components: [] });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.error("server apply failed", { guildId: guild.id, error: message });
+    await interaction.editReply({ content: `Apply failed: ${message}`.slice(0, 2000), components: [] }).catch(() => {});
+  } finally {
+    applying.delete(guild.id);
   }
-  setSpecName(ctx.db, guild.id, name!);
-  const result = await applyPlan({ ...env, reason: `Server plan applied by ${interaction.user.username}` }, plan);
-  markApplied(ctx.db, guild.id, Date.now());
-  const lines = [`Applied ${result.done} change${result.done === 1 ? "" : "s"}.`];
-  if (result.failed) {
-    lines.push(`Stopped at: ${result.failed.op.t} (${result.failed.error}). ${result.remaining} not applied: run /server plan again.`);
-  }
-  await interaction.editReply({ content: lines.join("\n"), components: [] });
-  await logModAlert(ctx, guild, new EmbedBuilder().setColor(0x5865f2).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`));
 }
 
 export async function adoptCommand(interaction: ChatInputCommandInteraction, ctx: AppContext, deps: ServerDeps = live): Promise<void> {
