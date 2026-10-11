@@ -98,3 +98,32 @@ test("adopt keeps media channels and leaves out kinds a spec can't hold", async 
   expect(validateSpec(spec)).toEqual([]);
   expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
 });
+
+test("adopt writes a forum's tags and settings", async () => {
+  const f = new FakeDiscord();
+  f.addChannel({
+    name: "help",
+    type: 15,
+    topic: "Say what you tried.",
+    flags: 16,
+    available_tags: [{ id: "1", name: "Install", moderated: false, emoji_id: null, emoji_name: "📦" }, { id: "2", name: "Solved", moderated: true, emoji_id: null, emoji_name: null }],
+    default_reaction_emoji: { emoji_id: null, emoji_name: "👍" },
+    default_sort_order: 0,
+    default_forum_layout: 1,
+    default_thread_rate_limit_per_user: 30,
+  });
+  const live = await readLive(f, f.guildId, []);
+  const source = adoptSource(live, {}, "t", join(import.meta.dir, "../../src/server/spec.ts"));
+  const dir = mkdtempSync(join(tmpdir(), "adopt-"));
+  writeFileSync(join(dir, "index.ts"), source);
+  const spec = (await import(join(dir, "index.ts"))).default as ServerSpec;
+  expect((spec.channels[0] as { forum?: unknown }).forum).toEqual({
+    tags: [{ name: "Install", emoji: "📦" }, { name: "Solved", moderated: true }],
+    requireTag: true,
+    reaction: "👍",
+    sort: "activity",
+    layout: "list",
+    threadSlowmode: 30,
+  });
+  expect(buildPlan({ spec, live, state: new Map(), settings: {}, deletions: false }).ops.every((o) => o.t === "bind")).toBe(true);
+});

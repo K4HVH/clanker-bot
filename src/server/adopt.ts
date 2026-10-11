@@ -115,6 +115,24 @@ export function adoptSource(
       if (c.slowmode > 0) out.slowmode = c.slowmode;
       if (c.nsfw) out.nsfw = true;
     }
+    if (c.forum) {
+      const f = c.forum;
+      const forum: { [k: string]: Lit } = {};
+      if (f.tags.length > 0) {
+        forum.tags = f.tags.map((t) => {
+          const tag: { [k: string]: Lit } = { name: t.name };
+          if (t.emoji) tag.emoji = t.emoji;
+          if (t.moderated) tag.moderated = true;
+          return tag;
+        });
+      }
+      forum.requireTag = (f.flags & 16) !== 0;
+      if (f.reaction) forum.reaction = f.reaction;
+      if (f.sort !== null) forum.sort = f.sort === 0 ? "activity" : "created";
+      if (f.layout !== 0) forum.layout = f.layout === 1 ? "list" : "gallery";
+      if (f.threadSlowmode > 0) forum.threadSlowmode = f.threadSlowmode;
+      out.forum = forum;
+    }
     const ow = overwrites(c.overwrites);
     // A channel whose permissions match its category's is written without any: it takes the category's.
     // One that differs, even by having none, is written out.

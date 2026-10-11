@@ -34,6 +34,16 @@ export interface LiveChannel {
   parentId: string | null;
   position: number;
   overwrites: LiveOverwrite[];
+  forum: LiveForum | null; // forum and media channels only
+}
+
+export interface LiveForum {
+  flags: number;
+  tags: { id: string; name: string; emoji: string | null; moderated: boolean }[];
+  reaction: string | null;
+  sort: number | null;
+  layout: number;
+  threadSlowmode: number;
 }
 
 export interface LiveAction {
@@ -107,6 +117,12 @@ interface RawChannel {
   parent_id?: string | null;
   position: number;
   permission_overwrites?: { id: string; type: 0 | 1; allow: string; deny: string }[];
+  flags?: number;
+  available_tags?: { id: string; name: string; moderated?: boolean; emoji_id?: string | null; emoji_name?: string | null }[];
+  default_reaction_emoji?: { emoji_id: string | null; emoji_name: string | null } | null;
+  default_sort_order?: number | null;
+  default_forum_layout?: number;
+  default_thread_rate_limit_per_user?: number;
 }
 
 interface RawRule {
@@ -214,6 +230,17 @@ export async function readLive(
         allow: BigInt(o.allow),
         deny: BigInt(o.deny),
       })),
+      forum:
+        c.type === 15 || c.type === 16
+          ? {
+              flags: c.flags ?? 0,
+              tags: (c.available_tags ?? []).map((t) => ({ id: t.id, name: t.name, emoji: t.emoji_name ?? null, moderated: t.moderated ?? false })),
+              reaction: c.default_reaction_emoji?.emoji_name ?? null,
+              sort: c.default_sort_order ?? null,
+              layout: c.default_forum_layout ?? 0,
+              threadSlowmode: c.default_thread_rate_limit_per_user ?? 0,
+            }
+          : null,
     })),
     rules: rules.map((r) => ({
       id: r.id,

@@ -39,6 +39,22 @@ export interface ChannelSpec {
   overwrites?: Record<string, Overwrite>;
   // Claim the channel's member overwrites too: any not declared here are removed.
   members?: "managed";
+  forum?: ForumSpec; // forum and media channels; `topic` is the forum's posting guidelines
+}
+
+export interface ForumTag {
+  name: string;
+  emoji?: string; // a Unicode emoji
+  moderated?: boolean; // only Manage Threads holders can add or remove it
+}
+
+export interface ForumSpec {
+  tags?: ForumTag[];
+  requireTag?: boolean;
+  reaction?: string; // a Unicode emoji
+  sort?: "activity" | "created";
+  layout?: "list" | "gallery";
+  threadSlowmode?: number;
 }
 
 export interface CategorySpec {
@@ -55,7 +71,8 @@ export interface GuildSpec {
   name?: string;
   description?: string | null;
   icon?: string; // file in the spec's directory
-  banner?: string;
+  banner?: string; // needs boost level 2
+  splash?: string; // the invite background; needs boost level 1
   verificationLevel?: "none" | "low" | "medium" | "high" | "highest";
   explicitContentFilter?: "off" | "no-roles" | "all";
   defaultNotifications?: "all" | "mentions";
@@ -168,6 +185,18 @@ export function validateSpec(spec: ServerSpec): string[] {
         if (!isPermissionName(p)) errors.push(`channel "${channel.key}": unknown permission "${p}"`);
       }
     }
+    const forum = channel.type !== "category" ? channel.forum : undefined;
+    if (forum) {
+      if (channel.type !== "forum" && channel.type !== "media") errors.push(`channel "${channel.key}": forum settings on a ${channel.type} channel`);
+      const tags = forum.tags ?? [];
+      if (tags.length > 20) errors.push(`channel "${channel.key}": at most 20 tags`);
+      if (new Set(tags.map((t) => t.name)).size !== tags.length) errors.push(`channel "${channel.key}": tag names must differ`);
+      for (const t of tags) if (t.name.length === 0 || t.name.length > 20) errors.push(`channel "${channel.key}": tag "${t.name}" must be 1 to 20 characters`);
+    }
+    if (channel.type !== "category" && channel.topic !== undefined) {
+      const max = channel.type === "forum" || channel.type === "media" ? 4096 : 1024;
+      if (channel.topic.length > max) errors.push(`channel "${channel.key}": topic is longer than ${max} characters`);
+    }
     if (channel.type !== "category" && channel.slowmode !== undefined) {
       if (!Number.isInteger(channel.slowmode) || channel.slowmode < 0 || channel.slowmode > MAX_SLOWMODE) {
         errors.push(`channel "${channel.key}": slowmode must be 0 to ${MAX_SLOWMODE}`);
@@ -185,7 +214,7 @@ export function validateSpec(spec: ServerSpec): string[] {
   }
   needChannel("guild.systemChannel", g.systemChannel);
   needChannel("guild.safetyAlertsChannel", g.safetyAlertsChannel);
-  for (const asset of ["icon", "banner"] as const) {
+  for (const asset of ["icon", "banner", "splash"] as const) {
     const file = g[asset];
     if (file !== undefined && !existsSync(join(spec.dir, file))) errors.push(`guild.${asset}: no file ${file}`);
   }

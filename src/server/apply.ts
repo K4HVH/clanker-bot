@@ -4,7 +4,7 @@ import type { BotDatabase } from "../db/index";
 import type { ConfigService } from "../lib/config";
 import type { DiscordApi } from "./api";
 import { type Live, readLive } from "./live";
-import { type AutoModBody, buildPlan, FILTER, NOTIFY, type Op, type Plan, VERIFICATION } from "./plan";
+import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, VERIFICATION } from "./plan";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -99,6 +99,7 @@ const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg"
 const rank = (op: Op): number => {
   if (op.t === "channel.create" && (op.type === 5 || op.type === 13)) return PHASE.community + 0.5;
   if (op.t === "channel.order") return PHASE.community + 0.7;
+  if (op.t === "channel.update" && op.changes.some((c) => c.field === "type")) return PHASE.community + 0.3;
   if (op.t === "prune" && op.kind === "role") return PHASE.prune + 0.5;
   return PHASE[op.t];
 };
@@ -210,24 +211,36 @@ class Runner {
           permission_overwrites: op.overwrites.map((o) => ({ id: this.role(o.target), type: 0, allow: String(o.allow), deny: String(o.deny) })),
         };
         if (op.parent !== null) body.parent_id = this.channel(op.parent);
-        if (textLike && op.topic !== null) body.topic = op.topic;
+        // Discord takes 1024 characters of topic on create; a forum's longer guidelines follow.
+        const lateTopic = textLike && op.topic !== null && op.topic.length > 1024 ? op.topic : null;
+        if (textLike && op.topic !== null && lateTopic === null) body.topic = op.topic;
+        if (op.forum) Object.assign(body, this.forumFields(op.forum, null));
         if (op.type !== 4) {
           body.rate_limit_per_user = op.slowmode;
           body.nsfw = op.nsfw;
         }
         const c = await api.post<{ id: string }>(`${this.g}/channels`, body, reason);
         this.put("channel", op.key, c.id);
+        if (lateTopic !== null) await api.patch(`/channels/${c.id}`, { topic: lateTopic }, reason);
         return;
       }
       case "channel.update": {
         const body: Record<string, unknown> = {};
+        const forum: ForumBody = {};
         for (const c of op.changes) {
-          if (c.field === "topic") body.topic = c.to === "" ? null : c.to;
+          if (["tags", "requireTag", "reaction", "sort", "layout", "threadSlowmode"].includes(c.field)) {
+            (forum as Record<string, unknown>)[c.field] = c.to;
+            continue;
+          }
+          if (c.field === "type") body.type = c.to === "announcement" ? 5 : 0;
+          else if (c.field === "topic") body.topic = c.to === "" ? null : c.to;
           else if (c.field === "slowmode") body.rate_limit_per_user = c.to;
           else if (c.field === "parent") body.parent_id = this.optionalChannel(c.to);
           else body[c.field] = c.to;
         }
-        await api.patch(`/channels/${this.channel(op.key)}`, body, reason);
+        const id = this.channel(op.key);
+        if (Object.keys(forum).length > 0) Object.assign(body, this.forumFields(forum, this.live.channels.find((x) => x.id === id)?.forum ?? null));
+        await api.patch(`/channels/${id}`, body, reason);
         return;
       }
       case "channel.delete":
@@ -364,6 +377,24 @@ class Runner {
         return;
       }
     }
+  }
+
+  // A forum's settings in Discord's field names. Tags keep the ids of same-named tags the channel
+  // already has, so threads tagged with them stay tagged.
+  private forumFields(f: ForumBody, live: { flags: number; tags: { id: string; name: string }[] } | null): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (f.tags) {
+      out.available_tags = f.tags.map((t) => {
+        const id = live?.tags.find((l) => l.name === t.name)?.id;
+        return { ...(id ? { id } : {}), name: t.name, moderated: t.moderated, emoji_id: null, emoji_name: t.emoji };
+      });
+    }
+    if (f.requireTag !== undefined) out.flags = ((live?.flags ?? 0) & ~16) | (f.requireTag ? 16 : 0);
+    if (f.reaction !== undefined) out.default_reaction_emoji = f.reaction === null ? null : { emoji_id: null, emoji_name: f.reaction };
+    if (f.sort !== undefined) out.default_sort_order = f.sort;
+    if (f.layout !== undefined) out.default_forum_layout = f.layout;
+    if (f.threadSlowmode !== undefined) out.default_thread_rate_limit_per_user = f.threadSlowmode;
+    return out;
   }
 
   private ruleBody(b: AutoModBody): Record<string, unknown> {

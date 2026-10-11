@@ -46,6 +46,13 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
   };
   const change = (c: Change): string => {
     if (c.field === "permissions") return `permissions ${permissionDiff(c.from as bigint, c.to as bigint)}`;
+    if (c.field === "tags") {
+      const tags = (v: unknown) =>
+        (v as { name: string; emoji: string | null; moderated: boolean }[] | undefined ?? [])
+          .map((t) => `${t.emoji ? `${t.emoji} ` : ""}${t.name}${t.moderated ? " (staff only)" : ""}`)
+          .join(", ") || "none";
+      return `tags ${tags(c.from)} -> ${tags(c.to)}`;
+    }
     if (c.field === "parent") return `parent ${channel(c.from as string | null)} -> ${channel(c.to as string | null)}`;
     if (c.field.endsWith("Channel")) return `${FIELD[c.field]}: ${channel(c.from as string | null)} -> ${channel(c.to as string | null)}`;
     const label = FIELD[c.field] ?? c.field;

@@ -33,6 +33,12 @@ export interface RawChannel {
   parent_id: string | null;
   position: number;
   permission_overwrites: RawOverwrite[];
+  flags?: number;
+  available_tags?: { id: string; name: string; moderated: boolean; emoji_id: string | null; emoji_name: string | null }[];
+  default_reaction_emoji?: { emoji_id: string | null; emoji_name: string | null } | null;
+  default_sort_order?: number | null;
+  default_forum_layout?: number;
+  default_thread_rate_limit_per_user?: number;
 }
 
 export interface RawRule {
@@ -154,6 +160,25 @@ export class FakeDiscord implements DiscordApi {
     this.writes.push(w);
   }
 
+  // Forum fields as Discord stores them: a tag sent without an id gets one; one with an id keeps it.
+  private forumFields(b: Body): Partial<RawChannel> {
+    const tags = b.available_tags as { id?: string; name: string; moderated?: boolean; emoji_name?: string | null }[] | undefined;
+    const out: Partial<RawChannel> = {};
+    if (tags) {
+      out.available_tags = tags.map((t) => ({
+        id: t.id ?? this.id(),
+        name: t.name,
+        moderated: t.moderated ?? false,
+        emoji_id: null,
+        emoji_name: t.emoji_name ?? null,
+      }));
+    }
+    for (const k of ["flags", "default_reaction_emoji", "default_sort_order", "default_forum_layout", "default_thread_rate_limit_per_user"] as const) {
+      if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k];
+    }
+    return out;
+  }
+
   private role(id: string): RawRole {
     const r = this.roles.find((x) => x.id === id);
     if (!r) throw new FakeError(`no role ${id}`, 404);
@@ -224,6 +249,7 @@ export class FakeDiscord implements DiscordApi {
           parent_id: parent,
           position: siblings.length,
           permission_overwrites: ((b.permission_overwrites as RawOverwrite[] | undefined) ?? []).map((o) => ({ ...o })),
+          ...this.forumFields(b),
         }),
       ) as T;
     }
@@ -280,7 +306,16 @@ export class FakeDiscord implements DiscordApi {
       return structuredClone(msg) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)$/))) {
-      return structuredClone(Object.assign(this.channel(m[1]!), body)) as T;
+      const c = this.channel(m[1]!);
+      const b = body as Body;
+      if (b.type !== undefined && b.type !== c.type) {
+        const pair = (c.type === 0 && b.type === 5) || (c.type === 5 && b.type === 0);
+        if (!pair) throw new FakeError("only text and announcement convert", 400, 50024);
+        if (!(this.guild.features as string[]).includes("COMMUNITY")) throw new FakeError("announcement channels need Community", 400);
+      }
+      const { available_tags, ...rest } = b;
+      Object.assign(c, rest, this.forumFields({ available_tags }));
+      return structuredClone(c) as T;
     }
     throw new Error(`fake: no route PATCH ${route}`);
   }

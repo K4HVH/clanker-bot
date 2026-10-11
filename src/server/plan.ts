@@ -7,6 +7,7 @@ import { splitPost } from "./posts";
 import { type AllowDeny, keepUnnamed, permissionDiff, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
+  type ForumSpec,
   type ChannelKind,
   type ChannelSpec,
   channelsFlat,
@@ -33,6 +34,27 @@ export interface OverwriteBits {
   target: string; // role key
   allow: bigint;
   deny: bigint;
+}
+
+export interface ForumBody {
+  tags?: { name: string; emoji: string | null; moderated: boolean }[];
+  requireTag?: boolean;
+  reaction?: string | null;
+  sort?: number | null;
+  layout?: number;
+  threadSlowmode?: number;
+}
+
+// The forum settings a spec declares, in Discord's terms. Settings it leaves out stay as they are.
+export function forumBody(f: ForumSpec): ForumBody {
+  const out: ForumBody = {};
+  if (f.tags) out.tags = f.tags.map((t) => ({ name: t.name, emoji: t.emoji ?? null, moderated: t.moderated ?? false }));
+  if (f.requireTag !== undefined) out.requireTag = f.requireTag;
+  if (f.reaction !== undefined) out.reaction = f.reaction;
+  if (f.sort !== undefined) out.sort = f.sort === "activity" ? 0 : 1;
+  if (f.layout !== undefined) out.layout = f.layout === "list" ? 1 : 2;
+  if (f.threadSlowmode !== undefined) out.threadSlowmode = f.threadSlowmode;
+  return out;
 }
 
 export interface AutoModBody {
@@ -63,6 +85,7 @@ export type Op =
       nsfw: boolean;
       overwrites: OverwriteBits[];
       visibleTo: string[]; // role keys, Administrator holders aside, that could view it
+      forum?: ForumBody;
       flags: Flag[];
     }
   | { t: "channel.update"; key: string; changes: Change[]; flags: Flag[] }
@@ -72,7 +95,7 @@ export type Op =
   | { t: "overwrite.delete"; channel: string; target: string; before: AllowDeny; flags: Flag[] }
   | { t: "guild.update"; changes: Change[]; flags: Flag[] }
   | { t: "community"; enable: boolean; flags: Flag[] }
-  | { t: "asset.set"; key: "icon" | "banner"; file: string; hash: string }
+  | { t: "asset.set"; key: "icon" | "banner" | "splash"; file: string; hash: string }
   | { t: "automod.create"; key: string; body: AutoModBody }
   | { t: "automod.update"; key: string; body: AutoModBody; changes: Change[] }
   | { t: "automod.delete"; key: string; name: string; flags: Flag[] }
@@ -117,6 +140,9 @@ const KIND_NAME: Record<number, string> = Object.fromEntries(
 export const VERIFICATION = ["none", "low", "medium", "high", "highest"] as const;
 export const FILTER = ["off", "no-roles", "all"] as const;
 export const NOTIFY = ["all", "mentions"] as const;
+
+// Discord converts between text and announcement channels in place (with Community on); no other.
+const convertible = (a: number, b: number) => (a === 0 && b === 5) || (a === 5 && b === 0);
 
 const hasTopic = (type: number) => type === 0 || type === 5 || type === 15 || type === 16;
 
@@ -268,7 +294,7 @@ class Planner {
         name: channel.name,
         was: channel.was,
         label: channelLabel(channel.name, CHANNEL_TYPE[channel.type]),
-        accepts: (c: LiveChannel) => c.type === CHANNEL_TYPE[channel.type],
+        accepts: (c: LiveChannel) => c.type === CHANNEL_TYPE[channel.type] || convertible(c.type, CHANNEL_TYPE[channel.type]),
       })),
       this.live.channels,
       this.channels,
@@ -403,12 +429,19 @@ class Planner {
           nsfw: plain?.nsfw ?? false,
           overwrites: desired,
           visibleTo,
+          ...(plain?.forum ? { forum: forumBody(plain.forum) } : {}),
           flags: visibleTo.length > 0 ? ["widens"] : [],
         });
         continue;
       }
       const live = this.liveChannel(id!)!;
-      if (live.type !== type) {
+      if (convertible(live.type, type)) {
+        if (this.communityAfter()) {
+          this.ops.push({ t: "channel.update", key: channel.key, changes: [{ field: "type", from: KIND_NAME[live.type], to: channel.type }], flags: [] });
+        } else {
+          this.manual.push(`${channelLabel(live.name, live.type)} becomes an announcement channel once Community is on: turn it on in the file (guild.community)`);
+        }
+      } else if (live.type !== type) {
         this.manual.push(
           `${channelLabel(live.name, live.type)} is a ${KIND_NAME[live.type] ?? live.type} channel in Discord but ${channel.type} in the file, and Discord can't change a channel's type. Change the type in the file, or rename the old channel in Discord so the plan creates a new one`,
         );
@@ -423,6 +456,20 @@ class Planner {
         if (hasTopic(type)) field("topic", live.topic ?? "", plain.topic ?? "");
         field("slowmode", live.slowmode, plain.slowmode ?? 0);
         field("nsfw", live.nsfw, plain.nsfw ?? false);
+        if (plain.forum && live.forum) {
+          const want = forumBody(plain.forum);
+          const have: ForumBody = {
+            tags: live.forum.tags.map((t) => ({ name: t.name, emoji: t.emoji, moderated: t.moderated })),
+            requireTag: (live.forum.flags & 16) !== 0,
+            reaction: live.forum.reaction,
+            sort: live.forum.sort,
+            layout: live.forum.layout,
+            threadSlowmode: live.forum.threadSlowmode,
+          };
+          for (const k of Object.keys(want) as (keyof ForumBody)[]) {
+            if (JSON.stringify(want[k]) !== JSON.stringify(have[k])) changes.push({ field: k, from: have[k], to: want[k] });
+          }
+        }
         const liveParent = live.parentId === null ? null : (this.channelKeyById.get(live.parentId) ?? live.parentId);
         if (liveParent !== parent) {
           changes.push({ field: "parent", from: liveParent, to: parent });
@@ -625,13 +672,21 @@ class Planner {
 
   planAssets(): void {
     const g = this.input.spec.guild;
-    for (const key of ["icon", "banner"] as const) {
+    const needs: Record<"banner" | "splash", [string, string]> = {
+      banner: ["BANNER", "The banner needs boost level 2 (7 boosts): it's applied once the server has it"],
+      splash: ["INVITE_SPLASH", "The invite background needs boost level 1 (2 boosts): it's applied once the server has it"],
+    };
+    for (const key of ["icon", "banner", "splash"] as const) {
       const file = g[key];
       if (file === undefined) continue;
+      if (key !== "icon" && !this.live.guild.features.includes(needs[key][0])) {
+        this.manual.push(needs[key][1]);
+        continue;
+      }
       const hash = createHash("sha256").update(readFileSync(join(this.input.spec.dir, file))).digest("hex");
       const applied = this.input.state.get(stateKey("asset", key));
       if (applied === hash) continue;
-      if (applied === undefined && this.live.guild[key] !== null) {
+      if (applied === undefined && (this.live.guild as unknown as Record<string, unknown>)[key]) {
         this.ops.push({ t: "bind", kind: "asset", key, id: hash, label: key });
       } else {
         this.ops.push({ t: "asset.set", key, file, hash });

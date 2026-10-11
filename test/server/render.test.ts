@@ -105,3 +105,21 @@ test("an empty overwrite reads as one", () => {
   };
   expect(renderPlan(plan, spec)).toBe("Permissions\n  ! #rules, Dev: empty overwrite (was deny Send Messages)");
 });
+
+test("forum tag changes read as tag names", () => {
+  const plan: Plan = {
+    fingerprint: "f",
+    ops: [
+      {
+        t: "channel.update",
+        key: "rules",
+        changes: [{ field: "tags", from: [{ name: "Install", emoji: null, moderated: false }], to: [{ name: "Install", emoji: null, moderated: false }, { name: "Solved", emoji: "✅", moderated: true }] }],
+        flags: [],
+      },
+    ],
+    held: [],
+    manual: [],
+    unmanaged: [],
+  };
+  expect(renderPlan(plan, spec)).toBe('Channels\n  #rules: tags Install -> Install, ✅ Solved (staff only)');
+});
