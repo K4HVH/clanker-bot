@@ -90,3 +90,14 @@ test("changing a menu edits its post", async () => {
   expect((await planFor({ ...e, spec: changed }, false)).ops).toEqual([]);
   expect(loadState(e.db, e.guildId).has(stateKey("post", "welcome#0"))).toBe(true);
 });
+
+test("a post names channels by key, filled in with this server's channels, and plans clean", async () => {
+  const e = env();
+  const s = spec({ posts: [{ key: "welcome", channel: "start-here", file: "mentions.md" }] });
+  const result = await applyPlan({ ...e, spec: s }, await planFor({ ...e, spec: s }, false));
+  expect(result.failed).toBeNull();
+  const help = e.f.channels.find((c) => c.name === "help")!;
+  const start = e.f.channels.find((c) => c.name === "start-here")!;
+  expect(e.f.messages.find((m) => m.channel_id === start.id)?.content).toBe(`Ask in <#${help.id}>.`);
+  expect((await planFor({ ...e, spec: s }, false)).ops).toEqual([]);
+});

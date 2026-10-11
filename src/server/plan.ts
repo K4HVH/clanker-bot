@@ -803,7 +803,13 @@ class Planner {
       if (!this.usable(post.channel)) continue;
       const channelId = this.channels.get(post.channel);
       const forum = kinds.get(post.channel) === "forum";
-      const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8"));
+      // "{#key}" names a channel: filled in with its id here, or at apply for one this plan creates.
+      const fill = (text: string) =>
+        text.replace(/\{#([a-z0-9-]+)\}/g, (all, key: string) => {
+          const id = this.channels.get(key);
+          return typeof id === "string" ? `<#${id}>` : all;
+        });
+      const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8")).map(fill);
       const last = chunks.length - 1;
       const menu = post.menu ? spec.menus?.find((m) => m.key === post.menu) : undefined;
       const components = menu ? menuComponents(menu) : undefined;

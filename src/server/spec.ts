@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getSetting, validateSetting } from "../lib/config";
 import { isPermissionName, type PermissionName } from "./permissions";
@@ -291,7 +291,13 @@ export function validateSpec(spec: ServerSpec): string[] {
     if (postKeys.has(post.key)) errors.push(`post key "${post.key}" used twice`);
     postKeys.add(post.key);
     if (!textKeys.has(post.channel)) errors.push(`post "${post.key}": unknown channel "${post.channel}"`);
-    if (!existsSync(join(spec.dir, post.file))) errors.push(`post "${post.key}": no file ${post.file}`);
+    if (!existsSync(join(spec.dir, post.file))) {
+      errors.push(`post "${post.key}": no file ${post.file}`);
+    } else {
+      for (const [, key] of readFileSync(join(spec.dir, post.file), "utf8").matchAll(/\{#([a-z0-9-]+)\}/g)) {
+        if (!channelKeys.has(key!)) errors.push(`post "${post.key}": names unknown channel "${key}"`);
+      }
+    }
   }
 
   for (const [key, value] of Object.entries(spec.bot)) {

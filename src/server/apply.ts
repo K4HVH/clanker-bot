@@ -351,7 +351,7 @@ class Runner {
         return;
       }
       case "post.create": {
-        const message = { content: op.content, allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
+        const message = { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
         if (op.thread) {
           // A forum post: its first chunk starts the thread, whose first message has the thread's id.
           const forumId = this.channel(op.channel);
@@ -378,7 +378,7 @@ class Runner {
         const components = op.components ?? (op.clearMenu ? [] : undefined);
         await api.patch(
           `/channels/${at.channel}/messages/${at.message}`,
-          { content: op.content, allowed_mentions: { parse: [] }, ...(components ? { components } : {}) },
+          { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(components ? { components } : {}) },
           reason,
         );
         if (op.menuHash) this.put("post", `${op.key}#menu`, op.menuHash);
@@ -411,6 +411,11 @@ class Runner {
         throw new Error(`no way to apply ${(unhandled as Op).t}`);
       }
     }
+  }
+
+  // A post's "{#key}" channel names left for a channel this run created.
+  private fill(text: string): string {
+    return text.replace(/\{#([a-z0-9-]+)\}/g, (_all, key: string) => `<#${this.channel(key)}>`);
   }
 
   // A forum's settings in Discord's field names. Tags keep the ids of same-named tags the channel
