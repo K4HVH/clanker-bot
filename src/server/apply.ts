@@ -20,7 +20,7 @@ import {
   prepass,
   VERIFICATION,
 } from "./plan";
-import { PANELS, panelMessage } from "../lib/panels";
+import { isPanel, panelMessage } from "../lib/panels";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -38,7 +38,7 @@ export interface ApplyEnv {
 interface RawPanelMessage {
   id: string;
   author: { id: string };
-  embeds?: { description?: string }[];
+  embeds?: { description?: string; color?: number }[];
   components?: { components?: { custom_id?: string }[] }[];
 }
 
@@ -95,13 +95,11 @@ export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean,
   for (const id of retired) {
     histories.set(id, { messages: await readHistory(env.api, id), threads: await readThreadCount(env.api, env.guildId, id) });
   }
-  // A panel posted by hand is the bot's message with the panel's button, among the channel's last 50.
+  // A panel posted by hand is the bot's message that isPanel recognises, among the channel's last 50.
   const found = new Map<string, { channel: string; message: string; text: string | null }>();
   for (const { key, kind, channelId } of panels) {
     const recent = await env.api.get<RawPanelMessage[]>(`/channels/${channelId}/messages?limit=50`);
-    const m = recent.find(
-      (x) => x.author.id === live.botId && x.components?.some((row) => row.components?.some((c) => c.custom_id === PANELS[kind].customId)),
-    );
+    const m = recent.find((x) => x.author.id === live.botId && isPanel(kind, x));
     if (m) found.set(key, { channel: channelId, message: m.id, text: m.embeds?.[0]?.description ?? null });
   }
   return buildPlan({ ...input, histories, panels: found });

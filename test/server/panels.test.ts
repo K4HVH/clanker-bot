@@ -76,3 +76,23 @@ test("new panel text in the file edits the panel", async () => {
 test("a post is a file or a panel, not both", () => {
   expect(validateSpec(spec({ posts: [{ key: "x", channel: "ticket", panel: "ticket", file: "a.md" }] }))).toEqual(['post "x": a file or a panel, not both']);
 });
+
+test("the honeypot panel goes in a voice channel's chat, and one already there is found by its colour", async () => {
+  const f = new FakeDiscord();
+  const vc = f.addChannel({ name: "vc", type: 2 });
+  f.addMessage(vc.id, "", f.botId, { embeds: [{ color: 0xf1c40f, description: "an older warning" }] });
+  const s = spec({
+    channels: [{ key: "vc", type: "voice", name: "vc" }],
+    posts: [{ key: "trap", channel: "vc", panel: "honeypot" }],
+  });
+  const e = env(s, f);
+  const plan = await planFor(e, false);
+  expect(plan.ops.map((o) => o.t)).toEqual(["bind", "bind", "post.edit"]);
+  await applyPlan(e, plan);
+  const panels = f.messages.filter((m) => m.channel_id === vc.id);
+  expect(panels).toHaveLength(1);
+  expect(panels[0]!.embeds![0]!.description).toBe(
+    "**Do not post in this channel.** It is a trap for compromised accounts. Posting here removes you from the server automatically.",
+  );
+  expect((await planFor(e, false)).ops).toEqual([]);
+});

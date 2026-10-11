@@ -6,6 +6,7 @@ import { type GuardAction, parseGuardAction } from "../../lib/actions";
 import { Claims } from "../../lib/claim";
 import { createCase } from "../../db/cases";
 import { CONFIG_KEYS, parseRoleIds } from "../../lib/config";
+import { panelMessage } from "../../lib/panels";
 import { emitHoneypotHit, type HoneypotAttachment } from "../../lib/honeypot-events";
 import { inHoneypotChannel } from "../../lib/honeypot";
 import { deleteSuppressed } from "../../lib/log-suppress";
@@ -179,10 +180,7 @@ const panelSub: Subcommand = {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setColor(0xf1c40f)
-      .setDescription(ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.honeypotPanelText));
-    await interaction.channel.send({ embeds: [embed] });
+    await interaction.channel.send(panelMessage("honeypot", ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.honeypotPanelText)));
     await interaction.reply({ content: "Honeypot warning posted.", flags: MessageFlags.Ephemeral });
   },
 };
