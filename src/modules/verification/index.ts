@@ -26,6 +26,7 @@ import {
   isCodeShaped,
   memberHasRole,
   verifyFlags,
+  verifiedText,
 } from "../../lib/verification-logic";
 import {
   type Challenge,
@@ -546,7 +547,8 @@ const onMessage: Listener<Events.MessageCreate> = {
         }
         deleteChallenge(ctx.db, guildId, userId);
         const solvedAt = session?.issuedAt ?? userSessions(k)[0]?.issuedAt;
-        await broadcast(() => terminal("Verified", "✅ You're verified. Welcome!", 0x2ecc71));
+        const welcome = ctx.config.get<string>(guildId, CONFIG_KEYS.verificationWelcomeChannelId);
+        await broadcast(() => terminal("Verified", verifiedText(welcome), 0x2ecc71));
         endAllSessions(k);
         await logVerified(ctx, guild, user, solvedAt);
         return;

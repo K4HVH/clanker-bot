@@ -106,6 +106,10 @@ export const CONFIG_KEYS = {
   scamMaxImageMb: "scam_max_image_mb",
   scamSeedTtlDays: "scam_seed_ttl_days",
   scamSeedMaxEntries: "scam_seed_max_entries",
+  // Help forum: where answers to new posts come from.
+  helpIndexUrl: "help_index_url",
+  // Verification: the channel the success message points at.
+  verificationWelcomeChannelId: "verification_welcome_channel_id",
   // Privacy: how long the bot keeps what it records about members.
   retentionModerationDays: "retention_moderation_days",
   retentionTicketsDays: "retention_tickets_days",
@@ -162,6 +166,7 @@ export const CATEGORIES: Category[] = [
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
   { id: "privacy", label: "Privacy", accentColor: 0x95a5a6 },
+  { id: "help-forum", label: "Help forum", accentColor: 0x3498db },
 ];
 
 const K = CONFIG_KEYS;
@@ -281,6 +286,8 @@ export const REGISTRY: Setting[] = [
   { key: K.scamMaxImageMb, category: "automod-scam-seed", type: "int", min: 1, max: 25, default: 8, label: "Seed: max image size (MB)", description: "Images larger than this are matched by size and dimensions only, never downloaded to hash. Used by both seeding and matching." },
   { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out on its own." },
   { key: K.scamSeedMaxEntries, category: "automod-scam-seed", type: "int", min: 50, max: 5000, default: 500, label: "Seed: max stored signatures", description: "Cap on seeded signatures per kind. The oldest are evicted past this limit." },
+  { key: K.helpIndexUrl, category: "help-forum", type: "text", default: "https://medius.k4tech.net/search-index.json", label: "Help answers come from", description: "The site's search index. A new post in a forum whose spec turns answers on gets the Help answers that match it." },
+  { key: K.verificationWelcomeChannelId, category: "verification", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "After verifying, point to", description: "The channel the success message names, where new members pick what they see." },
   // Privacy. Discord's Developer Terms have a bot delete what it no longer needs; these say when.
   { key: K.retentionModerationDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep moderation history (days)", description: "Warns, notes, bans and timeouts, and the bot's other mod-log posts, are deleted after this long." },
   { key: K.retentionTicketsDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep closed tickets (days)", description: "A closed ticket's record and transcript, and its closing post in the mod log, are deleted after this long." },

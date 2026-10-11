@@ -1,0 +1,318 @@
+{
+ "version": 1,
+ "built": "2026-10-11T05:33:07.486Z",
+ "entries": [
+  {
+   "path": "/guide/help#q-install",
+   "title": "Install",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#nothing-to-install",
+   "title": "Nothing to install to",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Unplug every cable. Hold the button next to USB1 (USB3 for the mouse-side chip) while you plug that port into this computer, then press Install.\nSet up"
+  },
+  {
+   "path": "/guide/help#flash-stopped",
+   "title": "A flash stopped partway",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Each chip's download mode is in ROM, so a flash that stops partway never locks the chip out. Hold the button again, plug the port back in and press Install."
+  },
+  {
+   "path": "/guide/help#which-computer",
+   "title": "Which computer do I install from?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Any computer with Chrome or Edge. Install the main chip over USB1, unplug it, then the mouse-side chip over USB3."
+  },
+  {
+   "path": "/guide/help#browsers",
+   "title": "This browser can't talk to your box",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Open the page in Chrome or Edge on a computer. The dashboard reaches the box through Web Serial."
+  },
+  {
+   "path": "/guide/help#insecure",
+   "title": "This page isn't secure",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Open the dashboard from https://medius.k4tech.net/dashboard."
+  },
+  {
+   "path": "/guide/help#q-connection",
+   "title": "Connection",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#not-found",
+   "title": "This computer can't see your box",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Plug USB2 into this computer. A box never set up needs the installer first.\nSet up"
+  },
+  {
+   "path": "/guide/help#not-answering",
+   "title": "The box isn't answering",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Check USB1 is plugged in too."
+  },
+  {
+   "path": "/guide/help#one-more-click",
+   "title": "The browser needs one more click before it asks",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Press Try again."
+  },
+  {
+   "path": "/guide/help#in-use",
+   "title": "Another tab or program has this box open",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Close it. One program at a time holds the box."
+  },
+  {
+   "path": "/guide/help#unreadable",
+   "title": "This computer can't read from the box",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Unplug USB2 and plug it back in."
+  },
+  {
+   "path": "/guide/help#q-input",
+   "title": "Mouse and keyboard",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#mouse-still",
+   "title": "My mouse doesn't move",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Connect the box on the dashboard: Overview offers Allow imperfect when the device needs it.\nOptions"
+  },
+  {
+   "path": "/guide/help#report",
+   "title": "A device doesn't clone, or misbehaves",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Check Devices for a setting it needs. If none helps, send its USB Device Tree Viewer text in a support ticket on Discord.\nDevice fixes\nReporting a device"
+  },
+  {
+   "path": "/guide/help#logitech",
+   "title": "My Logitech mouse feels delayed, or runs at 125 Hz",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Connect the box on the dashboard: Overview offers the Logitech fix. Press Force 1000 Hz and give the box up to a minute to restart.\nOptions"
+  },
+  {
+   "path": "/guide/help#no-options",
+   "title": "My box has no Options",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Options shows on v3.2.0 and later, with what that firmware has. Update for the rest. A box older than v3.2.0 needs setting up once with the installer.\nUpdate\nSet up"
+  },
+  {
+   "path": "/guide/help#razer-8k",
+   "title": "My Razer 8K mouse runs at 125 Hz",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Plug it into the PC directly, set it to 8000 Hz in Razer Synapse, then plug it back into the box. Through the box it runs at 1000 Hz."
+  },
+  {
+   "path": "/guide/help#mouse-and-keyboard",
+   "title": "Can one box take a mouse and a keyboard?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Only through one receiver that carries both."
+  },
+  {
+   "path": "/guide/help#q-software",
+   "title": "Software",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#software",
+   "title": "Why doesn't my software work with Medius?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "The control protocol differs from the stock MAKCU firmware's, so software written for the stock firmware needs Medius support from its developer. Libraries for Rust, Python, C and C++ are in the docs, and the AI access page serves the docs to coding agents.\nRust library\nBindings\nAI access"
+  },
+  {
+   "path": "/guide/help#protocol-changes",
+   "title": "Does my software need updating when Medius updates?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Only when a release changes the protocol. The release notes say so.\nChangelog"
+  },
+  {
+   "path": "/guide/help#baud",
+   "title": "Which baud rate do I set?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "6,000,000, fixed. The libraries set it."
+  },
+  {
+   "path": "/guide/help#q-update",
+   "title": "Update",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#too-old",
+   "title": "Too old to update from here",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "One-click update needs v3.2.0 or later. Set the box up once with the installer; then it updates in one click.\nSet up"
+  },
+  {
+   "path": "/guide/help#how-update",
+   "title": "How does an update work?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "With USB2 in this computer and USB1 and USB3 as they are, the Update page updates both chips, or either alone. Each chip writes the new firmware beside the one it runs, then boots it. The mouse-side chip's copy goes through the main chip. A chip whose new firmware won't run boots the one it ran before."
+  },
+  {
+   "path": "/guide/help#not-on-version",
+   "title": "The box came back, but not on the version sent",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "The chip kept its old firmware. Update again.\nUpdate"
+  },
+  {
+   "path": "/guide/help#newer-protocol",
+   "title": "Newer firmware",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "This box speaks a newer protocol than this page. Reload the page; Update's Manual tab can still flash it.\nManual flash"
+  },
+  {
+   "path": "/guide/help#older-version",
+   "title": "How do I go back to an older version?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Get its zip from the release's post in Discord #changelog. On Update's Manual tab, choose Upload a file and flash medius_device.bin to the main chip, then medius_host.bin to the mouse-side chip. A factory image also clears your settings.\nManual flash"
+  },
+  {
+   "path": "/guide/help#stock-firmware",
+   "title": "How do I go back to the stock firmware?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "On Update's Manual tab, pick ROM download, then MAKCU stock. It flashes MAKCU's official build, one chip at a time. Set up puts Medius back.\nManual flash\nSet up"
+  },
+  {
+   "path": "/guide/help#q-windows",
+   "title": "Windows",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#bsod",
+   "title": "My PC blue-screens",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "The Medius library fixed it in v3.4.2, so update the software you use with the box. With older software, uninstall the WCH CH343 driver that Windows Update installs and use Windows' built-in usbser.sys driver."
+  },
+  {
+   "path": "/guide/help#q-medius",
+   "title": "Medius",
+   "kind": "section",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": ""
+  },
+  {
+   "path": "/guide/help#why",
+   "title": "Why use Medius?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "It clones your mouse or keyboard to the PC byte for byte, keyboards and media keys included, and gives developers an open protocol with tools the stock firmware lacks, such as motion mirroring.\nNative API"
+  },
+  {
+   "path": "/guide/help#free",
+   "title": "Is Medius free?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Yes, and it stays free, updates included."
+  },
+  {
+   "path": "/guide/help#drivers",
+   "title": "Do I need to install drivers?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "No. Windows, macOS and Linux already have the serial driver the box uses."
+  },
+  {
+   "path": "/guide/help#systems",
+   "title": "Which operating systems work?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "The dashboard runs wherever Chrome or Edge runs on a computer. The libraries support Windows, Linux and macOS."
+  },
+  {
+   "path": "/guide/help#controller",
+   "title": "Does Medius support controllers?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "Not yet. Controller support is planned."
+  },
+  {
+   "path": "/guide/help#open-source",
+   "title": "Is Medius open source?",
+   "kind": "anchor",
+   "section": "Guide",
+   "crumb": "Help",
+   "text": "The libraries, this site and the dashboard are. The firmware isn't."
+  }
+ ]
+}
