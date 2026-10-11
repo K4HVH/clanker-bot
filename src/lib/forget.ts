@@ -18,6 +18,10 @@ export interface ForgetRows {
 }
 
 export function forgetRows(db: BotDatabase, guildId: string, userId: string): ForgetRows {
+  return db.transaction(() => forgetRowsIn(db, guildId, userId))();
+}
+
+function forgetRowsIn(db: BotDatabase, guildId: string, userId: string): ForgetRows {
   const del = (sql: string, ...params: (string | number)[]) => runChanges(db, sql, ...params);
   // A signature seeded from their case describes the scam, not them: it stays, unlinked.
   const signatures = del(
@@ -132,13 +136,9 @@ export function scanOf(label: string, channel: Fetchable): ScanChannel {
   };
 }
 
-export async function forgetPosts(
-  ctx: AppContext,
-  guild: Guild,
-  userId: string,
-): Promise<{ logPosts: number; dms: number; failed: number; unreachable: string[] }> {
-  const botId = guild.client.user.id;
-  // Retention has deleted what's older than the longest retention, so the scan stops there.
+// The mod and member logs, read back to the oldest post retention keeps: retention has deleted what's
+// older than the longest retention, so a scan stops there.
+export async function logScans(ctx: AppContext, guild: Guild): Promise<{ logs: ScanChannel[]; unreachable: string[]; oldest: string }> {
   const days = Math.max(
     ...[CONFIG_KEYS.retentionModerationDays, CONFIG_KEYS.retentionTicketsDays, CONFIG_KEYS.retentionMemberLogDays].map((k) =>
       ctx.config.getEffective<number>(guild.id, k),
@@ -157,8 +157,20 @@ export async function forgetPosts(
     if (channel?.isTextBased()) logs.push(scanOf(`#${channel.name}`, channel as unknown as Fetchable));
     else unreachable.push(`<#${id}>`);
   }
-  // Log posts carry the member as "name (id)"; a bare id match is the one test that finds them all.
-  const fromLogs = await forgetIn(logs, botId, (m) => m.text.includes(userId), oldest);
+  return { logs, unreachable, oldest };
+}
+
+// Log posts carry the member as "name (id)"; a bare id match is the one test that finds them all.
+export const namesMember = (userId: string) => (m: ScanMessage) => m.text.includes(userId);
+
+export async function forgetPosts(
+  ctx: AppContext,
+  guild: Guild,
+  userId: string,
+): Promise<{ logPosts: number; dms: number; failed: number; unreachable: string[] }> {
+  const botId = guild.client.user.id;
+  const { logs, unreachable, oldest } = await logScans(ctx, guild);
+  const fromLogs = await forgetIn(logs, botId, namesMember(userId), oldest);
 
   const dm = await guild.client.users
     .fetch(userId)

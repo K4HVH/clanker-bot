@@ -34,6 +34,7 @@ import {
   seededReply,
   takeForgetToken,
 } from "../../lib/scam-signatures";
+import { runExport } from "./export";
 import { runForget } from "./forget";
 import { assertActionable, recordAndAnnounce } from "./shared";
 
@@ -923,6 +924,13 @@ export const moderationModule: BotModule = {
           options: (s) =>
             s.addUserOption((o) => o.setName("user").setDescription("The member, or the user id of someone who left").setRequired(true)),
           execute: (interaction, ctx) => runForget(interaction, ctx),
+        },
+        export: {
+          description: "Copy everything the bot holds on a member, at their request.",
+          permission: PermissionFlagsBits.ModerateMembers,
+          options: (s) =>
+            s.addUserOption((o) => o.setName("user").setDescription("The member, or the user id of someone who left").setRequired(true)),
+          execute: (interaction, ctx) => runExport(interaction, ctx),
         },
         scamseed: scamSeedSub,
         scamforget: scamForgetSub,
