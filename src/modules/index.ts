@@ -6,6 +6,7 @@ import { honeypotModule } from "./honeypot";
 import { loggingModule } from "./logging";
 import { memesModule } from "./memes";
 import { moderationModule } from "./moderation";
+import { privacyModule } from "./privacy";
 import { sayModule } from "./say";
 import { serverModule } from "./server";
 import { tagsModule } from "./tags";
@@ -29,4 +30,5 @@ export const modules: BotModule[] = [
   sayModule,
   memesModule,
   serverModule,
+  privacyModule,
 ];
