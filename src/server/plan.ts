@@ -1,10 +1,16 @@
-import type { Live, LiveChannel, LiveRole } from "./live";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { REGISTRY_BY_KEY } from "../lib/config";
+import type { Live, LiveChannel, LiveRole, LiveRule } from "./live";
+import { splitPost } from "./posts";
 import { type AllowDeny, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
   type ChannelKind,
   type ChannelSpec,
   channelsFlat,
+  type AutoModSpec,
   type Overwrite,
   type ServerSpec,
   type SettingValue,
@@ -103,6 +109,10 @@ const KIND_NAME: Record<number, string> = Object.fromEntries(
   Object.entries(CHANNEL_TYPE).map(([k, v]) => [v, k]),
 );
 
+export const VERIFICATION = ["none", "low", "medium", "high", "highest"] as const;
+export const FILTER = ["off", "no-roles", "all"] as const;
+export const NOTIFY = ["all", "mentions"] as const;
+
 const hasTopic = (type: number) => type === 0 || type === 5 || type === 15;
 
 // Discord orders categories, text-like channels and voice-like channels as separate lists, so
@@ -123,8 +133,10 @@ class Planner {
   readonly unmanaged: string[] = [];
   readonly roles: Resolved = new Map();
   readonly channels: Resolved = new Map();
+  readonly rules: Resolved = new Map();
   readonly roleKeyById = new Map<string, string>();
   readonly channelKeyById = new Map<string, string>();
+  readonly ruleKeyById = new Map<string, string>();
 
   constructor(readonly input: PlanInput) {}
 
@@ -143,7 +155,7 @@ class Planner {
   // State first for every key, then binding by name, so a bind never takes an object another key
   // already holds.
   resolve<T extends { id: string; name: string }>(
-    kind: "role" | "channel",
+    kind: "role" | "channel" | "automod",
     entries: { key: string; name: string; label: string; accepts: (o: T) => boolean }[],
     pool: T[],
     into: Resolved,
@@ -165,7 +177,7 @@ class Planner {
     for (const e of pending) {
       const found = pool.filter((o) => o.name === e.name && e.accepts(o) && !claimed.has(o.id));
       if (found.length > 1) {
-        const what = kind === "role" ? "roles" : "channels";
+        const what = kind === "role" ? "roles" : kind === "channel" ? "channels" : "AutoMod rules";
         this.manual.push(`${found.length} ${what} named "${e.name}": rename one so "${e.key}" can bind`);
       } else if (found.length === 1) {
         const id = found[0]!.id;
@@ -441,10 +453,203 @@ class Planner {
     }
   }
 
+
+  resolveAutomod(): void {
+    this.resolve<LiveRule>(
+      "automod",
+      this.input.spec.automod.map((r) => ({ key: r.key, name: r.name, label: `AutoMod "${r.name}"`, accepts: () => true })),
+      this.live.rules.filter((r) => r.triggerType === 1),
+      this.rules,
+      this.ruleKeyById,
+    );
+  }
+
+  channelRef(id: string | null): string | null {
+    return id === null ? null : (this.channelKeyById.get(id) ?? id);
+  }
+
+  planGuild(): void {
+    const g = this.input.spec.guild;
+    const live = this.live.guild;
+    const changes: Change[] = [];
+    let lowered = false;
+    const field = (name: string, from: unknown, to: unknown) => {
+      if (to !== undefined && from !== to) changes.push({ field: name, from, to });
+    };
+    field("name", live.name, g.name);
+    field("description", live.description, g.description);
+    const level = (n: number) => VERIFICATION[n] ?? String(n);
+    const filter = (n: number) => FILTER[n] ?? String(n);
+    field("verificationLevel", level(live.verificationLevel), g.verificationLevel);
+    if (g.verificationLevel !== undefined && VERIFICATION.indexOf(g.verificationLevel) < live.verificationLevel) lowered = true;
+    field("explicitContentFilter", filter(live.explicitContentFilter), g.explicitContentFilter);
+    if (g.explicitContentFilter !== undefined && FILTER.indexOf(g.explicitContentFilter) < live.explicitContentFilter) lowered = true;
+    field("defaultNotifications", NOTIFY[live.defaultNotifications] ?? String(live.defaultNotifications), g.defaultNotifications);
+    field("systemChannel", this.channelRef(live.systemChannelId), g.systemChannel);
+    field("safetyAlertsChannel", this.channelRef(live.safetyAlertsChannelId), g.safetyAlertsChannel);
+
+    const on = live.features.includes("COMMUNITY");
+    let community: Op | null = null;
+    if (g.community && !on) {
+      const filterAfter = g.explicitContentFilter ?? filter(live.explicitContentFilter);
+      const levelAfter = g.verificationLevel !== undefined ? VERIFICATION.indexOf(g.verificationLevel) : live.verificationLevel;
+      const missing: string[] = [];
+      if (filterAfter !== "all") missing.push("Community needs the explicit-content filter on all members");
+      if (levelAfter < 1) missing.push("Community needs a verification level of low or higher");
+      if (missing.length > 0) this.manual.push(...missing);
+      else community = { t: "community", enable: true, flags: [] };
+    } else if (g.community && on) {
+      field("rulesChannel", this.channelRef(live.rulesChannelId), g.community.rules);
+      field("updatesChannel", this.channelRef(live.publicUpdatesChannelId), g.community.updates);
+    } else if (g.community === false && on) {
+      community = { t: "community", enable: false, flags: ["deletes"] };
+    }
+    if (changes.length > 0) this.ops.push({ t: "guild.update", changes, flags: lowered ? ["widens"] : [] });
+    if (community) this.ops.push(community);
+    if (g.requireMfa && live.mfaLevel === 0) {
+      this.manual.push("Owner: turn on 2FA for moderation (Server Settings > Safety Setup)");
+    }
+  }
+
+  planAssets(): void {
+    const g = this.input.spec.guild;
+    for (const key of ["icon", "banner"] as const) {
+      const file = g[key];
+      if (file === undefined) continue;
+      const hash = createHash("sha256").update(readFileSync(join(this.input.spec.dir, file))).digest("hex");
+      const applied = this.input.state.get(stateKey("asset", key));
+      if (applied === hash) continue;
+      if (applied === undefined && this.live.guild[key] !== null) {
+        this.ops.push({ t: "bind", kind: "asset", key, id: hash, label: key });
+      } else {
+        this.ops.push({ t: "asset.set", key, file, hash });
+      }
+    }
+  }
+
+  automodBody(rule: AutoModSpec): AutoModBody {
+    const actions: AutoModBody["actions"] = [];
+    if (rule.block !== undefined) actions.push(typeof rule.block === "string" ? { type: 1, message: rule.block } : { type: 1 });
+    if (rule.alert !== undefined) actions.push({ type: 2, channel: rule.alert });
+    if (rule.timeoutSeconds !== undefined) actions.push({ type: 3, seconds: rule.timeoutSeconds });
+    return {
+      name: rule.name,
+      enabled: rule.enabled ?? true,
+      keywords: rule.keywords ?? [],
+      regex: rule.regex ?? [],
+      allow: rule.allow ?? [],
+      actions,
+      exemptRoles: rule.exemptRoles ?? [],
+      exemptChannels: rule.exemptChannels ?? [],
+    };
+  }
+
+  liveBody(rule: LiveRule): AutoModBody {
+    return {
+      name: rule.name,
+      enabled: rule.enabled,
+      keywords: rule.keywords,
+      regex: rule.regex,
+      allow: rule.allow,
+      actions: rule.actions.map((a) => {
+        const out: AutoModBody["actions"][number] = { type: a.type };
+        if (a.message !== undefined) out.message = a.message;
+        if (a.channelId !== undefined) out.channel = this.channelKeyById.get(a.channelId) ?? a.channelId;
+        if (a.seconds !== undefined) out.seconds = a.seconds;
+        return out;
+      }),
+      exemptRoles: rule.exemptRoles.map((id) => this.roleKeyById.get(id) ?? id),
+      exemptChannels: rule.exemptChannels.map((id) => this.channelKeyById.get(id) ?? id),
+    };
+  }
+
+  planAutomod(): void {
+    for (const rule of this.input.spec.automod) {
+      if (!this.rules.has(rule.key)) continue;
+      const refs = [...(rule.exemptRoles ?? []).map((k) => this.roles.has(k)), ...(rule.exemptChannels ?? []).map((k) => this.channels.has(k))];
+      if (rule.alert !== undefined) refs.push(this.channels.has(rule.alert));
+      if (refs.includes(false)) continue; // names something that can't be planned
+      const body = this.automodBody(rule);
+      const id = this.rules.get(rule.key);
+      if (id === null) {
+        this.ops.push({ t: "automod.create", key: rule.key, body });
+        continue;
+      }
+      const live = this.liveBody(this.live.rules.find((r) => r.id === id)!);
+      const changes: Change[] = [];
+      for (const f of Object.keys(body) as (keyof AutoModBody)[]) {
+        if (JSON.stringify(live[f]) !== JSON.stringify(body[f])) changes.push({ field: f, from: live[f], to: body[f] });
+      }
+      if (changes.length > 0) this.ops.push({ t: "automod.update", key: rule.key, body, changes });
+    }
+  }
+
+  // A setting's value as stored: a key resolved to its id. Undefined when it names something not
+  // yet created (compared as different; Apply resolves it) or that can't be planned.
+  settingValue(value: SettingValue): { ok: true; value: unknown } | { ok: false } {
+    const one = (map: Resolved, key: string) => map.get(key);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      if ("channel" in value) {
+        const id = one(this.channels, value.channel);
+        return typeof id === "string" ? { ok: true, value: id } : { ok: false };
+      }
+      if ("role" in value) {
+        const id = one(this.roles, value.role);
+        return typeof id === "string" ? { ok: true, value: id } : { ok: false };
+      }
+      const ids = value.roles.map((k) => one(this.roles, k));
+      return ids.every((id) => typeof id === "string") ? { ok: true, value: ids } : { ok: false };
+    }
+    return { ok: true, value: value === null ? undefined : value };
+  }
+
+  planSettings(): void {
+    const { spec, settings } = this.input;
+    for (const [key, value] of Object.entries(spec.bot)) {
+      const stored = settings[key];
+      const fallback = REGISTRY_BY_KEY.get(key)?.default;
+      const current = stored !== undefined ? stored : fallback;
+      const wanted = this.settingValue(value);
+      if (wanted.ok && JSON.stringify(wanted.value ?? null) === JSON.stringify(current ?? null)) continue;
+      this.ops.push({ t: "setting.set", key, value, before: current });
+    }
+    const loose = Object.keys(settings).filter((k) => !(k in spec.bot)).length;
+    if (loose > 0) this.unmanaged.push(`${loose} bot setting${loose === 1 ? "" : "s"} set in /config but not in the file`);
+  }
+
+  planPosts(): void {
+    const { spec, state } = this.input;
+    for (const post of spec.posts) {
+      if (!this.channels.has(post.channel)) continue;
+      const channelId = this.channels.get(post.channel);
+      const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8"));
+      const posted = (i: number) => state.get(stateKey("post", `${post.key}#${i}`));
+      let recreate = false;
+      for (let i = 0; i < chunks.length; i++) {
+        const content = chunks[i]!;
+        const at = posted(i);
+        const [postChannel, messageId] = at ? at.split("/") : [];
+        const liveContent = messageId ? this.live.posts.get(messageId) : undefined;
+        const moved = at !== undefined && postChannel !== channelId;
+        if (recreate || at === undefined || liveContent == null || moved) {
+          if (at !== undefined && liveContent != null) this.ops.push({ t: "post.delete", key: post.key, index: i });
+          this.ops.push({ t: "post.create", key: post.key, index: i, channel: post.channel, content });
+          recreate = true; // later chunks must follow it, so they are posted again after it
+        } else if (liveContent !== content) {
+          this.ops.push({ t: "post.edit", key: post.key, index: i, content });
+        }
+      }
+      for (let i = chunks.length; posted(i) !== undefined; i++) {
+        this.ops.push({ t: "post.delete", key: post.key, index: i });
+      }
+    }
+  }
+
   planDeletions(): void {
     const { spec, state, deletions } = this.input;
     const roleKeys = new Set(spec.roles.map((r) => r.key));
     const channelKeys = new Set(channelsFlat(spec).map((c) => c.channel.key));
+    const ruleKeys = new Set(spec.automod.map((r) => r.key));
     const out: Op[] = [];
     // Children before their category, so a category is never deleted out from under them.
     const gone = [...state.entries()]
@@ -454,6 +659,9 @@ class Planner {
       if (kind === "channel" && !channelKeys.has(key)) {
         const live = this.liveChannel(id);
         if (live) out.push({ t: "channel.delete", key, name: live.name, flags: ["deletes"] });
+      } else if (kind === "automod" && !ruleKeys.has(key)) {
+        const live = this.live.rules.find((r) => r.id === id);
+        if (live) out.push({ t: "automod.delete", key, name: live.name, flags: ["deletes"] });
       } else if (kind === "role" && !roleKeys.has(key)) {
         const live = this.liveRole(id);
         if (!live) continue;
@@ -479,6 +687,10 @@ class Planner {
       if (claimed(c.id)) continue;
       lines.push(channelLabel(c.name, c.type));
     }
+    for (const r of this.live.rules) {
+      if (stateIds.has(r.id) || this.ruleKeyById.has(r.id)) continue;
+      lines.push(`AutoMod "${r.name}"`);
+    }
     this.unmanaged.unshift(...lines);
   }
 }
@@ -487,10 +699,35 @@ export function buildPlan(input: PlanInput): Plan {
   const p = new Planner(input);
   p.resolveRoles();
   p.resolveChannels();
+  p.resolveAutomod();
   p.planRoles();
   p.planChannels();
+  p.planGuild();
+  p.planAssets();
+  p.planAutomod();
+  p.planSettings();
+  p.planPosts();
   p.planDeletions();
   p.listUnmanaged();
-  return { ops: p.ops, held: p.held, manual: p.manual, unmanaged: p.unmanaged, fingerprint: "" };
+  const plan = { ops: p.ops, held: p.held, manual: p.manual, unmanaged: p.unmanaged };
+  return { ...plan, fingerprint: fingerprint({ ...plan, live: input.live, settings: input.settings }) };
+}
+
+// JSON with bigints as strings and maps as sorted entries, so equal inputs always hash equal.
+export function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v: unknown) => {
+    if (typeof v === "bigint") return `${v}n`;
+    if (v instanceof Map) return [...v.entries()].sort(([a], [b]) => (String(a) < String(b) ? -1 : 1));
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)));
+    }
+    return v;
+  });
+}
+
+// What Apply checks before it writes: a hash of the plan and of the server it was made from. Any
+// change to the live server, the bot's settings or the plan gives a different value.
+function fingerprint(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
 }
 

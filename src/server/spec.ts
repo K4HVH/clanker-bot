@@ -59,6 +59,8 @@ export interface GuildSpec {
   systemChannel?: string | null;
   safetyAlertsChannel?: string | null;
   community?: { rules: string; updates: string } | false;
+  // Moderator 2FA: only the owner can turn it on, so the plan lists it as a manual step.
+  requireMfa?: boolean;
 }
 
 export interface AutoModSpec {
