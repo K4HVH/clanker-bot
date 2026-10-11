@@ -63,7 +63,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
     const parts = [];
     if (allow !== 0n) parts.push(`allow ${perms(allow)}`);
     if (deny !== 0n) parts.push(`deny ${perms(deny)}`);
-    return parts.join("; ") || "nothing";
+    return parts.join("; ") || "empty overwrite";
   };
 
   const groups: [string, string[]][] = [
@@ -106,7 +106,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
       case "channel.order":
         return ["Channels", `order: ${op.items.map((i) => channel(i.key)).join(", ")}`];
       case "overwrite.set":
-        return ["Permissions", `${channel(op.channel)}, ${target(op.target)}: ${bits(op.allow, op.deny)} (was ${op.before ? bits(op.before.allow, op.before.deny) : "nothing"})`];
+        return ["Permissions", `${channel(op.channel)}, ${target(op.target)}: ${bits(op.allow, op.deny)} (was ${op.before ? bits(op.before.allow, op.before.deny) : "no overwrite"})`];
       case "overwrite.delete":
         return ["Permissions", `${channel(op.channel)}, ${target(op.target)}: removed (was ${bits(op.before.allow, op.before.deny)})`];
       case "guild.update":

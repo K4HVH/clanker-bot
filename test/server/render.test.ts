@@ -62,7 +62,7 @@ test("renders a plan as grouped lines", () => {
       '  order: #rules, category "Admin", #discord-updates',
       "",
       "Permissions",
-      "  ! #rules, @everyone: allow View Channel; deny Send Messages (was nothing)",
+      "  ! #rules, @everyone: allow View Channel; deny Send Messages (was no overwrite)",
       '  category "Admin", member 42: removed (was allow View Channel)',
       "",
       "Server",
@@ -93,4 +93,15 @@ test("renders a plan as grouped lines", () => {
 
 test("an empty plan says so", () => {
   expect(renderPlan({ ops: [], held: [], manual: [], unmanaged: [], fingerprint: "f" }, spec)).toBe("No changes.");
+});
+
+test("an empty overwrite reads as one", () => {
+  const plan: Plan = {
+    fingerprint: "f",
+    ops: [{ t: "overwrite.set", channel: "rules", target: "dev", allow: 0n, deny: 0n, before: { allow: 0n, deny: P.SendMessages }, flags: ["widens"] }],
+    held: [],
+    manual: [],
+    unmanaged: [],
+  };
+  expect(renderPlan(plan, spec)).toBe("Permissions\n  ! #rules, Dev: empty overwrite (was deny Send Messages)");
 });
