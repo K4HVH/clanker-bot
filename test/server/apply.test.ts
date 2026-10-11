@@ -66,3 +66,12 @@ test("a channel setting stores the id of the channel it names", async () => {
   expect(e.config.get<string>(e.guildId, "mod_log_channel_id")).toBe(state.get(stateKey("channel", "logs")));
   expect(e.config.get<string>(e.guildId, "verified_role_id")).toBe(state.get(stateKey("role", "verified")));
 });
+
+test("an announcement channel is created once Community is on", async () => {
+  const e = env();
+  const spec = { ...fixture, channels: [...fixture.channels, { key: "news", type: "announcement" as const, name: "news" }] };
+  const plan = await planFor({ ...e, spec }, false);
+  const result = await applyPlan({ ...e, spec }, plan);
+  expect(result.failed).toBeNull();
+  expect(e.f.channels.some((c) => c.name === "news" && c.type === 5)).toBe(true);
+});

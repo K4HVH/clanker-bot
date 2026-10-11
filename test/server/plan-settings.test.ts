@@ -224,3 +224,10 @@ test("the fingerprint follows the live server", async () => {
   f.channels.find((c) => c.id === rules.id)!.topic = "changed by hand";
   expect((await plan(f, spec(), state)).fingerprint).not.toBe(a.fingerprint);
 });
+
+test("an announcement channel without Community is a manual step", async () => {
+  const f = new FakeDiscord();
+  const p = await plan(f, spec({ roles: [], channels: [{ key: "news", type: "announcement", name: "news" }] }), new Map());
+  expect(p.ops.filter((o) => o.t === "channel.create")).toEqual([]);
+  expect(p.manual).toEqual(['#news needs Community on: turn it on in the file, or make it a text channel']);
+});

@@ -138,6 +138,8 @@ class Planner {
   readonly roleKeyById = new Map<string, string>();
   readonly channelKeyById = new Map<string, string>();
   readonly ruleKeyById = new Map<string, string>();
+  // Channel keys planned around: everything that names one is skipped too.
+  readonly skipped = new Set<string>();
 
   constructor(readonly input: PlanInput) {}
 
@@ -330,6 +332,11 @@ class Planner {
       // channel does in Discord. `overwrites: {}` means none.
       const own = channel.overwrites ?? (parent !== null ? categories.get(parent)?.overwrites : undefined);
       const desired = this.desiredOverwrites(own);
+      if (id === null && (type === 5 || type === 13) && !this.communityAfter()) {
+        this.manual.push(`${channelLabel(channel.name, type)} needs Community on: turn it on in the file, or make it a text channel`);
+        this.skipped.add(channel.key);
+        continue;
+      }
       if (id === null) {
         const visibleTo = this.viewers(desired);
         this.ops.push({
@@ -447,7 +454,9 @@ class Planner {
   }
 
   planOrder(flat: ReturnType<typeof channelsFlat>, reparented: Set<string>): void {
-    const plannable = flat.filter(({ channel, parent }) => this.channels.has(channel.key) && (parent === null || this.channels.has(parent)));
+    const plannable = flat.filter(
+      ({ channel, parent }) => this.channels.has(channel.key) && !this.skipped.has(channel.key) && (parent === null || this.channels.has(parent)),
+    );
     const groupOf = (c: { channel: ChannelSpec | CategorySpec; parent: string | null }) =>
       `${c.parent ?? ""}/${bucketOf(CHANNEL_TYPE[c.channel.type])}`;
     const groups = new Map<string, { key: string; id: string | null }[]>();
@@ -495,6 +504,23 @@ class Planner {
     return id === null ? null : (this.channelKeyById.get(id) ?? id);
   }
 
+  // What Discord asks before it turns Community on, as the server will be after this plan.
+  communityMissing(): string[] {
+    const g = this.input.spec.guild;
+    const live = this.live.guild;
+    const filterAfter = g.explicitContentFilter ?? FILTER[live.explicitContentFilter];
+    const levelAfter = g.verificationLevel !== undefined ? VERIFICATION.indexOf(g.verificationLevel) : live.verificationLevel;
+    const missing: string[] = [];
+    if (filterAfter !== "all") missing.push("Community needs the explicit-content filter on all members");
+    if (levelAfter < 1) missing.push("Community needs a verification level of low or higher");
+    return missing;
+  }
+
+  communityAfter(): boolean {
+    if (this.live.guild.features.includes("COMMUNITY")) return this.input.spec.guild.community !== false;
+    return !!this.input.spec.guild.community && this.communityMissing().length === 0;
+  }
+
   planGuild(): void {
     const g = this.input.spec.guild;
     const live = this.live.guild;
@@ -518,11 +544,7 @@ class Planner {
     const on = live.features.includes("COMMUNITY");
     let community: Op | null = null;
     if (g.community && !on) {
-      const filterAfter = g.explicitContentFilter ?? filter(live.explicitContentFilter);
-      const levelAfter = g.verificationLevel !== undefined ? VERIFICATION.indexOf(g.verificationLevel) : live.verificationLevel;
-      const missing: string[] = [];
-      if (filterAfter !== "all") missing.push("Community needs the explicit-content filter on all members");
-      if (levelAfter < 1) missing.push("Community needs a verification level of low or higher");
+      const missing = this.communityMissing();
       if (missing.length > 0) this.manual.push(...missing);
       else community = { t: "community", enable: true, flags: [] };
     } else if (g.community && on) {

@@ -67,8 +67,16 @@ const bucketOf = (type: number) => (type === 4 ? "category" : type === 2 || type
 
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
+// Announcement and stage channels exist only on Community servers, so they come after Community is
+// turned on; channel order waits for them.
+const rank = (op: Op): number => {
+  if (op.t === "channel.create" && (op.type === 5 || op.type === 13)) return PHASE.community + 0.5;
+  if (op.t === "channel.order") return PHASE.community + 0.7;
+  return PHASE[op.t];
+};
+
 export async function applyPlan(env: ApplyEnv, plan: Plan): Promise<ApplyResult> {
-  const ops = plan.ops.map((op, i) => ({ op, i })).sort((a, b) => PHASE[a.op.t] - PHASE[b.op.t] || a.i - b.i).map((x) => x.op);
+  const ops = plan.ops.map((op, i) => ({ op, i })).sort((a, b) => rank(a.op) - rank(b.op) || a.i - b.i).map((x) => x.op);
   const runner = new Runner(env, loadState(env.db, env.guildId), await readLive(env.api, env.guildId, []));
   let done = 0;
   for (const op of ops) {
