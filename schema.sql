@@ -110,3 +110,21 @@ CREATE TABLE IF NOT EXISTS scam_signature (
   PRIMARY KEY (guild_id, kind, value)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS scam_signature_expiry_idx ON scam_signature (expires_at);
+
+-- Server as code: each server's key -> Discord id map, so a spec names things by key and a renamed
+-- channel stays the same channel. kind: role | channel | automod | post | asset. A post's key carries
+-- its chunk index ("rules#0"); an asset's id is the SHA-256 of the file last applied.
+CREATE TABLE IF NOT EXISTS server_state (
+  guild_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  discord_id TEXT NOT NULL,
+  PRIMARY KEY (guild_id, kind, key)
+) WITHOUT ROWID;
+
+-- Which spec a server follows, and when it was last applied.
+CREATE TABLE IF NOT EXISTS server_meta (
+  guild_id   TEXT PRIMARY KEY,
+  spec       TEXT NOT NULL,
+  applied_at INTEGER
+);
