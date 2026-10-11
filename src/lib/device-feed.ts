@@ -137,7 +137,7 @@ export async function runFeed(
   if (parts.length > 0) {
     const target = await channel(channelId);
     if (!target) return; // left unrecorded, so it posts once the channel is back
-    // Each part records its devices once it's sent, so a part that fails goes again with only its own.
+    // Each part records its devices once it's sent, so a part that fails goes again with only the devices it held.
     for (const part of parts) {
       await target.send({ content: part.content, ...(seeded ? {} : { flags: SILENT }), allowedMentions: { parse: [] } });
       for (const d of part.devices) record(d);
