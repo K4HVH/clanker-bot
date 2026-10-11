@@ -94,3 +94,17 @@ test("a message in a channel the spec marks is published; others aren't", async 
   await maybePublish(ctx, message("c1", true) as never, specs);
   expect(published).toEqual(["c1"]);
 });
+
+test("a silent message isn't published: a backfill stays in the channel", async () => {
+  const ctx = setup();
+  const published: string[] = [];
+  const silent = {
+    guildId: "g",
+    channelId: "c1",
+    channel: { type: 5 },
+    flags: { has: (f: number) => f === 4096 },
+    crosspost: async () => void published.push("c1"),
+  };
+  await maybePublish(ctx, silent as never, specs);
+  expect(published).toEqual([]);
+});
