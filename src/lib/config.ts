@@ -112,6 +112,9 @@ export const CONFIG_KEYS = {
   retentionModerationDays: "retention_moderation_days",
   retentionTicketsDays: "retention_tickets_days",
   retentionMemberLogDays: "retention_member_log_days",
+  // Device feed: new and changed devices on the site's Devices list, posted as they appear.
+  deviceFeedChannelId: "device_feed_channel_id",
+  deviceFeedUrl: "device_feed_url",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -164,6 +167,7 @@ export const CATEGORIES: Category[] = [
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
   { id: "privacy", label: "Privacy", accentColor: 0x95a5a6 },
+  { id: "device-feed", label: "Device Feed", accentColor: 0x2ecc71 },
 ];
 
 const K = CONFIG_KEYS;
@@ -287,6 +291,8 @@ export const REGISTRY: Setting[] = [
   // Privacy. Discord's Developer Terms have a bot delete what it no longer needs; these say when.
   { key: K.retentionModerationDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep moderation history (days)", description: "Warns, notes, bans and timeouts, and the bot's other mod-log posts, are deleted after this long." },
   { key: K.retentionTicketsDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep closed tickets (days)", description: "A closed ticket's record and transcript, and its closing post in the mod log, are deleted after this long." },
+  { key: K.deviceFeedChannelId, category: "device-feed", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Device feed channel", description: "Where devices new or changed on the site's Devices list are posted. Unset = off." },
+  { key: K.deviceFeedUrl, category: "device-feed", type: "text", default: "https://medius.k4tech.net/api/devices", label: "Devices list", description: "The site's Devices list as JSON, read every 10 minutes." },
   { key: K.retentionMemberLogDays, category: "privacy", type: "int", min: 7, max: 3650, default: 90, label: "Keep member-log posts (days)", description: "The bot's member-log posts (edited and deleted messages, joins, leaves, role and name changes) are deleted after this long." },
 ];
 

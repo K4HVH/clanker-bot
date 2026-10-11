@@ -124,6 +124,19 @@ CREATE TABLE IF NOT EXISTS server_state (
 ) WITHOUT ROWID;
 
 -- Which spec a server follows, and when it was last applied.
+-- The devices the device feed has posted (or found on its first read), so each is posted once.
+CREATE TABLE IF NOT EXISTS device_feed (
+  guild_id TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  vidpid   TEXT,
+  verdict  TEXT NOT NULL,
+  PRIMARY KEY (guild_id, name)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS device_feed_meta (
+  guild_id  TEXT PRIMARY KEY,
+  seeded_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS server_meta (
   guild_id   TEXT PRIMARY KEY,
   spec       TEXT NOT NULL,

@@ -1,6 +1,7 @@
 import type { BotModule } from "../core/module";
 import { automodModule } from "./automod";
 import { configModule } from "./config";
+import { devicesModule } from "./devices";
 import { guardsModule } from "./guards";
 import { honeypotModule } from "./honeypot";
 import { loggingModule } from "./logging";
@@ -19,6 +20,7 @@ import { verificationModule } from "./verification";
 // glob at runtime, and the set of features is type-checked.
 export const modules: BotModule[] = [
   configModule,
+  devicesModule,
   loggingModule,
   moderationModule,
   // Honeypot before automod: the scan() early-return is what actually protects the trap channel,

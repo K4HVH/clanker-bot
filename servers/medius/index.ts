@@ -341,6 +341,7 @@ export default defineServer({
     automod_executables: true,
     automod_executable_exts: ".exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1",
     verification_welcome_channel_id: { channel: "start-here" },
+    device_feed_channel_id: { channel: "device-reports" },
     retention_moderation_days: 365,
     retention_tickets_days: 365,
     retention_member_log_days: 90,
