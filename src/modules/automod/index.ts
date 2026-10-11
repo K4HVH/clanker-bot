@@ -7,7 +7,7 @@ import { bumpSignatureHit } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
 import { parseScamAction, type ScamAction } from "../../lib/actions";
-import { type ContentRules, decideEscalation, parseExtList, pickViolation, type Tier } from "../../lib/automod";
+import { type ContentRules, decideEscalation, executableName, parseExtList, pickViolation, type Tier } from "../../lib/automod";
 import { Claims } from "../../lib/claim";
 import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker, SprayTracker } from "../../lib/heat";
@@ -61,6 +61,13 @@ function contentRulesFor(ctx: AppContext, guildId: string): ContentRules {
     massMention: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodMassMention),
     caps: ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodCaps),
   };
+}
+
+// A message's files, a forwarded message's included: a forward carries them in its snapshot.
+function attachmentNamesOf(message: Message): string[] {
+  const own = [...message.attachments.values()].map((a) => a.name);
+  const forwarded = [...(message.messageSnapshots?.values() ?? [])].flatMap((snap) => [...snap.attachments.values()].map((a) => a.name));
+  return [...own, ...forwarded];
 }
 
 function anyRuleEnabled(rules: ContentRules, flood: boolean, duplicates: boolean, executables: boolean): boolean {
@@ -233,10 +240,10 @@ async function actDecisive(
     alert: (label: string) => EmbedBuilder;
     components?: ActionRowLike[];
   },
-): Promise<void> {
+): Promise<boolean> {
   const guild = message.guild;
-  if (!guild) return;
-  if (!decisiveClaims.claim(opts.claimKey)) return;
+  if (!guild) return false;
+  if (!decisiveClaims.claim(opts.claimKey)) return false;
   opts.onClaimed?.();
   const userId = message.author.id;
   const botId = message.client.user.id;
@@ -286,6 +293,7 @@ async function actDecisive(
   }
 
   await logModAlert(ctx, guild, opts.alert(SCAM_LABEL[effective]), { components: opts.components });
+  return effective !== "flag";
 }
 
 type ActionRowLike = ReturnType<typeof forgetButton>;
@@ -352,12 +360,14 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   const member = message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
   const isStaff = member?.permissions.has(PermissionFlagsBits.ManageMessages) ?? false;
   const now = Date.now();
+  const extensions = executablesOn ? parseExtList(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.automodExecutableExts) ?? "") : null;
+  const executable = extensions ? executableName(attachmentNamesOf(message), extensions) : null;
 
   // ── Confirmed-bad, first match wins, one action per message ──
   if (sigAction !== "off" && !isStaff) {
     const match = await matchSignatures(ctx, message, now, { skipImages: isEdit });
     if (match) {
-      await actDecisive(ctx, message, member, {
+      const removed = await actDecisive(ctx, message, member, {
         action: sigAction,
         claimKey: `sig:${guildId}:${message.author.id}`,
         reason: `Scam signature (${match.kind})`,
@@ -369,6 +379,8 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
         alert: (label) => signatureAlert(message.author, message.channelId, match, label),
         components: [forgetButton(match.kind, match.value)],
       });
+      // Flagged, or already being handled: the message is still up, so a program on it still goes.
+      if (!removed && executable && !isStaff) await punish(ctx, message, member, "executable attachment");
       return;
     }
   }
@@ -391,7 +403,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
       },
     );
     if (tripped) {
-      await actDecisive(ctx, message, member, {
+      const removed = await actDecisive(ctx, message, member, {
         action: sprayAction,
         claimKey: `spray:${guildId}:${message.author.id}`,
         reason: "Cross-channel spray",
@@ -401,6 +413,7 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
         removeContent: () => purgeSpray(guild, key),
         alert: (label) => sprayAlert(message.author, label),
       });
+      if (!removed && executable && !isStaff) await punish(ctx, message, member, "executable attachment");
       return;
     }
   }
@@ -429,8 +442,8 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   const mentionCount = message.mentions.users.size + message.mentions.roles.size - replyPing;
   let violation = pickViolation({
     content: message.content,
-    attachmentNames: message.attachments.map((a) => a.name),
-    executables: executablesOn ? parseExtList(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.automodExecutableExts) ?? "") : null,
+    attachmentNames: attachmentNamesOf(message),
+    executables: extensions,
     mentionCount,
     massMention: message.mentions.everyone,
     rules,
@@ -451,6 +464,12 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   }
   if (!violation) return;
 
+  await punish(ctx, message, member, violation);
+}
+
+async function punish(ctx: AppContext, message: Message, member: GuildMember | null, label: string): Promise<void> {
+  const guild = message.guild!;
+  const guildId = guild.id;
   // Delete + record the violation, then escalate on accumulation. Suppress the member-log echo
   // (the mod-log automod entry is the record; don't reprint the removed content).
   const deleted = await deleteSuppressed(message.id, () => message.delete());
@@ -460,7 +479,6 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     return;
   }
   const botId = message.client.user.id;
-  const label = violation;
 
   // Serialize per user so the warn is counted before the next burst message escalates.
   await runExclusive(`${guildId}:${message.author.id}`, async () => {
