@@ -18,6 +18,7 @@ import { assertNotProduction } from "../src/server/guard";
 import { readLive } from "../src/server/live";
 import { countText, renderPlan } from "../src/server/render";
 import { SPECS } from "../src/server/specs";
+import { markApplied, setSpecName } from "../src/server/state";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -51,10 +52,16 @@ async function main(): Promise<void> {
   const plan = await planFor(env, deletions, process.argv.includes("--prune"));
   console.log(renderPlan(plan, spec));
   console.log(`\nfingerprint ${plan.fingerprint.slice(0, 32)}, ${countText(plan)}`);
-  if (command === "apply" && plan.ops.length > 0) {
-    const result = await applyPlan({ ...env, reason: "Server plan applied from a checkout" }, plan);
-    console.log(`\n${applySummary(result, plan, spec)}`);
-    if (result.failed) process.exitCode = 1;
+  if (command === "apply") {
+    // As /server's Apply does: the server follows this spec, so the bot's spec-driven features
+    // (publishing, menus, panels) know its channels.
+    setSpecName(db, guildId, specName!);
+    if (plan.ops.length > 0) {
+      const result = await applyPlan({ ...env, reason: "Server plan applied from a checkout" }, plan);
+      markApplied(db, guildId, Date.now());
+      console.log(`\n${applySummary(result, plan, spec)}`);
+      if (result.failed) process.exitCode = 1;
+    }
   }
 }
 
