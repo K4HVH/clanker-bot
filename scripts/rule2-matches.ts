@@ -1,7 +1,7 @@
-// Lists messages already in a server that a spec's AutoMod rule would block, for staff to judge.
-// Reads only: it fetches channel histories and deletes nothing.
+// Lists messages already in a server that a spec's AutoMod rules would catch, by rule, for staff to
+// judge. Reads only: it fetches channel histories and deletes nothing.
 //
-//   bun run scripts/rule2-matches.ts --guild <id> [--spec medius] [--rule rule-2]
+//   bun run scripts/rule2-matches.ts --guild <id> [--spec medius]
 
 import { REST } from "discord.js";
 import { restApi } from "../src/server/api";
@@ -22,9 +22,9 @@ interface Message {
 
 async function main(): Promise<void> {
   const guildId = flag("guild");
-  if (!guildId) throw new Error("usage: bun run scripts/rule2-matches.ts --guild <id> [--spec medius] [--rule rule-2]");
-  const rule = SPECS[flag("spec") ?? "medius"]?.automod.find((r) => r.key === (flag("rule") ?? "rule-2"));
-  if (!rule) throw new Error("no such spec or rule");
+  if (!guildId) throw new Error("usage: bun run scripts/rule2-matches.ts --guild <id> [--spec medius]");
+  const rules = SPECS[flag("spec") ?? "medius"]?.automod ?? [];
+  if (rules.length === 0) throw new Error("no such spec, or it has no AutoMod rules");
   const api = restApi(new REST().setToken(process.env.DISCORD_TOKEN ?? ""));
   const channels = await api.get<{ id: string; name: string; type: number }[]>(`/guilds/${guildId}/channels`);
   const hits: string[] = [];
@@ -36,15 +36,16 @@ async function main(): Promise<void> {
         .catch(() => [] as Message[]);
       if (page.length === 0) break;
       for (const m of page) {
-        if (m.author.bot || !ruleMatches(rule, m.content)) continue;
+        const rule = m.author.bot ? undefined : rules.find((r) => ruleMatches(r, m.content));
+        if (!rule) continue;
         const text = m.content.replace(/\s+/g, " ").slice(0, 120);
-        hits.push(`#${channel.name}  ${m.timestamp.slice(0, 10)}  https://discord.com/channels/${guildId}/${channel.id}/${m.id}  ${text}`);
+        hits.push(`[${rule.key}] #${channel.name}  ${m.timestamp.slice(0, 10)}  https://discord.com/channels/${guildId}/${channel.id}/${m.id}  ${text}`);
       }
       before = page[page.length - 1]!.id;
     }
   }
   console.log(hits.length ? hits.join("\n") : "No matches.");
-  console.log(`\n${hits.length} message${hits.length === 1 ? "" : "s"} would be blocked by "${rule.name}".`);
+  console.log(`\n${hits.length} message${hits.length === 1 ? "" : "s"} matched.`);
 }
 
 main().catch((error: unknown) => {

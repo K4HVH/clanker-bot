@@ -855,14 +855,21 @@ export default defineServer({
   ],
   automod: [
     {
-      key: "rule-2",
-      name: "Rule 2: no sharing or selling cheats",
+      key: "rule-2-links",
+      name: "Rule 2: cheat forum and shop links",
       keywords: ["*unknowncheats*", "*mpgh*", "*elitepvpers*", "*captaindma*", "*verse-solutions*"],
+      block: "Blocked under rule 2: no sharing or selling cheats. Mistake? Open a ticket.",
+      alert: "logs",
+      exemptRoles: ["dev"],
+    },
+    {
+      // Talk about cheats is allowed and no pattern tells an offer from talk, so these only alert.
+      key: "rule-2-offers",
+      name: "Rule 2: possible cheat offer (review)",
       regex: [
         "(?i)(?:\\b(?:selling|sell|wts|for sale|dm (?:me )?for|price[ds]?)\\b|\\$ ?[0-9]+|[0-9]+ ?\\$|\\b[0-9]+ ?(?:usd|eur|gbp|aud)\\b).{0,40}\\b(?:cheats?|hacks?|aimbots?|triggerbots?|spoofers?|loaders?|configs?|cfgs?)\\b",
         "(?i)\\b(?:cheats?|hacks?|aimbots?|triggerbots?|spoofers?|loaders?|configs?|cfgs?)\\b.{0,40}(?:\\b(?:for sale|selling|wts|dm (?:me )?for|price[ds]?)\\b|\\$ ?[0-9]+|[0-9]+ ?\\$|\\b[0-9]+ ?(?:usd|eur|gbp|aud)\\b)",
       ],
-      block: "Blocked under rule 2: no sharing or selling cheats. Mistake? Open a ticket.",
       alert: "logs",
       exemptRoles: ["dev"],
     },

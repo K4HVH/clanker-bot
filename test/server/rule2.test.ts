@@ -2,14 +2,30 @@ import { expect, test } from "bun:test";
 import { ruleMatches } from "../../src/server/automod-match";
 import { SPECS } from "../../src/server/specs";
 
-// Rule 2 is enforced by Discord's AutoMod, which runs Rust's regex crate. These samples are written
-// for the test, never taken from members' messages.
+// Rule 2 is enforced by two Discord AutoMod rules, which run Rust's regex crate: links to cheat
+// forums and shops are blocked; offer-shaped messages alert staff, since talk about cheats stays
+// allowed and no pattern tells an offer from talk. These samples are written for the test, never
+// taken from members' messages.
 
-const rule = SPECS.medius!.automod.find((r) => r.key === "rule-2")!;
+const rule = (key: string) => SPECS.medius!.automod.find((r) => r.key === key)!;
+const links = rule("rule-2-links");
+const offers = rule("rule-2-offers");
 
-const blocked = (text: string) => ruleMatches(rule, text);
+test("links are blocked and offers only alert", () => {
+  expect(links.block).toBeDefined();
+  expect(links.alert).toBe("logs");
+  expect(offers.block).toBeUndefined();
+  expect(offers.alert).toBe("logs");
+});
 
-const MATCH = [
+const BLOCKED = [
+  "check unknowncheats.me/forum/valorant/123",
+  "https://www.mpgh.net/forum/",
+  "captaindma.com/product/ysc8k",
+  "https://verse-solutions.com/downtime",
+];
+
+const ALERTED = [
   "selling aimbot 15$ dm me",
   "WTS spoofer + loader, $20",
   "dm for config, cheap",
@@ -18,12 +34,10 @@ const MATCH = [
   "aimbot $15 lifetime",
   "15$ aimbot lifetime",
   "dm me for the loader",
-  "check unknowncheats.me/forum/valorant/123",
-  "https://www.mpgh.net/forum/",
-  "captaindma.com/product/ysc8k",
+  "selling cheats is wild", // talk: alerted for staff to judge, never blocked
 ];
 
-const PASS = [
+const IGNORED = [
   "my cheat doesn't work with medius",
   "colorbot vs aimbot, which is smoother?",
   "anyone got the discord.gg/abc invite",
@@ -35,11 +49,22 @@ const PASS = [
   "the price of a makcu went up",
 ];
 
-for (const text of MATCH) test(`blocks: ${text}`, () => expect(blocked(text)).toBe(true));
-for (const text of PASS) test(`passes: ${text}`, () => expect(blocked(text)).toBe(false));
+for (const text of BLOCKED) test(`blocks: ${text}`, () => expect(ruleMatches(links, text)).toBe(true));
+for (const text of ALERTED) {
+  test(`alerts, doesn't block: ${text}`, () => {
+    expect(ruleMatches(offers, text)).toBe(true);
+    expect(ruleMatches(links, text)).toBe(false);
+  });
+}
+for (const text of IGNORED) {
+  test(`ignores: ${text}`, () => {
+    expect(ruleMatches(links, text)).toBe(false);
+    expect(ruleMatches(offers, text)).toBe(false);
+  });
+}
 
 test("the patterns use only syntax Rust and JavaScript read alike", () => {
-  for (const r of rule.regex ?? []) {
+  for (const r of [...(links.regex ?? []), ...(offers.regex ?? [])]) {
     expect(r).not.toMatch(/\(\?[=!<]/); // lookaround
     expect(r).not.toMatch(/\\[1-9]/); // backreferences
     expect(r.slice(4)).not.toContain("(?i)"); // the flag only leads
