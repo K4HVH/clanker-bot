@@ -228,7 +228,7 @@ const inverseRate: Generator = {
 
 // ── set-overlap: inclusion-exclusion ────────────────────────────────────────
 
-// Each pair carries its own closing clause so the verb agrees with the two it describes.
+// Each pair carries a closing clause so the verb agrees with the two it describes.
 const OVERLAP_PAIRS = [
   {
     where: "a club night",
@@ -538,7 +538,7 @@ const agreement: Generator = {
   },
 };
 
-// Word choice: the confusions that make a ticket unreadable, each with its own set of
+// Word choice: the confusions that make a ticket unreadable, each with a set of
 // look-alikes rather than random words, so the wrong options are the ones people reach for.
 const WORD_FRAMES = [
   { text: "Check ___ spelling before you post it.", correct: "your", wrong: ["you're", "yours", "your's"] },

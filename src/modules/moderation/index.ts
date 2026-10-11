@@ -903,7 +903,7 @@ export const moderationModule: BotModule = {
     featureCommand({
       name: "mod",
       description: "Moderation actions.",
-      // Baseline visibility; each verb runtime-checks its own permission above, and
+      // Baseline visibility; each verb runtime-checks its permission above, and
       // admins can fine-tune per-subcommand access in Discord's Integrations UI.
       defaultMemberPermissions: PermissionFlagsBits.ModerateMembers,
       subcommands: {

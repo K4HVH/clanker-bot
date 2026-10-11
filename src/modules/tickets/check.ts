@@ -127,7 +127,7 @@ export function getSession(token: string): Session | undefined {
 }
 
 // The check this member has open, if any. There is at most one. A finished run is not
-// one: it is only still here so its own message's buttons resolve quietly.
+// one: it is only still here so the buttons on its message resolve quietly.
 export function sessionFor(guildId: string, userId: string): Session | undefined {
   for (const session of sessions.values()) {
     if (session.guildId === guildId && session.userId === userId && !session.finished) {
@@ -163,7 +163,7 @@ export function sweepSessions(ctx: AppContext, now: number): void {
   for (const [token, session] of sessions) {
     if (session.deadline > now) continue;
     sessions.delete(token);
-    // A finished run has already been settled; it was only being kept so its own buttons
+    // A finished run has already been settled; it was only being kept so its buttons
     // resolved quietly. Charging it here would double-charge the member.
     if (session.finished) continue;
     // Nor is anyone charged in a guild that has since switched the check off: nobody

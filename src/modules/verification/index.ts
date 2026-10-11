@@ -84,7 +84,7 @@ function surfaceSession(userKey: string, channelId: string): Session | undefined
 }
 
 // Push a payload to EVERY open surface for the user. `make` is called once PER SURFACE (with
-// that surface's Session) so each gets payload text/expiry flavored for it, and its own
+// that surface's Session) so each gets payload text/expiry flavored for it, and a separate
 // attachment instance: a Buffer can't be safely streamed to two uploads.
 async function refreshAll(userKey: string, make: (s: Session) => Payload): Promise<void> {
   await Promise.all(userSessions(userKey).map((s) => s.refresh(make(s)).catch(() => {})));
