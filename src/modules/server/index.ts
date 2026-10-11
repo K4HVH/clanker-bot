@@ -16,7 +16,7 @@ import type { BotModule, ComponentHandler } from "../../core/module";
 import { logModAlert } from "../../lib/modlog";
 import { adoptSource } from "../../server/adopt";
 import { type DiscordApi, restApi } from "../../server/api";
-import { applyPlan, planFor } from "../../server/apply";
+import { applyPlan, applySummary, planFor } from "../../server/apply";
 import { readLive } from "../../server/live";
 import { renderPlan } from "../../server/render";
 import { type ServerSpec, validateSpec } from "../../server/spec";
@@ -127,16 +127,21 @@ export async function applyButton(interaction: ButtonInteraction, ctx: AppContex
     setSpecName(ctx.db, guild.id, name!);
     const result = await applyPlan({ ...env, reason: `Server plan applied by ${interaction.user.username}` }, plan);
     markApplied(ctx.db, guild.id, Date.now());
-    const lines = [`Applied ${result.done} change${result.done === 1 ? "" : "s"}.`];
-    if (result.failed) {
-      lines.push(`Stopped at: ${result.failed.op.t} (${result.failed.error}). ${result.remaining} not applied: run /server plan again.`);
-    }
+    const summary = applySummary(result, plan, spec);
     await logModAlert(
       ctx,
       guild,
       new EmbedBuilder().setColor(0x5865f2).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
     );
-    await interaction.editReply({ content: lines.join("\n").slice(0, 2000), components: [] });
+    await interaction.editReply(
+      summary.length <= INLINE_MAX
+        ? { content: summary, components: [] }
+        : {
+            content: `Applied ${result.done} change${result.done === 1 ? "" : "s"}. The rest, with what to do by hand, is attached.`,
+            files: [new AttachmentBuilder(Buffer.from(summary, "utf8"), { name: "apply.txt" })],
+            components: [],
+          },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     ctx.logger.error("server apply failed", { guildId: guild.id, error: message });

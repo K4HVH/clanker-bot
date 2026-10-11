@@ -93,3 +93,26 @@ test("a spec that fails validation is refused before anything is read", async ()
   await planCommand(i, ctx, { api: () => f, specs: { fixture: broken } });
   expect(sent.replies).toEqual([{ content: 'Spec "fixture" is invalid:\n- bot: unknown setting "no_such_setting"', flags: 64 }]);
 });
+
+test("the Apply result lists what's left to do by hand", async () => {
+  const f = new FakeDiscord();
+  const ctx: AppContext = silentContext();
+  const plan = await planFor({ api: f, db: ctx.db, config: ctx.config, guildId: f.guildId, spec: fixture }, false);
+  const { i, sent } = interaction(f, f.ownerId, { customId: `server:apply:${plan.fingerprint.slice(0, 32)}:0:fixture` });
+  await applyButton(i, ctx, deps(f));
+  const text = JSON.stringify(sent.edits.at(-1));
+  expect(text).toContain("Do these by hand:");
+  expect(text).toContain("Require 2FA for moderator actions");
+});
+
+test("a refused write in the Apply result says what to do", async () => {
+  const f = new FakeDiscord();
+  const ctx: AppContext = silentContext();
+  f.refuse((w) => w.method === "POST" && w.route.endsWith("/roles"), 403, 50013, "Missing Permissions");
+  const plan = await planFor({ api: f, db: ctx.db, config: ctx.config, guildId: f.guildId, spec: fixture }, false);
+  const { i, sent } = interaction(f, f.ownerId, { customId: `server:apply:${plan.fingerprint.slice(0, 32)}:0:fixture` });
+  await applyButton(i, ctx, deps(f));
+  const text = JSON.stringify(sent.edits.at(-1));
+  expect(text).toContain("Stopped at");
+  expect(text).toContain("give the bot's role Administrator and drag it to the top");
+});

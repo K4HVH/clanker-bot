@@ -1,5 +1,5 @@
 import { CHANNEL_TYPE, type Change, channelLabel, type Op, type Plan } from "./plan";
-import { toNames } from "./permissions";
+import { permissionDiff, prettyPermission, toNames } from "./permissions";
 import { channelsFlat, type ServerSpec, type SettingValue } from "./spec";
 
 // A plan as the owner reads it before pressing Apply: one line per change, grouped, with a "!"
@@ -7,8 +7,7 @@ import { channelsFlat, type ServerSpec, type SettingValue } from "./spec";
 
 const RESERVED: Record<string, string> = { everyone: "@everyone", bot: "the bot's role", booster: "Server Booster" };
 
-const pretty = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
-const perms = (bits: bigint) => toNames(bits).map(pretty).join(", ");
+const perms = (bits: bigint) => toNames(bits).map(prettyPermission).join(", ");
 
 const FIELD: Record<string, string> = {
   verificationLevel: "verification level",
@@ -20,7 +19,8 @@ const FIELD: Record<string, string> = {
   updatesChannel: "community updates channel",
 };
 
-export function renderPlan(plan: Plan, spec: ServerSpec): string {
+// One operation as a line of text, and the plan section it belongs in.
+export function describer(spec: ServerSpec): (op: Op) => [string, string] {
   const roleName = (key: string) => RESERVED[key] ?? spec.roles.find((r) => r.key === key)?.name ?? key;
   const flat = channelsFlat(spec);
   const channel = (key: string | null): string => {
@@ -45,13 +45,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
     return value(v);
   };
   const change = (c: Change): string => {
-    if (c.field === "permissions") {
-      const from = c.from as bigint;
-      const to = c.to as bigint;
-      const gained = toNames(to & ~from).map((n) => `+${pretty(n)}`);
-      const lost = toNames(from & ~to).map((n) => `-${pretty(n)}`);
-      return `permissions ${[...gained, ...lost].join(" ")}`;
-    }
+    if (c.field === "permissions") return `permissions ${permissionDiff(c.from as bigint, c.to as bigint)}`;
     if (c.field === "parent") return `parent ${channel(c.from as string | null)} -> ${channel(c.to as string | null)}`;
     if (c.field.endsWith("Channel")) return `${FIELD[c.field]}: ${channel(c.from as string | null)} -> ${channel(c.to as string | null)}`;
     const label = FIELD[c.field] ?? c.field;
@@ -66,23 +60,7 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
     return parts.join("; ") || "empty overwrite";
   };
 
-  const groups: [string, string[]][] = [
-    ["Bindings", []],
-    ["Roles", []],
-    ["Channels", []],
-    ["Permissions", []],
-    ["Server", []],
-    ["AutoMod", []],
-    ["Bot settings", []],
-    ["Posts", []],
-    ["Prune: not in the spec", []],
-  ];
-  const put = (group: string, op: Op, line: string) => {
-    const flagged = "flags" in op && op.flags.length > 0;
-    groups.find(([g]) => g === group)![1].push(`  ${flagged ? "! " : ""}${line}`);
-  };
-
-  const describe = (op: Op): [string, string] => {
+  return (op: Op): [string, string] => {
     switch (op.t) {
       case "bind":
         return ["Bindings", `bind ${op.label} -> ${op.key}${op.replaces !== undefined ? ` (was ${op.replaces})` : ""}`];
@@ -137,6 +115,27 @@ export function renderPlan(plan: Plan, spec: ServerSpec): string {
       case "prune":
         return ["Prune: not in the spec", `- ${op.label}`];
     }
+  };
+}
+
+export const describeOp = (op: Op, spec: ServerSpec): string => describer(spec)(op)[1];
+
+export function renderPlan(plan: Plan, spec: ServerSpec): string {
+  const describe = describer(spec);
+  const groups: [string, string[]][] = [
+    ["Bindings", []],
+    ["Roles", []],
+    ["Channels", []],
+    ["Permissions", []],
+    ["Server", []],
+    ["AutoMod", []],
+    ["Bot settings", []],
+    ["Posts", []],
+    ["Prune: not in the spec", []],
+  ];
+  const put = (group: string, op: Op, line: string) => {
+    const flagged = "flags" in op && op.flags.length > 0;
+    groups.find(([g]) => g === group)![1].push(`  ${flagged ? "! " : ""}${line}`);
   };
 
   for (const op of plan.ops) {

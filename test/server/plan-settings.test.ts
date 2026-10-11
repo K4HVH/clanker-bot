@@ -85,8 +85,8 @@ test("Community without its requirements is a manual step", async () => {
   const p = await plan(f, spec({ guild: { explicitContentFilter: "off", community: { rules: "rules", updates: "logs" } } }), state);
   expect(only(p, "community")).toEqual([]);
   expect(p.manual).toEqual([
-    "Community needs the explicit-content filter on all members",
-    "Community needs a verification level of low or higher",
+    "Community needs the explicit-content filter on all members: set guild.explicitContentFilter to \"all\" in the file",
+    "Community needs a verification level of low or higher: set guild.verificationLevel in the file",
   ]);
 });
 
@@ -121,7 +121,7 @@ test("2FA for moderation is a manual step when the file asks for it", async () =
   const { f, state } = matching();
   expect((await plan(f, spec(), state)).manual).toEqual([]);
   expect((await plan(f, spec({ guild: { requireMfa: true } }), state)).manual).toEqual([
-    "Owner: turn on 2FA for moderation (Server Settings > Safety Setup)",
+    "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
   ]);
   f.guild.mfa_level = 1;
   expect((await plan(f, spec({ guild: { requireMfa: true } }), state)).manual).toEqual([]);
@@ -229,7 +229,7 @@ test("an announcement channel without Community is a manual step", async () => {
   const f = new FakeDiscord();
   const p = await plan(f, spec({ roles: [], channels: [{ key: "news", type: "announcement", name: "news" }] }), new Map());
   expect(p.ops.filter((o) => o.t === "channel.create")).toEqual([]);
-  expect(p.manual).toEqual(['#news needs Community on: turn it on in the file, or make it a text channel']);
+  expect(p.manual).toEqual(['#news needs Community on: turn it on in the file (guild.community), or make it a text channel there']);
 });
 
 describe("a key that can't be planned", () => {
@@ -247,7 +247,7 @@ describe("a key that can't be planned", () => {
       automod: [{ key: "r", name: "R", keywords: ["x"], alert: "logs" }],
     });
     const p = await plan(f, s, state);
-    expect(p.manual).toEqual(['2 channels named "logs": rename one so "logs" can bind']);
+    expect(p.manual).toEqual(['2 channels named "logs": rename one in Discord so "logs" can bind to the other, then plan again']);
     expect(p.ops).toEqual([]);
   });
 
@@ -272,6 +272,6 @@ test("a bot without Administrator is told before it fails", async () => {
   expect((await plan(f, spec(), state)).manual).toEqual([]);
   f.roles.find((r) => r.tags?.bot_id === f.botId)!.permissions = String(PermissionFlagsBits.ManageChannels);
   expect((await plan(f, spec(), state)).manual).toEqual([
-    "Give the bot's role Administrator: turning Community on, AutoMod and posting in read-only channels need it",
+    "Give the bot's role Administrator in Server Settings > Roles > (the bot's role) > Permissions > Administrator, and drag it to the top. Turning Community on, AutoMod and posting in read-only channels need it",
   ]);
 });

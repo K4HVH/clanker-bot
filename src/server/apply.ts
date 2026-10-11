@@ -5,6 +5,7 @@ import type { ConfigService } from "../lib/config";
 import type { DiscordApi } from "./api";
 import { type Live, readLive } from "./live";
 import { type AutoModBody, buildPlan, FILTER, NOTIFY, type Op, type Plan, VERIFICATION } from "./plan";
+import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
 
@@ -19,8 +20,33 @@ export interface ApplyEnv {
 
 export interface ApplyResult {
   done: number;
-  failed: { op: Op; error: string } | null;
+  failed: { op: Op; error: string; hint: string } | null;
   remaining: number;
+}
+
+// What to do about a write Discord refused, by its error code: fix the cause and plan again, or make
+// the change by hand.
+export function failureHint(op: Op, error: unknown, spec: ServerSpec): string {
+  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  const byHand = `Or do it by hand: ${describeOp(op, spec)}`;
+  switch (code) {
+    case 50001:
+    case 50013:
+      return "The bot lacks a permission for this. In Server Settings > Roles, give the bot's role Administrator and drag it to the top, then plan again.";
+    case 50035:
+      return `Discord refused a value from the spec. Check it, then plan again. ${byHand}`;
+    case 50074:
+      return "Community needs this channel (its rules or updates channel). Pick another in Server Settings > Community > Overview, then plan again.";
+    case 30013:
+    case 30005:
+      return "Discord's limit on channels or roles is reached. Delete some, then plan again.";
+    case 10003:
+    case 10011:
+    case 10008:
+      return "Something was deleted while this ran. Plan again.";
+    default:
+      return `Plan again. If it fails the same way: ${byHand.slice(4)}`;
+  }
 }
 
 // Read the server and plan against it. The bot command and the local command both start here.
@@ -86,7 +112,11 @@ export async function applyPlan(env: ApplyEnv, plan: Plan): Promise<ApplyResult>
       await runner.run(op);
       done++;
     } catch (error) {
-      return { done, failed: { op, error: error instanceof Error ? error.message : String(error) }, remaining: ops.length - done };
+      return {
+        done,
+        failed: { op, error: error instanceof Error ? error.message : String(error), hint: failureHint(op, error, env.spec) },
+        remaining: ops.length - done,
+      };
     }
   }
   return { done, failed: null, remaining: 0 };
@@ -363,3 +393,20 @@ class Runner {
 }
 
 
+
+// The Apply result as the owner reads it: what was done, where it stopped and why, and every change
+// left for them to make by hand.
+export function applySummary(result: ApplyResult, plan: Plan, spec: ServerSpec): string {
+  const lines = [`Applied ${result.done} change${result.done === 1 ? "" : "s"}.`];
+  if (result.failed) {
+    lines.push(
+      "",
+      `Stopped at: ${describeOp(result.failed.op, spec)}`,
+      `Discord said: ${result.failed.error}`,
+      result.failed.hint,
+      `${result.remaining} change${result.remaining === 1 ? "" : "s"} not applied.`,
+    );
+  }
+  if (plan.manual.length > 0) lines.push("", "Do these by hand:", ...plan.manual.map((m) => `- ${m}`));
+  return lines.join("\n");
+}

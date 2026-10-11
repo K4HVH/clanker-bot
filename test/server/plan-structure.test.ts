@@ -46,7 +46,7 @@ test("two objects with one name stop that key and what references it", async () 
   f.addRole({ name: "Dev", position: 4 });
   f.addChannel({ name: "general" });
   const p = await plan(f, spec({ channels: [{ key: "general", type: "text", name: "general", overwrites: { dev: { ViewChannel: true } } }] }));
-  expect(p.manual).toEqual(['2 roles named "Dev": rename one so "dev" can bind']);
+  expect(p.manual).toEqual(['2 roles named "Dev": rename one in Discord so "dev" can bind to the other, then plan again']);
   expect(p.ops.filter((o) => o.t !== "bind")).toEqual([]);
 });
 
@@ -79,7 +79,9 @@ test("a role above the bot is a manual step", async () => {
   const dev = f.addRole({ name: "Dev", permissions: "0", position: 60 });
   const p = await plan(f, spec({ channels: [] }), new Map([[stateKey("role", "dev"), dev.id]]));
   expect(p.ops).toEqual([]);
-  expect(p.manual).toEqual(['Role "Dev" is above the bot\'s role: change it by hand, or move the bot\'s role above it']);
+  expect(p.manual).toEqual([
+    `Role "Dev" is above the bot's role, so the bot can't change it. Drag the bot's role above it in Server Settings > Roles and plan again, or change it there by hand: permissions +Administrator`,
+  ]);
 });
 
 test("removing a view deny is flagged, as is a new allow", async () => {
@@ -273,4 +275,13 @@ describe("former names and pruning", () => {
     ]);
     expect(pruned.unmanaged).toEqual([]);
   });
+});
+
+test("a role the bot can't change says what to change by hand, and where", async () => {
+  const f = new FakeDiscord();
+  const dev = f.addRole({ name: "Dev", permissions: "0", position: 60, color: 5 });
+  const p = await plan(f, spec({ channels: [] }), new Map([[stateKey("role", "dev"), dev.id]]));
+  expect(p.manual).toEqual([
+    `Role "Dev" is above the bot's role, so the bot can't change it. Drag the bot's role above it in Server Settings > Roles and plan again, or change it there by hand: colour 5 -> 0; permissions +Administrator`,
+  ]);
 });

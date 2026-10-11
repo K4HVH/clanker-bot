@@ -36,3 +36,10 @@ export function widens(before: AllowDeny | null, after: AllowDeny): boolean {
   const was = before ?? { allow: 0n, deny: 0n };
   return (after.allow & ~was.allow) !== 0n || (was.deny & ~after.deny) !== 0n;
 }
+
+// A permission as Discord's menus name it: "SendMessages" -> "Send Messages".
+export const prettyPermission = (name: string): string =>
+  name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
+
+export const permissionDiff = (from: bigint, to: bigint): string =>
+  [...toNames(to & ~from).map((n) => `+${prettyPermission(n)}`), ...toNames(from & ~to).map((n) => `-${prettyPermission(n)}`)].join(" ");

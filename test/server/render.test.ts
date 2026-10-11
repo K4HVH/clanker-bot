@@ -43,7 +43,7 @@ test("renders a plan as grouped lines", () => {
       { t: "post.create", key: "rules", index: 0, channel: "rules", content: "x".repeat(812) },
     ],
     held: [{ t: "channel.delete", key: "old", name: "old", flags: ["deletes"] }],
-    manual: ["Owner: turn on 2FA for moderation (Server Settings > Safety Setup)"],
+    manual: ["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App"],
     unmanaged: ['role "Cool People"'],
   };
   expect(renderPlan(plan, spec)).toBe(
@@ -83,7 +83,7 @@ test("renders a plan as grouped lines", () => {
       "  - #old",
       "",
       "Manual steps",
-      "  Owner: turn on 2FA for moderation (Server Settings > Safety Setup)",
+      "  Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
       "",
       "Unmanaged",
       '  role "Cool People"',

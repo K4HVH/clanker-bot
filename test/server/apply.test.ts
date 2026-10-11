@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createDatabase } from "../../src/db/index";
 import { ConfigService } from "../../src/lib/config";
 import { type ApplyEnv, applyPlan, planFor } from "../../src/server/apply";
@@ -14,7 +14,7 @@ function env(f = new FakeDiscord()): ApplyEnv & { f: FakeDiscord } {
 test("an empty server is built to the spec, after which the plan is empty", async () => {
   const e = env();
   const plan = await planFor(e, false);
-  expect(plan.manual).toEqual(["Owner: turn on 2FA for moderation (Server Settings > Safety Setup)"]);
+  expect(plan.manual).toEqual(["Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App"]);
   const result = await applyPlan(e, plan);
   expect(result).toEqual({ done: plan.ops.length, failed: null, remaining: 0 });
   const again = await planFor(e, false);
@@ -85,7 +85,7 @@ test("a server nobody has boosted applies a spec that names the booster role", a
     bot: { ...fixture.bot, ticket_check_exempt_roles: { roles: ["booster"] } },
   };
   const plan = await planFor({ ...e, spec }, false);
-  expect(plan.manual).toContain('This server has no Server Booster role: what names "booster" waits until someone boosts');
+  expect(plan.manual).toContain('This server has no Server Booster role, so what names "booster" waits until someone boosts. Nothing to do');
   expect(plan.ops.find((o) => o.t === "automod.create")).toMatchObject({ body: { exemptRoles: ["dev"] } });
   expect(plan.ops.some((o) => o.t === "setting.set" && o.key === "ticket_check_exempt_roles")).toBe(false);
   expect((await applyPlan({ ...e, spec }, plan)).failed).toBeNull();
@@ -120,4 +120,23 @@ test("prune clears what the spec doesn't name, and stays clear", async () => {
   expect(e.f.channels.some((c) => c.name === "Text Channels" || c.name === "chat")).toBe(false);
   expect(e.f.roles.some((r) => r.name === "Extra")).toBe(false);
   expect((await planFor(e, false, true)).ops).toEqual([]);
+});
+
+describe("what Apply can't do comes with instructions", () => {
+  test("a write Discord refuses for want of a permission says how to fix it", async () => {
+    const e = env();
+    e.f.refuse((w) => w.method === "POST" && w.route.endsWith("/roles"), 403, 50013, "Missing Permissions");
+    const result = await applyPlan(e, await planFor(e, false));
+    expect(result.failed?.error).toBe("Missing Permissions");
+    expect(result.failed?.hint).toBe(
+      "The bot lacks a permission for this. In Server Settings > Roles, give the bot's role Administrator and drag it to the top, then plan again.",
+    );
+  });
+
+  test("any other refusal says to plan again, then what to do by hand", async () => {
+    const e = env();
+    e.f.refuse((w) => w.method === "POST" && w.route.endsWith("/roles"), 400, 50035, "Invalid Form Body");
+    const result = await applyPlan(e, await planFor(e, false));
+    expect(result.failed?.hint).toBe('Discord refused a value from the spec. Check it, then plan again. Or do it by hand: + role "Dev": Administrator');
+  });
 });

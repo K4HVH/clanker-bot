@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { REGISTRY_BY_KEY } from "../lib/config";
 import type { Live, LiveChannel, LiveRole, LiveRule } from "./live";
 import { splitPost } from "./posts";
-import { type AllowDeny, keepUnnamed, toBits, widens } from "./permissions";
+import { type AllowDeny, keepUnnamed, permissionDiff, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
   type ChannelKind,
@@ -203,7 +203,7 @@ class Planner {
       for (const old of e.was ?? []) if (found.length === 0) found = named(old);
       if (found.length > 1) {
         const what = kind === "role" ? "roles" : kind === "channel" ? "channels" : "AutoMod rules";
-        this.manual.push(`${found.length} ${what} named "${e.name}": rename one so "${e.key}" can bind`);
+        this.manual.push(`${found.length} ${what} named "${e.name}": rename one in Discord so "${e.key}" can bind to the other, then plan again`);
       } else if (found.length === 1) {
         const id = found[0]!.id;
         into.set(e.key, id);
@@ -238,7 +238,7 @@ class Planner {
       }
     }
     if (this.absentRoles.has("booster") && this.mentions("booster")) {
-      this.manual.push('This server has no Server Booster role: what names "booster" waits until someone boosts');
+      this.manual.push('This server has no Server Booster role, so what names "booster" waits until someone boosts. Nothing to do');
     }
     const pool = live.roles.filter((r) => !r.managed && r.id !== everyone);
     this.resolve(
@@ -312,7 +312,16 @@ class Planner {
       field("permissions", live.permissions, wanted);
       if (changes.length === 0) continue;
       if (this.aboveBot(live)) {
-        this.manual.push(`Role "${live.name}" is above the bot's role: change it by hand, or move the bot's role above it`);
+        const byHand = changes
+          .map((c) =>
+            c.field === "permissions"
+              ? `permissions ${permissionDiff(c.from as bigint, c.to as bigint)}`
+              : `${c.field === "color" ? "colour" : c.field} ${JSON.stringify(c.from)} -> ${JSON.stringify(c.to)}`,
+          )
+          .join("; ");
+        this.manual.push(
+          `Role "${live.name}" is above the bot's role, so the bot can't change it. Drag the bot's role above it in Server Settings > Roles and plan again, or change it there by hand: ${byHand}`,
+        );
         continue;
       }
       const flags: Flag[] = (wanted & ~live.permissions) !== 0n ? ["widens"] : [];
@@ -377,7 +386,7 @@ class Planner {
       const own = channel.overwrites ?? (parent !== null ? categories.get(parent)?.overwrites : undefined);
       const desired = this.desiredOverwrites(own);
       if (id === null && (type === 5 || type === 13) && !this.communityAfter()) {
-        this.manual.push(`${channelLabel(channel.name, type)} needs Community on: turn it on in the file, or make it a text channel`);
+        this.manual.push(`${channelLabel(channel.name, type)} needs Community on: turn it on in the file (guild.community), or make it a text channel there`);
         this.skipped.add(channel.key);
         continue;
       }
@@ -401,7 +410,7 @@ class Planner {
       const live = this.liveChannel(id!)!;
       if (live.type !== type) {
         this.manual.push(
-          `${channelLabel(live.name, live.type)} is a ${KIND_NAME[live.type] ?? live.type} channel in Discord but ${channel.type} in the file: change it by hand`,
+          `${channelLabel(live.name, live.type)} is a ${KIND_NAME[live.type] ?? live.type} channel in Discord but ${channel.type} in the file, and Discord can't change a channel's type. Change the type in the file, or rename the old channel in Discord so the plan creates a new one`,
         );
         continue;
       }
@@ -555,8 +564,8 @@ class Planner {
     const filterAfter = g.explicitContentFilter ?? FILTER[live.explicitContentFilter];
     const levelAfter = g.verificationLevel !== undefined ? VERIFICATION.indexOf(g.verificationLevel) : live.verificationLevel;
     const missing: string[] = [];
-    if (filterAfter !== "all") missing.push("Community needs the explicit-content filter on all members");
-    if (levelAfter < 1) missing.push("Community needs a verification level of low or higher");
+    if (filterAfter !== "all") missing.push('Community needs the explicit-content filter on all members: set guild.explicitContentFilter to "all" in the file');
+    if (levelAfter < 1) missing.push('Community needs a verification level of low or higher: set guild.verificationLevel in the file');
     return missing;
   }
 
@@ -608,7 +617,9 @@ class Planner {
     if (changes.length > 0) this.ops.push({ t: "guild.update", changes, flags: lowered ? ["widens"] : [] });
     if (community) this.ops.push(community);
     if (g.requireMfa && live.mfaLevel === 0) {
-      this.manual.push("Owner: turn on 2FA for moderation (Server Settings > Safety Setup)");
+      this.manual.push(
+        "Owner: turn on 2FA for moderation in Server Settings > Safety Setup > Permissions > Require 2FA for moderator actions. Your account needs 2FA first: User Settings > My Account > Enable Authenticator App",
+      );
     }
   }
 
@@ -770,7 +781,7 @@ class Planner {
         const live = this.liveRole(id);
         if (!live) continue;
         if (this.aboveBot(live)) {
-          this.manual.push(`Role "${live.name}" is above the bot's role: delete it by hand, or move the bot's role above it`);
+          this.manual.push(`Role "${live.name}" is above the bot's role, so the bot can't delete it. Delete it in Server Settings > Roles > ${live.name} > Delete Role, or drag the bot's role above it and plan again`);
         } else {
           out.push({ t: "role.delete", key, name: live.name, flags: ["deletes"] });
         }
@@ -794,13 +805,15 @@ class Planner {
       const ordered = [...channels.filter((c) => c.type !== 4), ...channels.filter((c) => c.type === 4)];
       for (const c of ordered) {
         if (c.id === g.rulesChannelId || c.id === g.publicUpdatesChannelId) {
-          this.manual.push(`${channelLabel(c.name, c.type)} is Community's rules or updates channel: it can't be pruned`);
+          this.manual.push(
+            `${channelLabel(c.name, c.type)} is Community's rules or updates channel, so it can't be pruned. Pick another in Server Settings > Community > Overview, then plan again`,
+          );
           continue;
         }
         this.ops.push({ t: "prune", kind: "channel", id: c.id, label: channelLabel(c.name, c.type), flags: ["deletes"] });
       }
       for (const r of roles) {
-        if (this.aboveBot(r)) this.manual.push(`Role "${r.name}" is above the bot's role: delete it by hand`);
+        if (this.aboveBot(r)) this.manual.push(`Role "${r.name}" is above the bot's role, so the bot can't delete it. Delete it in Server Settings > Roles > ${r.name} > Delete Role`);
         else this.ops.push({ t: "prune", kind: "role", id: r.id, label: `role "${r.name}"`, flags: ["deletes"] });
       }
     } else {
@@ -818,7 +831,9 @@ class Planner {
 export function buildPlan(input: PlanInput): Plan {
   const p = new Planner(input);
   if ((input.live.botPermissions & toBits(["Administrator"])) === 0n) {
-    p.manual.push("Give the bot's role Administrator: turning Community on, AutoMod and posting in read-only channels need it");
+    p.manual.push(
+      "Give the bot's role Administrator in Server Settings > Roles > (the bot's role) > Permissions > Administrator, and drag it to the top. Turning Community on, AutoMod and posting in read-only channels need it",
+    );
   }
   p.resolveRoles();
   p.resolveChannels();

@@ -13,7 +13,7 @@ import { createDatabase } from "../src/db/index";
 import { ConfigService } from "../src/lib/config";
 import { adoptSource } from "../src/server/adopt";
 import { restApi } from "../src/server/api";
-import { applyPlan, planFor } from "../src/server/apply";
+import { applyPlan, applySummary, planFor } from "../src/server/apply";
 import { assertNotProduction } from "../src/server/guard";
 import { readLive } from "../src/server/live";
 import { renderPlan } from "../src/server/render";
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   console.log(`\nfingerprint ${plan.fingerprint.slice(0, 32)}, ${plan.ops.length} change${plan.ops.length === 1 ? "" : "s"}`);
   if (command === "apply" && plan.ops.length > 0) {
     const result = await applyPlan({ ...env, reason: "Server plan applied from a checkout" }, plan);
-    console.log(`\napplied ${result.done}${result.failed ? `, stopped at ${result.failed.op.t}: ${result.failed.error}` : ""}`);
+    console.log(`\n${applySummary(result, plan, spec)}`);
     if (result.failed) process.exitCode = 1;
   }
 }

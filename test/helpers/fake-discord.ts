@@ -65,6 +65,7 @@ export class FakeError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: number, // Discord's JSON error code, as DiscordAPIError carries it
   ) {
     super(message);
   }
@@ -84,7 +85,7 @@ export class FakeDiscord implements DiscordApi {
   botRoles: string[] = [];
   writes: Write[] = [];
   private next = 1000;
-  private refusals: { when: (w: Write) => boolean; status: number }[] = [];
+  private refusals: { when: (w: Write) => boolean; status: number; code?: number; message?: string }[] = [];
 
   constructor(guildId = "1") {
     this.guildId = guildId;
@@ -139,8 +140,8 @@ export class FakeDiscord implements DiscordApi {
     return m;
   }
 
-  refuse(when: (w: Write) => boolean, status = 403): void {
-    this.refusals.push({ when, status });
+  refuse(when: (w: Write) => boolean, status = 403, code?: number, message?: string): void {
+    this.refusals.push({ when, status, code, message });
   }
 
   allowAll(): void {
@@ -149,7 +150,7 @@ export class FakeDiscord implements DiscordApi {
 
   private record(w: Write): void {
     const refusal = this.refusals.find((r) => r.when(w));
-    if (refusal) throw new FakeError(`refused ${w.method} ${w.route}`, refusal.status);
+    if (refusal) throw new FakeError(refusal.message ?? `refused ${w.method} ${w.route}`, refusal.status, refusal.code);
     this.writes.push(w);
   }
 
