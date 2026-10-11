@@ -20,6 +20,8 @@ export interface RoleSpec {
   hoist?: boolean;
   mentionable?: boolean;
   permissions: PermissionName[];
+  // Given once to every member in the server at the first Apply that has it; later joiners choose.
+  grantToExisting?: boolean;
 }
 
 // The bot's managed role. The bot can't edit or move the role it holds, so the plan lists any difference

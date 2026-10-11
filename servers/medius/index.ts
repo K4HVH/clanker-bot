@@ -58,7 +58,9 @@ export default defineServer({
       name: "Verified",
       permissions: ["CreateInstantInvite", "AddReactions", "Stream", "ViewChannel", "SendMessages", "EmbedLinks", "AttachFiles", "ReadMessageHistory", "UseExternalEmojis", "Connect", "Speak", "UseVAD", "ChangeNickname", "UseExternalStickers", "SendMessagesInThreads", "UseSoundboard", "CreateGuildExpressions", "UseExternalSounds"],
     },
-    { key: "release-pings", name: "Release Pings", was: ["Release pings"], permissions: [] },
+    // Everyone in the server at the first Apply got @everyone release pings: they keep them, and can
+    // drop the role in Channels & Roles. Later joiners choose in onboarding.
+    { key: "release-pings", name: "Release Pings", was: ["Release pings"], permissions: [], grantToExisting: true },
     { key: "box-pings", name: "Box Pings", was: ["Box pings"], permissions: [] },
   ],
   botRole: { color: 0x1abc9c, hoist: true, mentionable: true, after: "dev" },

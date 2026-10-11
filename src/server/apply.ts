@@ -119,6 +119,7 @@ const PHASE: Record<Op["t"], number> = {
   "onboarding.set": 11.5,
   "channel.delete": 13,
   "role.delete": 14,
+  "role.grant": 14.5,
   prune: 15,
 };
 
@@ -338,6 +339,21 @@ class Runner {
         // Done: a channel that takes the name later isn't retired again.
         if (retired && !this.state.has(stateKey("backup", op.key))) this.put("backup", op.key, "0");
         this.drop("channel", op.key);
+        return;
+      }
+      case "role.grant": {
+        // Members already holding it are skipped, so a run that stops part way carries on next time.
+        const role = this.role(op.key);
+        let after = "0";
+        for (;;) {
+          const page = await api.get<{ user: { id: string; bot?: boolean }; roles: string[] }[]>(`${this.g}/members?limit=1000&after=${after}`);
+          for (const m of page) {
+            if (!m.user.bot && !m.roles.includes(role)) await api.put(`${this.g}/members/${m.user.id}/roles/${role}`, undefined, reason);
+          }
+          if (page.length < 1000) break;
+          after = page[page.length - 1]!.user.id;
+        }
+        this.put("grant", op.key, "done");
         return;
       }
       case "onboarding.set": {

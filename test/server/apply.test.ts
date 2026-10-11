@@ -289,3 +289,17 @@ test("a role's widened permissions wait until the channels' overwrites are set",
   const verified = e.f.roles.find((r) => r.name === "Verified")!;
   expect(BigInt(verified.permissions) & (1n << 15n)).toBe(0n);
 });
+
+test("a role given to the members already here goes to each of them once, and not to bots", async () => {
+  const e = env();
+  const roles = [...e.spec.roles, { key: "pings", name: "Pings", grantToExisting: true, permissions: [] }];
+  const e2 = { ...e, spec: { ...e.spec, roles } };
+  e.f.members.push({ user: { id: "1001" }, roles: [] }, { user: { id: "1002", bot: true }, roles: [] }, { user: { id: "1003" }, roles: [] });
+  const plan = await planFor(e2, false);
+  expect(plan.ops.filter((o) => o.t === "role.grant")).toEqual([{ t: "role.grant", key: "pings" }]);
+  expect((await applyPlan(e2, plan)).failed).toBeNull();
+  const pings = e.f.roles.find((r) => r.name === "Pings")!.id;
+  expect(e.f.members.filter((m) => m.roles.includes(pings)).map((m) => m.user.id)).toEqual(["1001", "1003"]);
+  e.f.members.push({ user: { id: "1004" }, roles: [] });
+  expect((await planFor(e2, false)).ops).toEqual([]);
+});

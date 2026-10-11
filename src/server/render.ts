@@ -80,6 +80,8 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Roles", `- role "${op.name}"`];
       case "role.order":
         return ["Roles", `order: ${op.keys.map(roleName).join(", ")}`];
+      case "role.grant":
+        return ["Roles", `give @${roleName(op.key)} to every member now in the server, once`];
       case "channel.create": {
         const kind = Object.entries(CHANNEL_TYPE).find(([, t]) => t === op.type)?.[0] ?? "channel";
         const where = op.parent === null ? "top" : `in ${channel(op.parent)}`;

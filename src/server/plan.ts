@@ -76,6 +76,7 @@ export type Op =
   | { t: "role.update"; key: string; changes: Change[]; flags: Flag[] }
   | { t: "role.delete"; key: string; name: string; flags: Flag[] }
   | { t: "role.order"; keys: string[] }
+  | { t: "role.grant"; key: string }
   | {
       t: "channel.create";
       key: string;
@@ -484,6 +485,17 @@ class Planner {
     }
 
     this.planBotRole();
+
+    for (const role of spec.roles) {
+      if (!role.grantToExisting || !this.roles.has(role.key) || this.input.state.has(stateKey("grant", role.key))) continue;
+      const id = this.roles.get(role.key);
+      const live = id ? this.liveRole(id) : undefined;
+      if (live && this.aboveBot(live)) {
+        this.manual.push(`Role "${live.name}" is above the bot's role, so the bot can't give it to the members. Drag the bot's role above it in Server Settings > Roles and plan again`);
+        continue;
+      }
+      this.ops.push({ t: "role.grant", key: role.key });
+    }
 
     const members = spec.roles.filter((r) => {
       if (!this.roles.has(r.key)) return false;

@@ -98,6 +98,7 @@ export class FakeDiscord implements DiscordApi {
   messages: RawMessage[] = [];
   onboarding: RawOnboarding = { enabled: false, mode: 0, default_channel_ids: [], prompts: [] };
   botRoles: string[] = [];
+  members: { user: { id: string; bot?: boolean }; roles: string[] }[] = [];
   writes: Write[] = [];
   private next = 1000;
   private refusals: { when: (w: Write) => boolean; status: number; code?: number; message?: string }[] = [];
@@ -208,6 +209,12 @@ export class FakeDiscord implements DiscordApi {
     if (route === `${g}/channels`) return structuredClone(this.channels) as T;
     if (route === `${g}/auto-moderation/rules`) return structuredClone(this.rules) as T;
     if (route === "/users/@me") return { id: this.botId } as T;
+    if ((m = route.match(/^\/guilds\/\d+\/members\?(.*)$/))) {
+      const q = new URLSearchParams(m[1]);
+      const after = BigInt(q.get("after") ?? "0");
+      const list = this.members.filter((x) => BigInt(x.user.id) > after).sort((a, b) => (BigInt(a.user.id) < BigInt(b.user.id) ? -1 : 1));
+      return structuredClone(list.slice(0, Number(q.get("limit") ?? "1"))) as T;
+    }
     if ((m = route.match(/^\/guilds\/\d+\/members\/(\d+)$/))) {
       if (m[1] !== this.botId) throw new FakeError("unknown member", 404);
       return { user: { id: this.botId }, roles: [...this.botRoles] } as T;
@@ -363,6 +370,13 @@ export class FakeDiscord implements DiscordApi {
 
   async put(route: `/${string}`, body: unknown, reason?: string): Promise<void> {
     this.record({ method: "PUT", route, body, reason });
+    const given = route.match(/^\/guilds\/\d+\/members\/(\d+)\/roles\/(\d+)$/);
+    if (given) {
+      const member = this.members.find((x) => x.user.id === given[1]);
+      if (!member) throw new FakeError("unknown member", 404);
+      if (!member.roles.includes(given[2]!)) member.roles.push(given[2]!);
+      return;
+    }
     if (route === `/guilds/${this.guildId}/onboarding`) {
       const b = body as RawOnboarding;
       if (b.enabled && !(this.guild.features as string[]).includes("COMMUNITY")) throw new FakeError("onboarding needs Community", 400);
