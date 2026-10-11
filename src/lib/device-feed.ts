@@ -1,3 +1,4 @@
+import { escapeMarkdown } from "discord.js";
 import type { AppContext } from "../core/context";
 import { many, one, run } from "../db/index";
 import { CONFIG_KEYS } from "./config";
@@ -25,10 +26,17 @@ const SILENT = 4096; // Discord's suppress-notifications flag
 
 const source = (d: FeedDevice) => (d.reported ? `reported on ${d.reported}` : d.boxes ? `seen on ${d.boxes} boxes` : "");
 
+// Names from the usage stats are whatever a device reports, so markdown in them is shown as typed.
+const plain = (s: string) => escapeMarkdown(s).replace(/[[\]]/g, "\\$&");
+
+// The longest line a message holds beside its heading and the page's link.
+const LINE = LIMIT - 120;
+
 function line(d: FeedDevice, was?: FeedDevice["verdict"]): string {
-  const name = d.url ? `[**${d.name}**](<${d.url}>)` : `**${d.name}**`;
+  const name = d.url ? `[**${plain(d.name)}**](<${d.url}>)` : `**${plain(d.name)}**`;
   const parts = [VERDICT[d.verdict], ...(was ? [`was ${VERDICT[was]}`] : []), ...(source(d) ? [source(d)] : [])];
-  return `- ${name} (${d.kind}): ${parts.join(", ")}${d.note ? `. ${d.note}` : ""}`;
+  const text = `- ${name} (${d.kind}): ${parts.join(", ")}${d.note ? `. ${plain(d.note)}` : ""}`;
+  return text.length > LINE ? `${text.slice(0, LINE - 1)}…` : text;
 }
 
 const readable = (d: unknown): d is FeedDevice => {
@@ -36,9 +44,11 @@ const readable = (d: unknown): d is FeedDevice => {
   return typeof x?.name === "string" && x.name.trim() !== "" && KINDS.has(x.kind) && x.verdict in VERDICT;
 };
 
-// A device's identity: its USB id where it has one (a stats device that gains a report is renamed
-// then, and devices can share a name), else its name.
-const identity = (d: { name: string; vidpid?: string | null }) => (d.vidpid ? `id:${d.vidpid}` : `name:${d.name.toLowerCase()}`);
+// A device's identity. A report is its name: names on the list are unique, and its USB id comes from
+// the usage stats, which can move it to another id of the same device or drop it while they're down. A
+// device only the stats know is its USB id: several can share a name.
+const identity = (d: { name: string; vidpid?: string | null; reported?: string }) =>
+  d.reported || !d.vidpid ? `name:${d.name.toLowerCase()}` : `id:${d.vidpid}`;
 
 interface Item {
   device: FeedDevice;
@@ -75,6 +85,34 @@ interface Seen {
   verdict: FeedDevice["verdict"];
 }
 
+// Each device in the list with its record. Its identity first; then, over records no device claimed
+// that way, what it was known by before: a report by the USB id the stats gave it (a stats device that
+// gained a report, or a renamed report) or by its name (the stats' name for it), preferring a record
+// with its verdict; a stats device by the report it was, if that report left the list.
+function matches(devices: FeedDevice[], seen: Seen[]): Map<FeedDevice, Seen> {
+  const byIdent = new Map(seen.map((s) => [s.ident, s]));
+  const found = new Map<FeedDevice, Seen>();
+  const claimed = new Set<string>();
+  const claim = (d: FeedDevice, s: Seen | undefined) => {
+    if (!s || claimed.has(s.ident)) return;
+    found.set(d, s);
+    claimed.add(s.ident);
+  };
+  for (const d of devices) claim(d, byIdent.get(identity(d)));
+  const free = (s: Seen) => !claimed.has(s.ident);
+  for (const d of devices) {
+    if (found.has(d)) continue;
+    const name = d.name.toLowerCase();
+    if (identity(d).startsWith("id:")) {
+      claim(d, byIdent.get(`name:${name}`));
+      continue;
+    }
+    const sameName = seen.filter((s) => free(s) && s.name.toLowerCase() === name);
+    claim(d, (d.vidpid ? seen.find((s) => free(s) && s.vidpid === d.vidpid) : undefined) ?? sameName.find((s) => s.verdict === d.verdict) ?? sameName[0]);
+  }
+  return found;
+}
+
 type Postable = { send(o: { content: string; flags?: number; allowedMentions: { parse: [] } }): Promise<unknown> };
 
 export async function runFeed(
@@ -102,14 +140,9 @@ export async function runFeed(
   // posted as new later, so it waits for a complete one.
   if (!seeded && (devices.size === 0 || body.stats === false)) return;
 
-  const seen = new Map(many<Seen>(ctx.db, "SELECT ident, name, vidpid, verdict FROM device_feed WHERE guild_id = ?", guildId).map((s) => [s.ident, s]));
-  const named = new Map<string, Seen>();
-  for (const s of seen.values()) if (!named.has(s.name.toLowerCase())) named.set(s.name.toLowerCase(), s);
-  // A device with a USB id is that id, or the same name recorded before it had one. One without is
-  // its name, under any id: a reported device's id comes from the usage stats, and is gone while
-  // they're down.
-  const match = (d: FeedDevice) =>
-    d.vidpid ? (seen.get(`id:${d.vidpid}`) ?? seen.get(`name:${d.name.toLowerCase()}`)) : named.get(d.name.toLowerCase());
+  const seen = many<Seen>(ctx.db, "SELECT ident, name, vidpid, verdict FROM device_feed WHERE guild_id = ?", guildId);
+  const found = matches([...devices.values()], seen);
+  const match = (d: FeedDevice) => found.get(d);
 
   const sections: { heading: string; items: Item[] }[] = [];
   if (!seeded) {
@@ -131,8 +164,13 @@ export async function runFeed(
   const record = (d: FeedDevice) => {
     const s = match(d);
     if (s) run(ctx.db, "DELETE FROM device_feed WHERE guild_id = ? AND ident = ?", guildId, s.ident);
-    run(ctx.db, "INSERT OR REPLACE INTO device_feed (guild_id, ident, name, vidpid, verdict) VALUES (?, ?, ?, ?, ?)", guildId, identity(d), d.name, d.vidpid ?? null, d.verdict);
+    run(ctx.db, "INSERT OR REPLACE INTO device_feed (guild_id, ident, name, vidpid, verdict) VALUES (?, ?, ?, ?, ?)", guildId, identity(d), d.name, d.vidpid ?? s?.vidpid ?? null, d.verdict);
   };
+  // A device known under another name or id, its verdict the same, is recorded as it is now without a
+  // post, so it's still found once the old name or id is gone.
+  for (const [d, s] of found) {
+    if (s.verdict === d.verdict && (s.ident !== identity(d) || s.name !== d.name || (d.vidpid && d.vidpid !== s.vidpid))) record(d);
+  }
   const parts = messages(sections);
   if (parts.length > 0) {
     const target = await channel(channelId);

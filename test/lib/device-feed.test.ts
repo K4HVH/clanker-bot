@@ -129,6 +129,57 @@ test("a reported device keeps its place when the usage stats are down and its US
   expect(s.sent).toHaveLength(1);
 });
 
+test("a reported device whose USB id moves to another of its ids isn't posted again", async () => {
+  const razer = (vidpid: string): FeedDevice => ({ name: "Razer X", kind: "mouse", verdict: "works", reported: "v3.4.5", vidpid, boxes: 4 });
+  const s = setup([[razer("1532:00c0")], [razer("1532:00c1")], { devices: [{ ...razer("x"), vidpid: undefined }], stats: false }]);
+  await s.run();
+  await s.run();
+  await s.run();
+  expect(s.sent).toHaveLength(1);
+});
+
+test("a renamed report stays known, through a stats outage after", async () => {
+  const foo: FeedDevice = { name: "Foo", kind: "mouse", verdict: "works", vidpid: "1111:2222", reported: "v3.4.5" };
+  const pro: FeedDevice = { ...foo, name: "Foo Pro" };
+  const { vidpid: _, ...proDown } = pro;
+  const s = setup([[foo], [pro], { devices: [proDown], stats: false }]);
+  await s.run();
+  await s.run();
+  await s.run();
+  expect(s.sent).toHaveLength(1);
+});
+
+test("a report taking over a stats device posts its verdict once, whichever id it carries", async () => {
+  const w: FeedDevice = { name: "Bar", kind: "mouse", verdict: "works", vidpid: "aaaa:0001", boxes: 3 };
+  const v: FeedDevice = { ...w, vidpid: "bbbb:0002", boxes: 5 };
+  const rep: FeedDevice = { name: "Bar", kind: "mouse", verdict: "partial", vidpid: "bbbb:0002", reported: "v3.4.5", boxes: 8 };
+  const { vidpid: _, ...repDown } = rep;
+  const s = setup([[w, v], [rep], { devices: [repDown], stats: false }, [{ ...rep, vidpid: "aaaa:0001" }]]);
+  await s.run();
+  await s.run();
+  expect(s.sent[1]!.content).toBe("Changed on Devices:\n- **Bar** (mouse): Partial, was Supported, reported on v3.4.5\n<https://medius.k4tech.net/guide/compatibility>");
+  await s.run();
+  await s.run();
+  expect(s.sent).toHaveLength(2);
+});
+
+test("a device's name can't carry markdown into the post", async () => {
+  const odd: FeedDevice = { name: "**Big** [x](https://bad.example) ]", kind: "mouse", verdict: "works", vidpid: "1:1", boxes: 2, url: `${PAGE}/odd` };
+  const s = setup([[odd]]);
+  await s.run();
+  expect(s.sent[0]!.content).toContain(`- [**\\*\\*Big\\*\\* \\[x\\](https://bad.example) \\]**](<${PAGE}/odd>) (mouse)`);
+});
+
+test("a line longer than a message is cut to fit, so the read still finishes", async () => {
+  const wordy: FeedDevice = { name: "Wordy", kind: "mouse", verdict: "works", reported: "v3.4.5", note: "n".repeat(2500) };
+  const s = setup([[atk, wordy]]);
+  await s.run();
+  expect(s.sent.every((m) => m.content.length <= 2000)).toBe(true);
+  expect(s.sent.map((m) => m.content).join("\n")).toContain("**Wordy**");
+  await s.run();
+  expect(s.sent.length).toBeLessThanOrEqual(2);
+});
+
 test("a long post goes out in parts, and a part that fails is posted again with only what it carried", async () => {
   const many = Array.from({ length: 60 }, (_, i): FeedDevice => ({ name: `Mouse number ${i} with a long name`, kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/m${i}` }));
   const s = setup([[atk], [atk, ...many]]);
