@@ -330,6 +330,13 @@ export function validateSpec(spec: ServerSpec): string[] {
     if (rule.mentionLimit !== undefined && (!Number.isInteger(rule.mentionLimit) || rule.mentionLimit < 1 || rule.mentionLimit > 50)) {
       errors.push(`${at}: mentionLimit must be 1 to 50`);
     }
+    // Discord times out only on keyword and mention rules.
+    if (rule.timeoutSeconds !== undefined) {
+      if (kind === "spam") errors.push(`${at}: timeoutSeconds is for keyword and mentions rules`);
+      else if (!Number.isInteger(rule.timeoutSeconds) || rule.timeoutSeconds < 1 || rule.timeoutSeconds > 2419200) {
+        errors.push(`${at}: timeoutSeconds must be 1 to 2419200 (4 weeks)`);
+      }
+    }
     const list = (items: string[] | undefined, max: number, len: number, what: string) => {
       if (!items) return;
       if (items.length > max) errors.push(`${at}: at most ${max} ${what}${max === 1 ? "" : "s"}`);

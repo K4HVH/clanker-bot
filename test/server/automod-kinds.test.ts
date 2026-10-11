@@ -51,6 +51,23 @@ test("a spam or mentions rule takes no keywords, and there is one of each at mos
   expect(validateSpec(bad)).toEqual(['automod "a": keywords, regex and allow are for keyword rules', "automod: at most one spam rule"]);
 });
 
+test("a timeout is for keyword and mentions rules, up to 4 weeks", () => {
+  const bad = spec({
+    automod: [
+      { key: "a", name: "A", trigger: "spam", block: true, timeoutSeconds: 60 },
+      { key: "b", name: "B", keywords: ["x"], timeoutSeconds: 2419201 },
+      { key: "c", name: "C", trigger: "mentions", mentionLimit: 10, timeoutSeconds: 0 },
+      { key: "d", name: "D", trigger: "mentions", mentionLimit: 10, timeoutSeconds: 2419200 },
+    ],
+  });
+  expect(validateSpec(bad)).toEqual([
+    'automod "a": timeoutSeconds is for keyword and mentions rules',
+    'automod "b": timeoutSeconds must be 1 to 2419200 (4 weeks)',
+    'automod "c": timeoutSeconds must be 1 to 2419200 (4 weeks)',
+    "automod: at most one mentions rule",
+  ]);
+});
+
 test("a mention-spam rule Discord made when Community came on is taken over, not made twice", async () => {
   const f = new FakeDiscord();
   f.onCommunity = () => void f.addRule({ name: "Block Mention Spam", trigger_type: 5, trigger_metadata: { mention_total_limit: 20, mention_raid_protection_enabled: true } });
