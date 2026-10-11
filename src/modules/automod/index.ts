@@ -7,7 +7,7 @@ import { bumpSignatureHit } from "../../db/scam-signature";
 import { getTicketByChannel } from "../../db/tickets";
 import { getChallenge } from "../../db/verification";
 import { parseScamAction, type ScamAction } from "../../lib/actions";
-import { checkContent, type ContentRules, decideEscalation, type Tier } from "../../lib/automod";
+import { type ContentRules, decideEscalation, parseExtList, pickViolation, type Tier } from "../../lib/automod";
 import { Claims } from "../../lib/claim";
 import { CONFIG_KEYS } from "../../lib/config";
 import { HeatTracker, RepeatTracker, SprayTracker } from "../../lib/heat";
@@ -63,8 +63,9 @@ function contentRulesFor(ctx: AppContext, guildId: string): ContentRules {
   };
 }
 
-function anyRuleEnabled(rules: ContentRules, flood: boolean, duplicates: boolean): boolean {
+function anyRuleEnabled(rules: ContentRules, flood: boolean, duplicates: boolean, executables: boolean): boolean {
   return (
+    executables ||
     rules.invites ||
     rules.links ||
     !!rules.wordBlocklist.trim() ||
@@ -331,7 +332,8 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   const rules = contentRulesFor(ctx, guildId);
   const flood = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodFlood);
   const duplicates = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodDuplicates);
-  const heuristicsOn = anyRuleEnabled(rules, flood, duplicates);
+  const executablesOn = ctx.config.getEffective<boolean>(guildId, CONFIG_KEYS.automodExecutables);
+  const heuristicsOn = anyRuleEnabled(rules, flood, duplicates, executablesOn);
   if (sigAction === "off" && sprayAction === "off" && !heuristicsOn) return;
 
   // Ticket channels follow their toggle for every rule (both the heuristic and confirmed-bad rules,
@@ -403,8 +405,8 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
     }
   }
 
-  // ── Heuristic content + rate rules: require content, exempt staff, accumulate on the ladder ──
-  if (!heuristicsOn || !message.content || isStaff) return;
+  // ── Heuristic content + rate rules: exempt staff, accumulate on the ladder ──
+  if (!heuristicsOn || isStaff) return;
   // The verify channel is auto-scrubbed, so the heuristics skip it (the confirmed-bad rules above
   // still run there, to catch a seeded scam a verified hijacked account posts in it).
   if (inVerifyChannel(ctx, message)) return;
@@ -420,18 +422,22 @@ async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise
   }
 
   // Content rules run on new and edited messages, killing the edit-bypass. Don't count the
-  // reply-ping toward the mention limit, it's implicit not spam.
+  // reply-ping toward the mention limit, it's implicit not spam. An executable attachment is
+  // checked before the text, since it often comes with none.
   const repliedTo = message.mentions.repliedUser;
   const replyPing = repliedTo && message.mentions.users.has(repliedTo.id) ? 1 : 0;
   const mentionCount = message.mentions.users.size + message.mentions.roles.size - replyPing;
-  let violation = checkContent(
-    message.content,
-    { mentionCount, massMention: message.mentions.everyone },
+  let violation = pickViolation({
+    content: message.content,
+    attachmentNames: message.attachments.map((a) => a.name),
+    executables: executablesOn ? parseExtList(ctx.config.getEffective<string>(guildId, CONFIG_KEYS.automodExecutableExts) ?? "") : null,
+    mentionCount,
+    massMention: message.mentions.everyone,
     rules,
-  );
+  });
 
-  // Stateful rules only on new messages: an edit doesn't add to flood/duplicate history.
-  if (!violation && !isEdit) {
+  // Stateful rules only on new messages with text: an edit doesn't add to flood/duplicate history.
+  if (!violation && !isEdit && message.content) {
     const windowMs = ctx.config.getEffective<number>(guildId, CONFIG_KEYS.automodFloodSeconds) * 1000;
     const now = Date.now();
     if (

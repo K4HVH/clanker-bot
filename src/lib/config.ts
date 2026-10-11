@@ -1,5 +1,6 @@
 import { ChannelType } from "discord.js";
 import { GUARD_ACTIONS, SCAM_ACTIONS } from "./actions";
+import { DEFAULT_EXECUTABLE_EXTS } from "./automod";
 import { CHECK_CATEGORIES } from "./ticket-check";
 import { type BotDatabase, many, one } from "../db/index";
 
@@ -24,6 +25,8 @@ export const CONFIG_KEYS = {
   automodLinks: "automod_links",
   automodLinkAllowlist: "automod_link_allowlist",
   automodWordBlocklist: "automod_word_blocklist",
+  automodExecutables: "automod_executables",
+  automodExecutableExts: "automod_executable_exts",
   automodMentionLimit: "automod_mention_limit",
   automodMassMention: "automod_mass_mention",
   automodCaps: "automod_caps",
@@ -144,6 +147,7 @@ export const CATEGORIES: Category[] = [
   // All the Automod pages sit together, in enforcement order.
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "automod-actions", label: "Automod Actions", accentColor: 0xc0392b },
+  { id: "automod-attachments", label: "Automod Attachments", accentColor: 0xc0392b },
   { id: "automod-scam", label: "Automod Scam", accentColor: 0xd35400 },
   { id: "automod-scam-seed", label: "Automod Scam Seeding", accentColor: 0xd35400 },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
@@ -183,6 +187,8 @@ export const REGISTRY: Setting[] = [
   { key: K.automodLinks, category: "automod", type: "bool", default: false, label: "Block links", description: "Delete messages with a URL whose domain isn't in the allowlist below." },
   { key: K.automodLinkAllowlist, category: "automod", type: "text", default: "", label: "Link allowlist", description: "Domains that are always allowed, comma/newline separated (e.g. github.com, youtube.com). Subdomains match. Empty = block every link.", placeholder: "github.com, youtube.com\ndocs.espressif.com" },
   { key: K.automodWordBlocklist, category: "automod", type: "text", default: "", label: "Word blocklist", description: "Banned words/phrases, one per line: a word (case-insensitive substring, 3+ chars) or a /regex/. Commas also separate words on a line.", placeholder: "slur1, slur2\n/free ?nitro/" },
+  { key: K.automodExecutables, category: "automod-attachments", type: "bool", default: false, label: "Block executable attachments", description: "Delete a message carrying a program (by the extensions below) from anyone without Manage Messages. Checked on messages with no text too." },
+  { key: K.automodExecutableExts, category: "automod-attachments", type: "text", default: DEFAULT_EXECUTABLE_EXTS, label: "Executable extensions", description: "Attachment endings the check above blocks, comma or newline separated.", placeholder: ".exe, .dll, .bat" },
   { key: K.automodMentionLimit, category: "automod", type: "int", min: 0, max: 50, default: 0, label: "Max mentions per message (0=off)", description: "Delete a message mentioning more than this many users/roles combined. 0 disables." },
   { key: K.automodMassMention, category: "automod", type: "bool", default: false, label: "Block @everyone / @here", description: "Delete a message that pings @everyone or @here (from a non-staff member)." },
   { key: K.automodCaps, category: "automod", type: "bool", default: false, label: "Block excessive caps", description: "Delete a longer message (24+ letters) that is mostly UPPERCASE." },

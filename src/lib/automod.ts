@@ -141,6 +141,38 @@ export function checkContent(
   return null;
 }
 
+// Attachments by extension, for the executable check. The default covers what runs on a double
+// click on Windows; members post logs and screenshots, never programs.
+export const DEFAULT_EXECUTABLE_EXTS = ".exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1";
+
+export function parseExtList(raw: string): string[] {
+  const exts = raw
+    .split(/[\n,]/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .map((s) => (s.startsWith(".") ? s : `.${s}`));
+  return [...new Set(exts)];
+}
+
+export function executableName(names: readonly string[], exts: readonly string[]): string | null {
+  return names.find((n) => exts.some((e) => n.toLowerCase().endsWith(e))) ?? null;
+}
+
+// The rule a message breaks, if any: an executable attachment first (it can come with no text at
+// all), then the content rules on whatever text there is.
+export function pickViolation(input: {
+  content: string;
+  attachmentNames: readonly string[];
+  executables: string[] | null; // null = the check is off
+  mentionCount: number;
+  massMention: boolean;
+  rules: ContentRules;
+}): string | null {
+  if (input.executables && executableName(input.attachmentNames, input.executables)) return "executable attachment";
+  if (!input.content) return null;
+  return checkContent(input.content, { mentionCount: input.mentionCount, massMention: input.massMention }, input.rules);
+}
+
 // ── Escalation ladder ───────────────────────────────────────────────────────
 // A punishment tier: apply `type` once a user reaches `at` violations. `rank` is fixed by
 // severity (timeout < kick < ban) so the ladder is ordered independently of the thresholds.
