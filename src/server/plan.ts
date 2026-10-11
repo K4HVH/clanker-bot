@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REGISTRY_BY_KEY } from "../lib/config";
 import type { Live, LiveChannel, LiveRole, LiveRule } from "./live";
-import { splitPost } from "./posts";
+import { menuComponents, parsePosted, splitPost } from "./posts";
 import { type AllowDeny, keepUnnamed, permissionDiff, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
@@ -100,8 +100,18 @@ export type Op =
   | { t: "automod.update"; key: string; body: AutoModBody; changes: Change[] }
   | { t: "automod.delete"; key: string; name: string; flags: Flag[] }
   | { t: "setting.set"; key: string; value: SettingValue; before: unknown }
-  | { t: "post.create"; key: string; index: number; channel: string; content: string }
-  | { t: "post.edit"; key: string; index: number; content: string }
+  | {
+      t: "post.create";
+      key: string;
+      index: number;
+      channel: string;
+      content: string;
+      thread?: { title: string; pin: boolean }; // a forum post's first chunk starts its thread
+      components?: unknown[]; // a role menu, on the last chunk
+      menuHash?: string;
+    }
+  | { t: "post.edit"; key: string; index: number; content: string; components?: unknown[]; menuHash?: string; clearMenu?: boolean }
+  | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
   | { t: "prune"; kind: "role" | "channel"; id: string; label: string; flags: Flag[] };
 
@@ -788,24 +798,50 @@ class Planner {
 
   planPosts(): void {
     const { spec, state } = this.input;
+    const kinds = new Map(channelsFlat(spec).map(({ channel }) => [channel.key, channel.type]));
     for (const post of spec.posts) {
       if (!this.usable(post.channel)) continue;
       const channelId = this.channels.get(post.channel);
+      const forum = kinds.get(post.channel) === "forum";
       const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8"));
-      const posted = (i: number) => state.get(stateKey("post", `${post.key}#${i}`));
+      const last = chunks.length - 1;
+      const menu = post.menu ? spec.menus?.find((m) => m.key === post.menu) : undefined;
+      const components = menu ? menuComponents(menu) : undefined;
+      const menuHash = components ? createHash("sha256").update(JSON.stringify(components)).digest("hex") : undefined;
+      const postedMenu = state.get(stateKey("post", `${post.key}#menu`));
+      const posted = (i: number) => {
+        const v = state.get(stateKey("post", `${post.key}#${i}`));
+        return v === undefined ? undefined : parsePosted(v);
+      };
       let recreate = false;
       for (let i = 0; i < chunks.length; i++) {
         const content = chunks[i]!;
         const at = posted(i);
-        const [postChannel, messageId] = at ? at.split("/") : [];
-        const liveContent = messageId ? this.live.posts.get(messageId) : undefined;
-        const moved = at !== undefined && postChannel !== channelId;
-        if (recreate || at === undefined || liveContent == null || moved) {
+        const liveContent = at ? this.live.posts.get(at.message) : undefined;
+        const threadGone = forum && i === 0 && at !== undefined && this.live.threads.get(at.channel) == null;
+        const moved = at !== undefined && (at.forum ?? at.channel) !== channelId;
+        const withMenu = i === last ? { ...(components ? { components, menuHash } : {}) } : {};
+        if (recreate || at === undefined || liveContent == null || moved || threadGone) {
           if (at !== undefined && liveContent != null) this.ops.push({ t: "post.delete", key: post.key, index: i });
-          this.ops.push({ t: "post.create", key: post.key, index: i, channel: post.channel, content });
+          const thread = forum && i === 0 ? { thread: { title: post.title ?? post.key, pin: post.pin ?? false } } : {};
+          this.ops.push({ t: "post.create", key: post.key, index: i, channel: post.channel, content, ...thread, ...withMenu });
           recreate = true; // later chunks must follow it, so they are posted again after it
-        } else if (liveContent !== content) {
-          this.ops.push({ t: "post.edit", key: post.key, index: i, content });
+        } else {
+          const menuChanged = i === last && (menuHash ?? null) !== (postedMenu ?? null);
+          if (liveContent !== content || menuChanged) {
+            const clear = menuChanged && !components ? { clearMenu: true } : {};
+            this.ops.push({ t: "post.edit", key: post.key, index: i, content, ...withMenu, ...clear });
+          }
+        }
+      }
+      // A forum post's thread follows the spec's title and pin.
+      const first = posted(0);
+      if (forum && !recreate && first) {
+        const thread = this.live.threads.get(first.channel);
+        const title = post.title ?? post.key;
+        const pin = post.pin ?? false;
+        if (thread && (thread.name !== title || ((thread.flags & 2) !== 0) !== pin)) {
+          this.ops.push({ t: "post.title", key: post.key, title, pin });
         }
       }
       for (let i = chunks.length; posted(i) !== undefined; i++) {

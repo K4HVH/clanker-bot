@@ -90,6 +90,7 @@ export interface Live {
   channels: LiveChannel[];
   rules: LiveRule[];
   posts: Map<string, string | null>; // message id -> content; null when the message is gone
+  threads: Map<string, { name: string; flags: number } | null>; // forum posts' threads; null when gone
   botId: string;
   botTopPosition: number;
   botPermissions: bigint; // @everyone's and the bot's roles', combined
@@ -158,6 +159,7 @@ export async function readLive(
   api: DiscordApi,
   guildId: string,
   postIds: { channelId: string; messageId: string }[],
+  threadIds: string[] = [],
 ): Promise<Live> {
   const [g, roles, channels, rules, me] = await Promise.all([
     api.get<RawGuild>(`/guilds/${guildId}`),
@@ -193,6 +195,17 @@ export async function readLive(
       // 404: deleted by hand, or its channel is gone. Anything else is a real failure to report.
       if (statusOf(error) !== 404) throw error;
       posts.set(messageId, null);
+    }
+  }
+
+  const threads = new Map<string, { name: string; flags: number } | null>();
+  for (const id of threadIds) {
+    try {
+      const t = await api.get<{ name: string; flags?: number }>(`/channels/${id}`);
+      threads.set(id, { name: t.name, flags: t.flags ?? 0 });
+    } catch (error) {
+      if (statusOf(error) !== 404) throw error;
+      threads.set(id, null);
     }
   }
 
@@ -261,6 +274,7 @@ export async function readLive(
       exemptChannels: r.exempt_channels,
     })),
     posts,
+    threads,
     botId: me.id,
     botTopPosition,
     botPermissions,

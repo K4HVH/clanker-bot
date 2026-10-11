@@ -4,6 +4,7 @@ import type { BotDatabase } from "../db/index";
 import type { ConfigService } from "../lib/config";
 import type { DiscordApi } from "./api";
 import { type Live, readLive } from "./live";
+import { parsePosted } from "./posts";
 import { type AutoModBody, buildPlan, FILTER, type ForumBody, NOTIFY, type Op, type Plan, VERIFICATION } from "./plan";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
@@ -52,13 +53,10 @@ export function failureHint(op: Op, error: unknown, spec: ServerSpec): string {
 // Read the server and plan against it. The bot command and the local command both start here.
 export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean, prune = false): Promise<Plan> {
   const state = loadState(env.db, env.guildId);
-  const postIds = [...state.entries()]
-    .filter(([k]) => k.startsWith("post:"))
-    .map(([, v]) => {
-      const [channelId, messageId] = v.split("/");
-      return { channelId: channelId!, messageId: messageId! };
-    });
-  const live = await readLive(env.api, env.guildId, postIds);
+  const posted = [...state.entries()].filter(([k]) => k.startsWith("post:") && !k.endsWith("#menu")).map(([, v]) => parsePosted(v));
+  const postIds = posted.map((p) => ({ channelId: p.channel, messageId: p.message }));
+  const threadIds = posted.filter((p) => p.forum !== undefined).map((p) => p.channel);
+  const live = await readLive(env.api, env.guildId, postIds, threadIds);
   return buildPlan({ spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions, prune });
 }
 
@@ -83,6 +81,7 @@ const PHASE: Record<Op["t"], number> = {
   "setting.set": 10,
   "post.create": 11,
   "post.edit": 11,
+  "post.title": 11,
   "post.delete": 11,
   "automod.delete": 12,
   "channel.delete": 13,
@@ -352,29 +351,64 @@ class Runner {
         return;
       }
       case "post.create": {
-        const channelId = this.channel(op.channel);
-        const m = await api.post<{ id: string }>(`/channels/${channelId}/messages`, { content: op.content, allowed_mentions: { parse: [] } }, reason);
-        this.put("post", `${op.key}#${op.index}`, `${channelId}/${m.id}`);
+        const message = { content: op.content, allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
+        if (op.thread) {
+          // A forum post: its first chunk starts the thread, whose first message has the thread's id.
+          const forumId = this.channel(op.channel);
+          const t = await api.post<{ id: string; message?: { id: string } }>(
+            `/channels/${forumId}/threads`,
+            { name: op.thread.title, message },
+            reason,
+          );
+          if (op.thread.pin) await api.patch(`/channels/${t.id}`, { flags: 2 }, reason);
+          this.put("post", `${op.key}#${op.index}`, `${t.id}/${t.message?.id ?? t.id}@${forumId}`);
+        } else {
+          const first = op.index > 0 ? this.state.get(stateKey("post", `${op.key}#0`)) : undefined;
+          const inThread = first !== undefined ? parsePosted(first) : undefined;
+          const channelId = inThread?.forum !== undefined ? inThread.channel : this.channel(op.channel);
+          const m = await api.post<{ id: string }>(`/channels/${channelId}/messages`, message, reason);
+          const forum = inThread?.forum !== undefined ? `@${inThread.forum}` : "";
+          this.put("post", `${op.key}#${op.index}`, `${channelId}/${m.id}${forum}`);
+        }
+        if (op.menuHash) this.put("post", `${op.key}#menu`, op.menuHash);
         return;
       }
       case "post.edit": {
-        const [channelId, messageId] = this.need("post", `${op.key}#${op.index}`).split("/");
-        await api.patch(`/channels/${channelId}/messages/${messageId}`, { content: op.content, allowed_mentions: { parse: [] } }, reason);
+        const at = parsePosted(this.need("post", `${op.key}#${op.index}`));
+        const components = op.components ?? (op.clearMenu ? [] : undefined);
+        await api.patch(
+          `/channels/${at.channel}/messages/${at.message}`,
+          { content: op.content, allowed_mentions: { parse: [] }, ...(components ? { components } : {}) },
+          reason,
+        );
+        if (op.menuHash) this.put("post", `${op.key}#menu`, op.menuHash);
+        else if (op.clearMenu) this.drop("post", `${op.key}#menu`);
+        return;
+      }
+      case "post.title": {
+        const at = parsePosted(this.need("post", `${op.key}#0`));
+        await api.patch(`/channels/${at.channel}`, { name: op.title, flags: op.pin ? 2 : 0 }, reason);
         return;
       }
       case "prune":
         await api.delete(op.kind === "channel" ? `/channels/${op.id}` : `${this.g}/roles/${op.id}`, reason);
         return;
       case "post.delete": {
-        const [channelId, messageId] = this.need("post", `${op.key}#${op.index}`).split("/");
+        const at = parsePosted(this.need("post", `${op.key}#${op.index}`));
+        // A forum post's first chunk is its thread: deleting the thread deletes the post.
+        const route: `/${string}` = at.forum !== undefined && op.index === 0 ? `/channels/${at.channel}` : `/channels/${at.channel}/messages/${at.message}`;
         try {
-          await api.delete(`/channels/${channelId}/messages/${messageId}`, reason);
+          await api.delete(route, reason);
         } catch (error) {
           // Already gone by hand: the state row is all that's left to remove.
           if ((error as { status?: number }).status !== 404) throw error;
         }
         this.drop("post", `${op.key}#${op.index}`);
         return;
+      }
+      default: {
+        const unhandled: never = op;
+        throw new Error(`no way to apply ${(unhandled as Op).t}`);
       }
     }
   }

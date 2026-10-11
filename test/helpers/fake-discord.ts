@@ -58,6 +58,7 @@ export interface RawMessage {
   channel_id: string;
   content: string;
   author: { id: string };
+  components?: unknown[];
 }
 
 export interface Write {
@@ -208,6 +209,7 @@ export class FakeDiscord implements DiscordApi {
       if (!msg) throw new FakeError("unknown message", 404);
       return structuredClone(msg) as T;
     }
+    if ((m = route.match(/^\/channels\/(\d+)$/))) return structuredClone(this.channel(m[1]!)) as T;
     if ((m = route.match(/^\/channels\/(\d+)\/messages(\?.*)?$/))) {
       return structuredClone(this.messages.filter((x) => x.channel_id === m![1]).reverse()) as T;
     }
@@ -258,7 +260,18 @@ export class FakeDiscord implements DiscordApi {
     }
     if ((m = route.match(/^\/channels\/(\d+)\/messages$/))) {
       this.channel(m[1]!);
-      return structuredClone(this.addMessage(m[1]!, String(b.content))) as T;
+      const msg = this.addMessage(m[1]!, String(b.content));
+      if (b.components) msg.components = b.components as unknown[];
+      return structuredClone(msg) as T;
+    }
+    if ((m = route.match(/^\/channels\/(\d+)\/threads$/))) {
+      const forum = this.channel(m[1]!);
+      const thread = this.addChannel({ name: String(b.name), type: 11, parent_id: forum.id });
+      const first = b.message as { content: string; components?: unknown[] };
+      // A forum thread's first message has the thread's id.
+      const msg: RawMessage = { id: thread.id, channel_id: thread.id, content: first.content, author: { id: this.botId }, ...(first.components ? { components: first.components } : {}) };
+      this.messages.push(msg);
+      return structuredClone({ ...thread, message: msg }) as T;
     }
     throw new Error(`fake: no route POST ${route}`);
   }
@@ -302,7 +315,9 @@ export class FakeDiscord implements DiscordApi {
     if ((m = route.match(/^\/channels\/(\d+)\/messages\/(\d+)$/))) {
       const msg = this.messages.find((x) => x.channel_id === m![1] && x.id === m![2]);
       if (!msg) throw new FakeError("unknown message", 404);
-      msg.content = String((body as Body).content);
+      const b = body as Body;
+      msg.content = String(b.content);
+      if (b.components !== undefined) msg.components = b.components as unknown[];
       return structuredClone(msg) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)$/))) {

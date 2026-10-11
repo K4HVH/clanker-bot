@@ -40,6 +40,7 @@ export interface ChannelSpec {
   // Claim the channel's member overwrites too: any not declared here are removed.
   members?: "managed";
   forum?: ForumSpec; // forum and media channels; `topic` is the forum's posting guidelines
+  publish?: boolean; // an announcement channel whose messages Clanker publishes to following servers
 }
 
 export interface ForumTag {
@@ -101,6 +102,21 @@ export interface PostSpec {
   key: string;
   channel: string;
   file: string;
+  title?: string; // a forum post's title: the post is a thread
+  pin?: boolean; // pin the forum post
+  menu?: string; // a role menu's key: its select menus follow the text
+}
+
+// Role menus: questions whose answers give roles. A post shows one as select menus; picking gives or
+// takes the roles. Options name roles by key, so a menu works on any server built from the spec.
+export interface MenuSpec {
+  key: string;
+  questions: {
+    key: string;
+    title: string;
+    multiple?: boolean;
+    options: { label: string; description?: string; emoji?: string; role: string }[];
+  }[];
 }
 
 export type SettingValue =
@@ -122,6 +138,7 @@ export interface ServerSpec {
   channels: (ChannelSpec | CategorySpec)[];
   automod: AutoModSpec[];
   posts: PostSpec[];
+  menus?: MenuSpec[];
   bot: Record<string, SettingValue>;
 }
 
@@ -244,8 +261,28 @@ export function validateSpec(spec: ServerSpec): string[] {
     for (const c of rule.exemptChannels ?? []) if (!channelKeys.has(c)) errors.push(`${at}: unknown channel "${c}"`);
   }
 
+  const menuKeys = new Set<string>();
+  for (const menu of spec.menus ?? []) {
+    const at = `menu "${menu.key}"`;
+    if (menuKeys.has(menu.key)) errors.push(`menu key "${menu.key}" used twice`);
+    menuKeys.add(menu.key);
+    if (menu.questions.length === 0 || menu.questions.length > 5) errors.push(`${at}: 1 to 5 questions`);
+    for (const q of menu.questions) {
+      if (q.title.length > 150) errors.push(`${at}: question "${q.key}" title is longer than 150 characters`);
+      if (q.options.length === 0 || q.options.length > 25) errors.push(`${at}: question "${q.key}" needs 1 to 25 options`);
+      for (const o of q.options) {
+        if (!roleKeys.has(o.role)) errors.push(`${at}: unknown role "${o.role}"`);
+        if (o.label.length > 100 || (o.description ?? "").length > 100) errors.push(`${at}: option "${o.label}" is longer than 100 characters`);
+      }
+    }
+  }
+
+  const forumKeys = new Set(flat.filter((c) => c.channel.type === "forum").map((c) => c.channel.key));
   const postKeys = new Set<string>();
   for (const post of spec.posts) {
+    if (forumKeys.has(post.channel) && !post.title) errors.push(`post "${post.key}": a post in a forum needs a title`);
+    if (post.title !== undefined && post.title.length > 100) errors.push(`post "${post.key}": title is longer than 100 characters`);
+    if (post.menu !== undefined && !menuKeys.has(post.menu)) errors.push(`post "${post.key}": unknown menu "${post.menu}"`);
     if (postKeys.has(post.key)) errors.push(`post key "${post.key}" used twice`);
     postKeys.add(post.key);
     if (!textKeys.has(post.channel)) errors.push(`post "${post.key}": unknown channel "${post.channel}"`);

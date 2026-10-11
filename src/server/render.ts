@@ -113,10 +113,15 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["AutoMod", `- AutoMod "${op.name}"`];
       case "setting.set":
         return ["Bot settings", `${op.key}: ${setting(op.before)} -> ${setting(op.value)}`];
-      case "post.create":
-        return ["Posts", `+ ${op.key}, part ${op.index + 1} (${op.content.length} characters) in ${channel(op.channel)}`];
+      case "post.create": {
+        const what = op.thread ? `forum post "${op.thread.title}"${op.thread.pin ? ", pinned" : ""}` : `${op.key}, part ${op.index + 1}`;
+        const menu = op.components ? ", with its role menu" : "";
+        return ["Posts", `+ ${what} (${op.content.length} characters) in ${channel(op.channel)}${menu}`];
+      }
       case "post.edit":
-        return ["Posts", `${op.key}, part ${op.index + 1}: edited (${op.content.length} characters)`];
+        return ["Posts", `${op.key}, part ${op.index + 1}: edited (${op.content.length} characters)${op.components ? ", role menu updated" : op.clearMenu ? ", role menu removed" : ""}`];
+      case "post.title":
+        return ["Posts", `${op.key}: title "${op.title}"${op.pin ? ", pinned" : ", not pinned"}`];
       case "post.delete":
         return ["Posts", `- ${op.key}, part ${op.index + 1}`];
       case "prune":
