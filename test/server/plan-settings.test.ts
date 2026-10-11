@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PermissionFlagsBits } from "discord.js";
@@ -230,4 +230,39 @@ test("an announcement channel without Community is a manual step", async () => {
   const p = await plan(f, spec({ roles: [], channels: [{ key: "news", type: "announcement", name: "news" }] }), new Map());
   expect(p.ops.filter((o) => o.t === "channel.create")).toEqual([]);
   expect(p.manual).toEqual(['#news needs Community on: turn it on in the file, or make it a text channel']);
+});
+
+describe("a key that can't be planned", () => {
+  test("nothing that names it is planned, so Apply never stops on it", async () => {
+    const f = new FakeDiscord();
+    const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+    f.addChannel({ name: "logs" });
+    f.addChannel({ name: "logs" });
+    const rules = f.addChannel({ name: "rules" });
+    const state: State = new Map([[stateKey("role", "dev"), dev.id], [stateKey("channel", "rules"), rules.id]]);
+    const s = spec({
+      guild: { systemChannel: "logs" },
+      bot: { mod_log_channel_id: { channel: "logs" } },
+      posts: [{ key: "notes", channel: "logs", file: "post.md" }],
+      automod: [{ key: "r", name: "R", keywords: ["x"], alert: "logs" }],
+    });
+    const p = await plan(f, s, state);
+    expect(p.manual).toEqual(['2 channels named "logs": rename one so "logs" can bind']);
+    expect(p.ops).toEqual([]);
+  });
+
+  test("a category that can't be planned takes its channels with it", async () => {
+    const f = new FakeDiscord();
+    const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+    f.addChannel({ name: "Info", type: 4 });
+    f.addChannel({ name: "Info", type: 4 });
+    const state: State = new Map([[stateKey("role", "dev"), dev.id]]);
+    const s = spec({
+      channels: [{ key: "info", type: "category", name: "Info", channels: [{ key: "rules", type: "text", name: "rules" }] }],
+      bot: { mod_log_channel_id: { channel: "rules" } },
+      posts: [{ key: "rules", channel: "rules", file: "post.md" }],
+    });
+    const p = await plan(f, s, state);
+    expect(p.ops).toEqual([]);
+  });
 });

@@ -147,6 +147,11 @@ class Planner {
     return this.input.live;
   }
 
+  // Whether a channel key is part of this plan: resolved, and not planned around.
+  usable(key: string): boolean {
+    return this.channels.has(key) && !this.skipped.has(key);
+  }
+
   liveRole(id: string): LiveRole | undefined {
     return this.live.roles.find((r) => r.id === id);
   }
@@ -324,7 +329,10 @@ class Planner {
     const reparented = new Set<string>();
     for (const { channel, parent } of flat) {
       if (!this.channels.has(channel.key)) continue;
-      if (parent !== null && !this.channels.has(parent)) continue; // its category can't be planned
+      if (parent !== null && !this.channels.has(parent)) {
+        this.skipped.add(channel.key); // its category can't be planned
+        continue;
+      }
       const id = this.channels.get(channel.key);
       const type = CHANNEL_TYPE[channel.type];
       const plain = channel.type !== "category" ? (channel as ChannelSpec) : undefined;
@@ -529,6 +537,11 @@ class Planner {
     const field = (name: string, from: unknown, to: unknown) => {
       if (to !== undefined && from !== to) changes.push({ field: name, from, to });
     };
+    // A channel field naming a key that can't be planned is left as it is.
+    const channelField = (name: string, from: string | null, to: string | null | undefined) => {
+      if (to === undefined || (to !== null && !this.usable(to))) return;
+      field(name, from, to);
+    };
     field("name", live.name, g.name);
     field("description", live.description, g.description);
     const level = (n: number) => VERIFICATION[n] ?? String(n);
@@ -538,18 +551,21 @@ class Planner {
     field("explicitContentFilter", filter(live.explicitContentFilter), g.explicitContentFilter);
     if (g.explicitContentFilter !== undefined && FILTER.indexOf(g.explicitContentFilter) < live.explicitContentFilter) lowered = true;
     field("defaultNotifications", NOTIFY[live.defaultNotifications] ?? String(live.defaultNotifications), g.defaultNotifications);
-    field("systemChannel", this.channelRef(live.systemChannelId), g.systemChannel);
-    field("safetyAlertsChannel", this.channelRef(live.safetyAlertsChannelId), g.safetyAlertsChannel);
+    channelField("systemChannel", this.channelRef(live.systemChannelId), g.systemChannel);
+    channelField("safetyAlertsChannel", this.channelRef(live.safetyAlertsChannelId), g.safetyAlertsChannel);
 
     const on = live.features.includes("COMMUNITY");
     let community: Op | null = null;
     if (g.community && !on) {
       const missing = this.communityMissing();
+      for (const key of [g.community.rules, g.community.updates]) {
+        if (!this.usable(key)) missing.push(`Community needs #${key}, which this plan can't make`);
+      }
       if (missing.length > 0) this.manual.push(...missing);
       else community = { t: "community", enable: true, flags: [] };
     } else if (g.community && on) {
-      field("rulesChannel", this.channelRef(live.rulesChannelId), g.community.rules);
-      field("updatesChannel", this.channelRef(live.publicUpdatesChannelId), g.community.updates);
+      channelField("rulesChannel", this.channelRef(live.rulesChannelId), g.community.rules);
+      channelField("updatesChannel", this.channelRef(live.publicUpdatesChannelId), g.community.updates);
     } else if (g.community === false && on) {
       community = { t: "community", enable: false, flags: ["deletes"] };
     }
@@ -615,8 +631,8 @@ class Planner {
   planAutomod(): void {
     for (const rule of this.input.spec.automod) {
       if (!this.rules.has(rule.key)) continue;
-      const refs = [...(rule.exemptRoles ?? []).map((k) => this.roles.has(k)), ...(rule.exemptChannels ?? []).map((k) => this.channels.has(k))];
-      if (rule.alert !== undefined) refs.push(this.channels.has(rule.alert));
+      const refs = [...(rule.exemptRoles ?? []).map((k) => this.roles.has(k)), ...(rule.exemptChannels ?? []).map((k) => this.usable(k))];
+      if (rule.alert !== undefined) refs.push(this.usable(rule.alert));
       if (refs.includes(false)) continue; // names something that can't be planned
       const body = this.automodBody(rule);
       const id = this.rules.get(rule.key);
@@ -635,19 +651,20 @@ class Planner {
 
   // A setting's value as stored: a key resolved to its id. Undefined when it names something not
   // yet created (compared as different; Apply resolves it) or that can't be planned.
-  settingValue(value: SettingValue): { ok: true; value: unknown } | { ok: false } {
-    const one = (map: Resolved, key: string) => map.get(key);
+  // "pending": names something this plan creates (compared as different; Apply resolves it).
+  // "skip": names something that can't be planned, so the setting is left alone.
+  settingValue(value: SettingValue): { ok: true; value: unknown } | { ok: false; why: "pending" | "skip" } {
+    const resolve = (key: string, kind: "channel" | "role") => {
+      if (kind === "channel" ? !this.usable(key) : !this.roles.has(key)) return "skip" as const;
+      const id = (kind === "channel" ? this.channels : this.roles).get(key);
+      return typeof id === "string" ? id : ("pending" as const);
+    };
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      if ("channel" in value) {
-        const id = one(this.channels, value.channel);
-        return typeof id === "string" ? { ok: true, value: id } : { ok: false };
-      }
-      if ("role" in value) {
-        const id = one(this.roles, value.role);
-        return typeof id === "string" ? { ok: true, value: id } : { ok: false };
-      }
-      const ids = value.roles.map((k) => one(this.roles, k));
-      return ids.every((id) => typeof id === "string") ? { ok: true, value: ids } : { ok: false };
+      const ids =
+        "channel" in value ? [resolve(value.channel, "channel")] : "role" in value ? [resolve(value.role, "role")] : value.roles.map((k) => resolve(k, "role"));
+      if (ids.includes("skip")) return { ok: false, why: "skip" };
+      if (ids.includes("pending")) return { ok: false, why: "pending" };
+      return { ok: true, value: "roles" in value ? ids : ids[0] };
     }
     return { ok: true, value: value === null ? undefined : value };
   }
@@ -659,6 +676,7 @@ class Planner {
       const fallback = REGISTRY_BY_KEY.get(key)?.default;
       const current = stored !== undefined ? stored : fallback;
       const wanted = this.settingValue(value);
+      if (!wanted.ok && wanted.why === "skip") continue;
       if (wanted.ok && JSON.stringify(wanted.value ?? null) === JSON.stringify(current ?? null)) continue;
       this.ops.push({ t: "setting.set", key, value, before: current });
     }
@@ -669,7 +687,7 @@ class Planner {
   planPosts(): void {
     const { spec, state } = this.input;
     for (const post of spec.posts) {
-      if (!this.channels.has(post.channel)) continue;
+      if (!this.usable(post.channel)) continue;
       const channelId = this.channels.get(post.channel);
       const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8"));
       const posted = (i: number) => state.get(stateKey("post", `${post.key}#${i}`));
