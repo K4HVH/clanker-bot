@@ -389,7 +389,7 @@ export class FakeDiscord implements DiscordApi {
     const given = route.match(/^\/guilds\/\d+\/members\/(\d+)\/roles\/(\d+)$/);
     if (given) {
       const member = this.members.find((x) => x.user.id === given[1]);
-      if (!member) throw new FakeError("unknown member", 404);
+      if (!member) throw new FakeError("Unknown Member", 404, 10007);
       if (!member.roles.includes(given[2]!)) member.roles.push(given[2]!);
       return;
     }

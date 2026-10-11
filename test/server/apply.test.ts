@@ -304,6 +304,31 @@ test("a role given to the members already here goes to each of them once, and no
   expect((await planFor(e2, false)).ops).toEqual([]);
 });
 
+test("a member who leaves while the role is given out is passed over", async () => {
+  const e = env();
+  const e2 = { ...e, spec: { ...e.spec, roles: [...e.spec.roles, { key: "pings", name: "Pings", grantToExisting: true, permissions: [] }] } };
+  e.f.members.push({ user: { id: "1001" }, roles: [] }, { user: { id: "1003" }, roles: [] });
+  e.f.refuse((w) => w.method === "PUT" && w.route.includes("/members/1001/roles/"), 404, 10007, "Unknown Member");
+  expect((await applyPlan(e2, await planFor(e2, false))).failed).toBeNull();
+  const pings = e.f.roles.find((r) => r.name === "Pings")!.id;
+  expect(e.f.members.find((m) => m.user.id === "1003")!.roles).toContain(pings);
+});
+
+test("a role deleted in Discord and made again goes to the members again", async () => {
+  const e = env();
+  const e2 = { ...e, spec: { ...e.spec, roles: [...e.spec.roles, { key: "pings", name: "Pings", grantToExisting: true, permissions: [] }] } };
+  e.f.members.push({ user: { id: "1001" }, roles: [] });
+  await applyPlan(e2, await planFor(e2, false));
+  const first = e.f.roles.find((r) => r.name === "Pings")!.id;
+  e.f.roles = e.f.roles.filter((r) => r.id !== first);
+  e.f.members[0]!.roles = [];
+  const plan = await planFor(e2, false);
+  expect(plan.ops.map((o) => o.t)).toContain("role.grant");
+  await applyPlan(e2, plan);
+  const again = e.f.roles.find((r) => r.name === "Pings")!.id;
+  expect(e.f.members[0]!.roles).toEqual([again]);
+});
+
 test("a post taken out of the file is deleted with the deletions", async () => {
   const e = env();
   await applyPlan(e, await planFor(e, false));

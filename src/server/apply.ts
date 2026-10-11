@@ -283,6 +283,7 @@ class Runner {
       case "role.delete":
         await api.delete(`${this.g}/roles/${this.role(op.key)}`, reason);
         this.drop("role", op.key);
+        this.drop("grant", op.key);
         return;
       case "role.order": {
         // Permute the positions these roles already hold, so roles the spec doesn't manage, and
@@ -358,17 +359,21 @@ class Runner {
       }
       case "role.grant": {
         // Members already holding it are skipped, so a run that stops part way carries on next time.
+        // Recorded against the role's id: a role made again is given out again.
         const role = this.role(op.key);
         let after = "0";
         for (;;) {
           const page = await api.get<{ user: { id: string; bot?: boolean }; roles: string[] }[]>(`${this.g}/members?limit=1000&after=${after}`);
           for (const m of page) {
-            if (!m.user.bot && !m.roles.includes(role)) await api.put(`${this.g}/members/${m.user.id}/roles/${role}`, undefined, reason);
+            if (m.user.bot || m.roles.includes(role)) continue;
+            await api.put(`${this.g}/members/${m.user.id}/roles/${role}`, undefined, reason).catch((error: unknown) => {
+              if ((error as { code?: unknown }).code !== 10007) throw error; // left since the page was read
+            });
           }
           if (page.length < 1000) break;
           after = page[page.length - 1]!.user.id;
         }
-        this.put("grant", op.key, "done");
+        this.put("grant", op.key, role);
         return;
       }
       case "onboarding.set": {

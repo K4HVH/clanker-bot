@@ -496,8 +496,9 @@ class Planner {
     this.planBotRole();
 
     for (const role of spec.roles) {
-      if (!role.grantToExisting || !this.roles.has(role.key) || this.input.state.has(stateKey("grant", role.key))) continue;
+      if (!role.grantToExisting || !this.roles.has(role.key)) continue;
       const id = this.roles.get(role.key);
+      if (this.input.state.get(stateKey("grant", role.key)) === id) continue;
       const live = id ? this.liveRole(id) : undefined;
       if (live && this.aboveBot(live)) {
         this.manual.push(`Role "${live.name}" is above the bot's role, so the bot can't give it to the members. Drag the bot's role above it in Server Settings > Roles and plan again`);
