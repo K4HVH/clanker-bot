@@ -114,6 +114,7 @@ export interface Live {
   channels: LiveChannel[];
   rules: LiveRule[];
   posts: Map<string, string | null>; // message id -> content; null when the message is gone
+  embeds: Map<string, string | null>; // message id -> its first embed's text (a panel's)
   threads: Map<string, { name: string; flags: number } | null>; // forum posts' threads; null when gone
   botId: string;
   botTopPosition: number;
@@ -219,9 +220,12 @@ export async function readLive(
   const botPermissions = [...botRoles, ...liveRoles.filter((r) => r.id === guildId)].reduce((acc, r) => acc | r.permissions, 0n);
 
   const posts = new Map<string, string | null>();
+  const embeds = new Map<string, string | null>();
   for (const { channelId, messageId } of postIds) {
     try {
-      posts.set(messageId, (await api.get<{ content: string }>(`/channels/${channelId}/messages/${messageId}`)).content);
+      const m = await api.get<{ content: string; embeds?: { description?: string }[] }>(`/channels/${channelId}/messages/${messageId}`);
+      posts.set(messageId, m.content);
+      embeds.set(messageId, m.embeds?.[0]?.description ?? null);
     } catch (error) {
       // 404: deleted by hand, or its channel is gone. Anything else is a real failure to report.
       if (statusOf(error) !== 404) throw error;
@@ -306,6 +310,7 @@ export async function readLive(
       exemptChannels: r.exempt_channels,
     })),
     posts,
+    embeds,
     threads,
     botId: me.id,
     botTopPosition,

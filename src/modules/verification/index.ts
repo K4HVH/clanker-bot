@@ -17,6 +17,7 @@ import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, Listener, SlashCommand } from "../../core/module";
 import { type CaptchaDifficulty, ensureWasm, generateCode, renderCaptcha } from "../../lib/captcha";
 import { CONFIG_KEYS } from "../../lib/config";
+import { panelMessage } from "../../lib/panels";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logMemberEvent, logModAlert, userValue } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
@@ -623,15 +624,7 @@ const panelSub: Subcommand = {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setTitle("Server Verification")
-      .setDescription(
-        ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.verificationPanelText),
-      );
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId("verify_start").setLabel("Verify").setStyle(ButtonStyle.Success),
-    );
-    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.channel.send(panelMessage("verify", ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.verificationPanelText)));
     await interaction.reply({ content: "Panel posted.", flags: MessageFlags.Ephemeral });
   },
 };

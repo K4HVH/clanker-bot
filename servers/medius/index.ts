@@ -240,6 +240,8 @@ export default defineServer({
     { key: "rules", channel: "rules", file: "rules.md" },
     { key: "welcome", channel: "start-here", file: "welcome.md" },
     { key: "help", channel: "help", file: "help.md" },
+    { key: "ticket-panel", channel: "ticket", panel: "ticket" },
+    { key: "verify-panel", channel: "verify", panel: "verify" },
   ],
   bot: {
     automod_executables: true,

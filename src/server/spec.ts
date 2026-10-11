@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getSetting, validateSetting } from "../lib/config";
+import type { PanelKind } from "../lib/panels";
 import { isPermissionName, type PermissionName } from "./permissions";
 
 // A server described as data: what /server plan compares the live server against. Everything is
@@ -148,7 +149,8 @@ export interface AutoModSpec {
 export interface PostSpec {
   key: string;
   channel: string;
-  file: string;
+  file?: string; // Markdown in the spec's directory
+  panel?: PanelKind; // or the bot's ticket or captcha panel, with its text from the bot settings
   title?: string; // a forum post's title: the post is a thread
   pin?: boolean; // pin the forum post
   menu?: string; // a role menu's key: its select menus follow the text
@@ -358,7 +360,11 @@ export function validateSpec(spec: ServerSpec): string[] {
     if (postKeys.has(post.key)) errors.push(`post key "${post.key}" used twice`);
     postKeys.add(post.key);
     if (!textKeys.has(post.channel)) errors.push(`post "${post.key}": unknown channel "${post.channel}"`);
-    if (!existsSync(join(spec.dir, post.file))) {
+    if ((post.file === undefined) === (post.panel === undefined)) {
+      errors.push(`post "${post.key}": a file or a panel, not both`);
+    } else if (post.file === undefined) {
+      // a panel: nothing to read
+    } else if (!existsSync(join(spec.dir, post.file))) {
       errors.push(`post "${post.key}": no file ${post.file}`);
     } else {
       for (const [, key] of readFileSync(join(spec.dir, post.file), "utf8").matchAll(/\{#([a-z0-9-]+)\}/g)) {

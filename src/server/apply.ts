@@ -17,9 +17,10 @@ import {
   type Op,
   type Plan,
   parseEmoji,
-  retiredChannels,
+  prepass,
   VERIFICATION,
 } from "./plan";
+import { PANELS, panelMessage } from "../lib/panels";
 import { describeOp } from "./render";
 import type { ServerSpec, SettingValue } from "./spec";
 import { dropState, loadState, putState, type State, stateKey } from "./state";
@@ -32,6 +33,13 @@ export interface ApplyEnv {
   spec: ServerSpec;
   reason: string; // shown in Discord's audit log on every change
   download?: (url: string) => Promise<Uint8Array>; // a retired channel's files, to upload again
+}
+
+interface RawPanelMessage {
+  id: string;
+  author: { id: string };
+  embeds?: { description?: string }[];
+  components?: { components?: { custom_id?: string }[] }[];
 }
 
 async function fetchFile(url: string): Promise<Uint8Array> {
@@ -81,13 +89,22 @@ export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean,
   const threadIds = posted.filter((p) => p.forum !== undefined).map((p) => p.channel);
   const live = await readLive(env.api, env.guildId, postIds, threadIds);
   const input = { spec: env.spec, live, state, settings: env.config.all(env.guildId), deletions, prune };
-  const retired = retiredChannels(input);
-  if (retired.length === 0) return buildPlan(input);
+  const { retired, panels } = prepass(input);
+  if (retired.length === 0 && panels.length === 0) return buildPlan(input);
   const histories = new Map<string, History>();
   for (const id of retired) {
     histories.set(id, { messages: await readHistory(env.api, id), threads: await readThreadCount(env.api, env.guildId, id) });
   }
-  return buildPlan({ ...input, histories });
+  // A panel posted by hand is the bot's message with the panel's button, among the channel's last 50.
+  const found = new Map<string, { channel: string; message: string; text: string | null }>();
+  for (const { key, kind, channelId } of panels) {
+    const recent = await env.api.get<RawPanelMessage[]>(`/channels/${channelId}/messages?limit=50`);
+    const m = recent.find(
+      (x) => x.author.id === live.botId && x.components?.some((row) => row.components?.some((c) => c.custom_id === PANELS[kind].customId)),
+    );
+    if (m) found.set(key, { channel: channelId, message: m.id, text: m.embeds?.[0]?.description ?? null });
+  }
+  return buildPlan({ ...input, histories, panels: found });
 }
 
 // The order operations run in, whatever order the plan lists them: what a later step names must
@@ -514,7 +531,9 @@ class Runner {
         return;
       }
       case "post.create": {
-        const message = { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
+        const message = op.panel
+          ? { ...panelMessage(op.panel.kind, op.panel.text), allowed_mentions: { parse: [] } }
+          : { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
         if (op.thread) {
           // A forum post: its first chunk starts the thread, whose first message has the thread's id.
           const forumId = this.channel(op.channel);
@@ -539,11 +558,10 @@ class Runner {
       case "post.edit": {
         const at = parsePosted(this.need("post", `${op.key}#${op.index}`));
         const components = op.components ?? (op.clearMenu ? [] : undefined);
-        await api.patch(
-          `/channels/${at.channel}/messages/${at.message}`,
-          { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(components ? { components } : {}) },
-          reason,
-        );
+        const body = op.panel
+          ? { content: "", ...panelMessage(op.panel.kind, op.panel.text), allowed_mentions: { parse: [] } }
+          : { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(components ? { components } : {}) };
+        await api.patch(`/channels/${at.channel}/messages/${at.message}`, body, reason);
         if (op.menuHash) this.put("post", `${op.key}#menu`, op.menuHash);
         else if (op.clearMenu) this.drop("post", `${op.key}#menu`);
         return;

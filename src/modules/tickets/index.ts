@@ -37,6 +37,7 @@ import {
 } from "../../db/tickets";
 import { clearCheckResult, recordCheckPass } from "../../db/ticket-check";
 import { CONFIG_KEYS } from "../../lib/config";
+import { panelMessage } from "../../lib/panels";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
 import {
@@ -392,13 +393,7 @@ const panelSub: Subcommand = {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setTitle("Support")
-      .setDescription(ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText));
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId("ticket_open").setLabel("Open Ticket").setStyle(ButtonStyle.Success),
-    );
-    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.channel.send(panelMessage("ticket", ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText)));
     await interaction.reply({ content: "Panel posted.", flags: MessageFlags.Ephemeral });
   },
 };

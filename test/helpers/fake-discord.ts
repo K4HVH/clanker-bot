@@ -351,6 +351,7 @@ export class FakeDiscord implements DiscordApi {
       const b = body as Body;
       msg.content = String(b.content);
       if (b.components !== undefined) msg.components = b.components as unknown[];
+      if (b.embeds !== undefined) msg.embeds = b.embeds as Record<string, unknown>[];
       return structuredClone(msg) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)$/))) {

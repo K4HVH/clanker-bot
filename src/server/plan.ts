@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REGISTRY_BY_KEY } from "../lib/config";
+import { type PanelKind, PANELS, panelText } from "../lib/panels";
 import { after, copyable, type History } from "./history";
 import type { Live, LiveChannel, LiveOverwrite, LiveRole, LiveRule } from "./live";
 import { menuComponents, parsePosted, splitPost } from "./posts";
@@ -71,7 +72,7 @@ export interface AutoModBody {
 }
 
 export type Op =
-  | { t: "bind"; kind: "role" | "channel" | "automod" | "asset"; key: string; id: string; label: string; replaces?: string }
+  | { t: "bind"; kind: "role" | "channel" | "automod" | "asset" | "post"; key: string; id: string; label: string; replaces?: string }
   | { t: "role.create"; key: string; name: string; color: number; hoist: boolean; mentionable: boolean; permissions: bigint; flags: Flag[] }
   | { t: "role.update"; key: string; changes: Change[]; flags: Flag[] }
   | { t: "role.delete"; key: string; name: string; flags: Flag[] }
@@ -115,8 +116,9 @@ export type Op =
       thread?: { title: string; pin: boolean }; // a forum post's first chunk starts its thread
       components?: unknown[]; // a role menu, on the last chunk
       menuHash?: string;
+      panel?: { kind: PanelKind; text: string };
     }
-  | { t: "post.edit"; key: string; index: number; content: string; components?: unknown[]; menuHash?: string; clearMenu?: boolean }
+  | { t: "post.edit"; key: string; index: number; content: string; components?: unknown[]; menuHash?: string; clearMenu?: boolean; panel?: { kind: PanelKind; text: string } }
   | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
   | { t: "prune"; kind: "role" | "channel"; id: string; label: string; flags: Flag[] };
@@ -161,6 +163,7 @@ export interface PlanInput {
   // Delete live roles and channels the spec doesn't name (Discord's defaults on a new server, say).
   prune?: boolean;
   histories?: Map<string, History>; // retired channels' messages, by channel id
+  panels?: Map<string, { channel: string; message: string; text: string | null }>; // panels found in their channels, by post key
 }
 
 // Each wanted item with the live id it keeps: the live one of the same title, else the one in its place
@@ -1078,6 +1081,10 @@ class Planner {
     for (const post of spec.posts) {
       if (!this.usable(post.channel)) continue;
       const channelId = this.channels.get(post.channel);
+      if (post.panel) {
+        this.planPanel(post.key, post.panel, post.channel, channelId ?? null);
+        continue;
+      }
       const forum = kinds.get(post.channel) === "forum";
       // "{#key}" names a channel: filled in with its id here, or at apply for one this plan creates.
       const fill = (text: string) =>
@@ -1085,7 +1092,7 @@ class Planner {
           const id = this.channels.get(key);
           return typeof id === "string" ? `<#${id}>` : all;
         });
-      const chunks = splitPost(readFileSync(join(spec.dir, post.file), "utf8")).map(fill);
+      const chunks = splitPost(readFileSync(join(spec.dir, post.file!), "utf8")).map(fill);
       const last = chunks.length - 1;
       const menu = post.menu ? spec.menus?.find((m) => m.key === post.menu) : undefined;
       const components = menu ? menuComponents(menu) : undefined;
@@ -1130,6 +1137,42 @@ class Planner {
         this.ops.push({ t: "post.delete", key: post.key, index: i });
       }
     }
+  }
+
+  // A panel already in its channel (posted by hand before the spec named it) is taken over, not posted
+  // again; its text follows the bot setting.
+  planPanel(key: string, kind: PanelKind, channel: string, channelId: string | null): void {
+    const setting = PANELS[kind].setting;
+    const text = panelText(kind, this.input.spec.bot[setting], this.input.settings[setting]);
+    const panel = { kind, text };
+    const stored = this.input.state.get(stateKey("post", `${key}#0`));
+    const at = stored === undefined ? undefined : parsePosted(stored);
+    if (at === undefined) {
+      const found = this.input.panels?.get(key);
+      if (found) {
+        this.ops.push({ t: "bind", kind: "post", key: `${key}#0`, id: `${found.channel}/${found.message}`, label: `the ${kind} panel` });
+        if (found.text !== text) this.ops.push({ t: "post.edit", key, index: 0, content: "", panel });
+      } else {
+        this.ops.push({ t: "post.create", key, index: 0, channel, content: "", panel });
+      }
+      return;
+    }
+    const live = this.live.posts.get(at.message);
+    if (live == null || at.channel !== channelId) {
+      if (live != null) this.ops.push({ t: "post.delete", key, index: 0 });
+      this.ops.push({ t: "post.create", key, index: 0, channel, content: "", panel });
+    } else if (this.live.embeds.get(at.message) !== text) {
+      this.ops.push({ t: "post.edit", key, index: 0, content: "", panel });
+    }
+  }
+
+  // Panel posts with nothing in state, and their channels' ids: planFor looks in each for the panel.
+  unboundPanels(): { key: string; kind: PanelKind; channelId: string }[] {
+    return this.input.spec.posts.flatMap((p) => {
+      const channelId = this.channels.get(p.channel);
+      if (!p.panel || !channelId || this.input.state.has(stateKey("post", `${p.key}#0`))) return [];
+      return [{ key: p.key, kind: p.panel, channelId }];
+    });
   }
 
   planDeletions(): void {
@@ -1208,11 +1251,12 @@ class Planner {
   }
 }
 
-// The live ids of the retired channels a plan would copy: their messages are read before planning.
-export function retiredChannels(input: PlanInput): string[] {
+// What a plan needs read before it's made: the retired channels it would copy, and the channels to look
+// in for panels it would otherwise post again.
+export function prepass(input: PlanInput): { retired: string[]; panels: { key: string; kind: PanelKind; channelId: string }[] } {
   const p = new Planner(input);
   p.resolveChannels();
-  return p.retiredIds();
+  return { retired: p.retiredIds(), panels: p.unboundPanels() };
 }
 
 export function buildPlan(input: PlanInput): Plan {
