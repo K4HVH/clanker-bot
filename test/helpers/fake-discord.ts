@@ -142,6 +142,10 @@ export class FakeDiscord implements DiscordApi {
     this.refusals.push({ when, status });
   }
 
+  allowAll(): void {
+    this.refusals = [];
+  }
+
   private record(w: Write): void {
     const refusal = this.refusals.find((r) => r.when(w));
     if (refusal) throw new FakeError(`refused ${w.method} ${w.route}`, refusal.status);
