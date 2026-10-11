@@ -106,3 +106,19 @@ test("the hourly run purges every guild the bot is in", async () => {
   await runRetention(ctx, client as never, NOW);
   expect(ctx.db.query("SELECT COUNT(*) AS n FROM cases WHERE guild_id = 'g'").get()).toEqual({ n: 1 });
 });
+
+test("verification posts are member-log posts", () => {
+  expect(kindOf(msg(1, 0, { title: "Member verified" }))).toBe("member");
+  expect(kindOf(msg(1, 0, { title: "Member manually verified" }))).toBe("member");
+});
+
+test("each run carries on from where the last stopped, so kept posts can't wall off old ones", async () => {
+  const cutoffs = { member: NOW - 90 * DAY, ticket: NOW - 365 * DAY, moderation: NOW - 365 * DAY };
+  const kept = Array.from({ length: 2500 }, (_, i) => msg(10_000 + i, 100, { title: "⚠️ Warn" })); // inside a year: kept
+  const expired = Array.from({ length: 10 }, (_, i) => msg(100 + i, 400, { title: "⚠️ Warn" })); // past a year: due
+  const ch = channel([...kept, ...expired]);
+  const cursor = new Map<string, string>();
+  let deleted = 0;
+  for (let run = 0; run < 3; run++) deleted += await purgeChannel(ch, "bot", cutoffs, NOW, 500, 20, cursor, "logs");
+  expect(deleted).toBe(10);
+});

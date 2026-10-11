@@ -67,6 +67,8 @@ const MEMBER_TITLES = new Set([
   "Messages bulk-deleted",
   "Member joined",
   "Member left",
+  "Member verified",
+  "Member manually verified",
   "Nickname changed",
   "Member roles updated",
   "Channel created",
@@ -83,8 +85,11 @@ export function kindOf(m: LogMessage): LogKind {
   return "moderation";
 }
 
-// Walks back from the most recent cutoff, deleting the bot's posts past their own, up to `cap` per
-// run. Older-than-14-days messages can't be bulk deleted, so a backlog clears over a few runs.
+// Walks back through a channel deleting the bot's posts past their own cutoff, up to `cap` per run.
+// Posts still kept (moderation inside its year, other people's messages) can fill many pages, so a
+// run carries on from where the last one stopped (`cursor`, by channel) and starts again from the
+// most recent cutoff once it reaches the channel's start. Older-than-14-days messages can't be bulk
+// deleted, so a backlog clears over a few runs.
 export async function purgeChannel(
   api: LogChannelApi,
   botId: string,
@@ -92,22 +97,35 @@ export async function purgeChannel(
   now: number,
   cap: number,
   maxPages = 20,
+  cursor?: Map<string, string>,
+  key = "",
 ): Promise<number> {
-  let before = SnowflakeUtil.generate({ timestamp: Math.min(now, Math.max(...Object.values(cutoffs))) }).toString();
+  const top = SnowflakeUtil.generate({ timestamp: Math.min(now, Math.max(...Object.values(cutoffs))) }).toString();
+  let before = cursor?.get(key) ?? top;
   let deleted = 0;
-  for (let page = 0; page < maxPages && deleted < cap; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const batch = await api.fetchBefore(before, 100);
-    if (batch.length === 0) break;
+    if (batch.length === 0) {
+      cursor?.delete(key); // reached the start: the next run begins at the top again
+      return deleted;
+    }
     for (const m of batch) {
-      if (deleted >= cap) break;
+      if (deleted >= cap) {
+        cursor?.set(key, before);
+        return deleted;
+      }
+      before = m.id;
       if (m.authorId !== botId || m.createdAt >= cutoffs[kindOf(m)]) continue;
       await api.remove(m.id);
       deleted++;
     }
-    before = batch[batch.length - 1]!.id;
   }
+  cursor?.set(key, before);
   return deleted;
 }
+
+// Where each log channel's purge got to, by channel id. In memory: a restart starts from the top.
+const cursors = new Map<string, string>();
 
 export async function purgeLogPosts(ctx: AppContext, client: Client, guildId: string, now: number, cap = 500): Promise<number> {
   const botId = client.user?.id;
@@ -144,7 +162,7 @@ export async function purgeLogPosts(ctx: AppContext, client: Client, guildId: st
         await channel.messages.delete(messageId);
       },
     };
-    deleted += await purgeChannel(api, botId, cutoffs, now, cap - deleted);
+    deleted += await purgeChannel(api, botId, cutoffs, now, cap - deleted, 20, cursors, id);
   }
   return deleted;
 }
