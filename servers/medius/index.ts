@@ -18,6 +18,7 @@ export default defineServer({
   guild: {
     name: "Medius",
     description: "Free replacement firmware for the MAKCU, and news on the Medius box.",
+    splash: "invite.png", // the site's link-card background at 1920x1080
     verificationLevel: "medium",
     explicitContentFilter: "all",
     defaultNotifications: "mentions",
