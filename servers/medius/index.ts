@@ -6,10 +6,12 @@ export default defineServer({
   guild: {
     name: "Medius",
     verificationLevel: "medium",
-    explicitContentFilter: "off",
+    explicitContentFilter: "all",
     defaultNotifications: "mentions",
     systemChannel: "logs",
     safetyAlertsChannel: "logs",
+    community: { rules: "rules", updates: "discord-updates" },
+    requireMfa: true,
   },
   everyone: {
     permissions: ["CreateInstantInvite", "ReadMessageHistory", "RequestToSpeak"],
@@ -44,6 +46,22 @@ export default defineServer({
     },
   ],
   channels: [
+    {
+      key: "rules",
+      type: "text",
+      name: "rules",
+      overwrites: {
+        everyone: {
+          ViewChannel: true,
+          ReadMessageHistory: true,
+          SendMessages: false,
+          AddReactions: false,
+          CreatePublicThreads: false,
+          CreatePrivateThreads: false,
+          SendMessagesInThreads: false,
+        },
+      },
+    },
     {
       key: "verify",
       type: "text",
@@ -813,6 +831,16 @@ export default defineServer({
           },
         },
         {
+          key: "discord-updates",
+          type: "text",
+          name: "discord-updates",
+          overwrites: {
+            everyone: {
+              ViewChannel: false,
+            },
+          },
+        },
+        {
           key: "backup",
           type: "text",
           name: "backup",
@@ -825,7 +853,27 @@ export default defineServer({
       ],
     },
   ],
-  automod: [],
-  posts: [],
-  bot: {},
+  automod: [
+    {
+      key: "rule-2",
+      name: "Rule 2: no sharing or selling cheats",
+      keywords: ["*unknowncheats*", "*mpgh*", "*elitepvpers*", "*captaindma*", "*verse-solutions*"],
+      regex: [
+        "(?i)(?:\\b(?:selling|sell|wts|for sale|dm (?:me )?for|price[ds]?)\\b|\\$ ?[0-9]+|[0-9]+ ?\\$|\\b[0-9]+ ?(?:usd|eur|gbp|aud)\\b).{0,40}\\b(?:cheats?|hacks?|aimbots?|triggerbots?|spoofers?|loaders?|configs?|cfgs?)\\b",
+        "(?i)\\b(?:cheats?|hacks?|aimbots?|triggerbots?|spoofers?|loaders?|configs?|cfgs?)\\b.{0,40}(?:\\b(?:for sale|selling|wts|dm (?:me )?for|price[ds]?)\\b|\\$ ?[0-9]+|[0-9]+ ?\\$|\\b[0-9]+ ?(?:usd|eur|gbp|aud)\\b)",
+      ],
+      block: "Blocked under rule 2: no sharing or selling cheats. Mistake? Open a ticket.",
+      alert: "logs",
+      exemptRoles: ["dev"],
+    },
+  ],
+  posts: [{ key: "rules", channel: "rules", file: "rules.md" }],
+  bot: {
+    automod_executables: true,
+    automod_executable_exts: ".exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1",
+    automod_invites: false,
+    retention_moderation_days: 365,
+    retention_tickets_days: 365,
+    retention_member_log_days: 90,
+  },
 });

@@ -177,3 +177,27 @@ test("permission bits with no name are kept, never planned away", async () => {
     { t: "overwrite.set", channel: "general", target: "everyone", allow: OLD, deny: V, before: { allow: OLD, deny: 0n }, flags: [] },
   ]);
 });
+
+test("an order op names only the groups that move", async () => {
+  const f = new FakeDiscord();
+  const dev = f.addRole({ name: "Dev", permissions: String(PermissionFlagsBits.Administrator), position: 3 });
+  const a = f.addChannel({ name: "a", position: 0 });
+  const cat = f.addChannel({ name: "Cat", type: 4, position: 1 });
+  const x = f.addChannel({ name: "x", parent_id: cat.id, position: 0 });
+  const y = f.addChannel({ name: "y", parent_id: cat.id, position: 1 });
+  const state: State = new Map([
+    [stateKey("role", "dev"), dev.id],
+    [stateKey("channel", "a"), a.id],
+    [stateKey("channel", "cat"), cat.id],
+    [stateKey("channel", "x"), x.id],
+    [stateKey("channel", "y"), y.id],
+  ]);
+  const p = await plan(f, spec({
+    channels: [
+      { key: "b", type: "text", name: "b" },
+      { key: "a", type: "text", name: "a" },
+      { key: "cat", type: "category", name: "Cat", channels: [{ key: "x", type: "text", name: "x" }, { key: "y", type: "text", name: "y" }] },
+    ],
+  }), state);
+  expect(p.ops.find((o) => o.t === "channel.order")).toEqual({ t: "channel.order", items: [{ key: "b", parent: null }, { key: "a", parent: null }] });
+});

@@ -423,20 +423,22 @@ class Planner {
   }
 
   planOrder(flat: ReturnType<typeof channelsFlat>, reparented: Set<string>): void {
-    const groups = new Map<string, { key: string; id: string | null; type: number }[]>();
-    for (const { channel, parent } of flat) {
-      if (!this.channels.has(channel.key)) continue;
-      if (parent !== null && !this.channels.has(parent)) continue;
-      const type = CHANNEL_TYPE[channel.type];
-      const g = `${parent ?? ""}/${bucketOf(type)}`;
-      const list = groups.get(g) ?? [];
-      list.push({ key: channel.key, id: this.channels.get(channel.key) ?? null, type });
-      groups.set(g, list);
+    const plannable = flat.filter(({ channel, parent }) => this.channels.has(channel.key) && (parent === null || this.channels.has(parent)));
+    const groupOf = (c: { channel: ChannelSpec | CategorySpec; parent: string | null }) =>
+      `${c.parent ?? ""}/${bucketOf(CHANNEL_TYPE[c.channel.type])}`;
+    const groups = new Map<string, { key: string; id: string | null }[]>();
+    for (const c of plannable) {
+      const g = groupOf(c);
+      groups.set(g, [...(groups.get(g) ?? []), { key: c.channel.key, id: this.channels.get(c.channel.key) ?? null }]);
     }
-    let reorder = reparented.size > 0;
-    for (const list of groups.values()) {
-      if (list.length < 2) continue;
-      if (list.some((c) => c.id === null)) reorder = true;
+    // A group moves when a channel is created in it or moved into it, or its live order differs.
+    const moving = new Set(plannable.filter((c) => reparented.has(c.channel.key)).map(groupOf));
+    for (const [g, list] of groups) {
+      if (list.length < 2) {
+        moving.delete(g);
+        continue;
+      }
+      if (list.some((c) => c.id === null)) moving.add(g);
       const existing = list.filter((c) => c.id !== null);
       const liveOrder = [...existing]
         .sort((a, b) => {
@@ -445,18 +447,15 @@ class Planner {
           return la.position - lb.position || (BigInt(la.id) < BigInt(lb.id) ? -1 : 1);
         })
         .map((c) => c.key);
-      if (liveOrder.join() !== existing.map((c) => c.key).join()) reorder = true;
+      if (liveOrder.join() !== existing.map((c) => c.key).join()) moving.add(g);
     }
-    if (reorder) {
+    if (moving.size > 0) {
       this.ops.push({
         t: "channel.order",
-        items: flat
-          .filter(({ channel, parent }) => this.channels.has(channel.key) && (parent === null || this.channels.has(parent)))
-          .map(({ channel, parent }) => ({ key: channel.key, parent })),
+        items: plannable.filter((c) => moving.has(groupOf(c))).map(({ channel, parent }) => ({ key: channel.key, parent })),
       });
     }
   }
-
 
   resolveAutomod(): void {
     this.resolve<LiveRule>(
