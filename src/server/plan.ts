@@ -140,6 +140,9 @@ class Planner {
   readonly ruleKeyById = new Map<string, string>();
   // Channel keys planned around: everything that names one is skipped too.
   readonly skipped = new Set<string>();
+  // Reserved roles this server doesn't have (no one has boosted it). No member holds them, so a
+  // reference to one is left out rather than holding anything up.
+  readonly absentRoles = new Set<string>();
 
   constructor(readonly input: PlanInput) {}
 
@@ -213,7 +216,12 @@ class Planner {
       if (role) {
         this.roles.set(key, role.id);
         this.roleKeyById.set(role.id, key);
+      } else {
+        this.absentRoles.add(key);
       }
+    }
+    if (this.absentRoles.has("booster") && this.mentions("booster")) {
+      this.manual.push('This server has no Server Booster role: what names "booster" waits until someone boosts');
     }
     const pool = live.roles.filter((r) => !r.managed && r.id !== everyone);
     this.resolve(
@@ -223,6 +231,16 @@ class Planner {
       this.roles,
       this.roleKeyById,
     );
+  }
+
+  mentions(role: string): boolean {
+    const { spec } = this.input;
+    const inOverwrites = channelsFlat(spec).some(({ channel }) => role in (channel.overwrites ?? {}));
+    const inRules = spec.automod.some((r) => r.exemptRoles?.includes(role));
+    const inSettings = Object.values(spec.bot).some(
+      (v) => v !== null && typeof v === "object" && !Array.isArray(v) && (("role" in v && v.role === role) || ("roles" in v && v.roles.includes(role))),
+    );
+    return inOverwrites || inRules || inSettings;
   }
 
   resolveChannels(): void {
@@ -604,7 +622,7 @@ class Planner {
       regex: rule.regex ?? [],
       allow: rule.allow ?? [],
       actions,
-      exemptRoles: rule.exemptRoles ?? [],
+      exemptRoles: (rule.exemptRoles ?? []).filter((k) => !this.absentRoles.has(k)),
       exemptChannels: rule.exemptChannels ?? [],
     };
   }
@@ -631,7 +649,7 @@ class Planner {
   planAutomod(): void {
     for (const rule of this.input.spec.automod) {
       if (!this.rules.has(rule.key)) continue;
-      const refs = [...(rule.exemptRoles ?? []).map((k) => this.roles.has(k)), ...(rule.exemptChannels ?? []).map((k) => this.usable(k))];
+      const refs = [...(rule.exemptRoles ?? []).filter((k) => !this.absentRoles.has(k)).map((k) => this.roles.has(k)), ...(rule.exemptChannels ?? []).map((k) => this.usable(k))];
       if (rule.alert !== undefined) refs.push(this.usable(rule.alert));
       if (refs.includes(false)) continue; // names something that can't be planned
       const body = this.automodBody(rule);

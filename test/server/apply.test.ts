@@ -75,3 +75,18 @@ test("an announcement channel is created once Community is on", async () => {
   expect(result.failed).toBeNull();
   expect(e.f.channels.some((c) => c.name === "news" && c.type === 5)).toBe(true);
 });
+
+test("a server nobody has boosted applies a spec that names the booster role", async () => {
+  const e = env();
+  const spec = {
+    ...fixture,
+    channels: [{ key: "perks", type: "text" as const, name: "perks", overwrites: { booster: { ViewChannel: true } } }, ...fixture.channels],
+    automod: fixture.automod.map((r) => ({ ...r, exemptRoles: [...(r.exemptRoles ?? []), "booster"] })),
+    bot: { ...fixture.bot, ticket_check_exempt_roles: { roles: ["booster"] } },
+  };
+  const plan = await planFor({ ...e, spec }, false);
+  expect(plan.manual).toContain('This server has no Server Booster role: what names "booster" waits until someone boosts');
+  expect(plan.ops.find((o) => o.t === "automod.create")).toMatchObject({ body: { exemptRoles: ["dev"] } });
+  expect(plan.ops.some((o) => o.t === "setting.set" && o.key === "ticket_check_exempt_roles")).toBe(false);
+  expect((await applyPlan({ ...e, spec }, plan)).failed).toBeNull();
+});
