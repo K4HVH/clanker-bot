@@ -2,7 +2,6 @@ import type { BotModule } from "../core/module";
 import { automodModule } from "./automod";
 import { configModule } from "./config";
 import { guardsModule } from "./guards";
-import { helpModule } from "./help";
 import { honeypotModule } from "./honeypot";
 import { loggingModule } from "./logging";
 import { memesModule } from "./memes";
@@ -36,5 +35,4 @@ export const modules: BotModule[] = [
   privacyModule,
   rolesModule,
   publishModule,
-  helpModule,
 ];
