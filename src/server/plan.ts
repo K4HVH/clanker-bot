@@ -508,10 +508,9 @@ class Planner {
       if (key !== null) bits = apply(bits, ow(key));
       return (bits & view) !== 0n;
     };
-    const out: string[] = [];
-    if (sees(0n, null)) out.push("everyone");
-    for (const role of this.input.spec.roles) if (sees(toBits(role.permissions), role.key)) out.push(role.key);
-    return out;
+    // Every member holds @everyone, so a channel it can see is visible to everyone, whatever else holds.
+    if (sees(0n, null)) return ["everyone"];
+    return this.input.spec.roles.filter((role) => sees(toBits(role.permissions), role.key)).map((r) => r.key);
   }
 
   planOverwrites(

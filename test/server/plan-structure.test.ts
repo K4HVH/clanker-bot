@@ -285,3 +285,12 @@ test("a role the bot can't change says what to change by hand, and where", async
     `Role "Dev" is above the bot's role, so the bot can't change it. Drag the bot's role above it in Server Settings > Roles and plan again, or change it there by hand: colour 5 -> 0; permissions +Administrator`,
   ]);
 });
+
+test("a channel @everyone can see is said to be visible to everyone, not role by role", async () => {
+  const f = new FakeDiscord();
+  const p = await plan(f, spec({
+    roles: [{ key: "verified", name: "Verified", permissions: ["ViewChannel"] }],
+    channels: [{ key: "rules", type: "text", name: "rules", overwrites: { everyone: { ViewChannel: true } } }],
+  }));
+  expect(p.ops.find((o) => o.t === "channel.create")).toMatchObject({ visibleTo: ["everyone"], flags: ["widens"] });
+});
