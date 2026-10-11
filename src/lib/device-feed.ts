@@ -37,7 +37,7 @@ const readable = (d: unknown): d is FeedDevice => {
 };
 
 // A device's identity: its USB id where it has one (a stats device that gains a report is renamed
-// then), else its name.
+// then, and devices can share a name), else its name.
 const identity = (d: { name: string; vidpid?: string | null }) => (d.vidpid ? `id:${d.vidpid}` : `name:${d.name.toLowerCase()}`);
 
 interface Item {
@@ -69,6 +69,7 @@ function messages(sections: { heading: string; items: Item[] }[]): { content: st
 }
 
 interface Seen {
+  ident: string;
   name: string;
   vidpid: string | null;
   verdict: FeedDevice["verdict"];
@@ -101,9 +102,14 @@ export async function runFeed(
   // posted as new later, so it waits for a complete one.
   if (!seeded && (devices.size === 0 || body.stats === false)) return;
 
-  const seen = new Map(many<Seen>(ctx.db, "SELECT name, vidpid, verdict FROM device_feed WHERE guild_id = ?", guildId).map((s) => [identity(s), s]));
-  const byName = new Map([...seen.values()].map((s) => [s.name.toLowerCase(), s]));
-  const match = (d: FeedDevice) => (d.vidpid ? seen.get(`id:${d.vidpid}`) : undefined) ?? byName.get(d.name.toLowerCase());
+  const seen = new Map(many<Seen>(ctx.db, "SELECT ident, name, vidpid, verdict FROM device_feed WHERE guild_id = ?", guildId).map((s) => [s.ident, s]));
+  const named = new Map<string, Seen>();
+  for (const s of seen.values()) if (!named.has(s.name.toLowerCase())) named.set(s.name.toLowerCase(), s);
+  // A device with a USB id is that id, or the same name recorded before it had one. One without is
+  // its name, under any id: a reported device's id comes from the usage stats, and is gone while
+  // they're down.
+  const match = (d: FeedDevice) =>
+    d.vidpid ? (seen.get(`id:${d.vidpid}`) ?? seen.get(`name:${d.name.toLowerCase()}`)) : named.get(d.name.toLowerCase());
 
   const sections: { heading: string; items: Item[] }[] = [];
   if (!seeded) {
@@ -124,8 +130,8 @@ export async function runFeed(
 
   const record = (d: FeedDevice) => {
     const s = match(d);
-    if (s) run(ctx.db, "DELETE FROM device_feed WHERE guild_id = ? AND name = ?", guildId, s.name);
-    run(ctx.db, "INSERT OR REPLACE INTO device_feed (guild_id, name, vidpid, verdict) VALUES (?, ?, ?, ?)", guildId, d.name, d.vidpid ?? null, d.verdict);
+    if (s) run(ctx.db, "DELETE FROM device_feed WHERE guild_id = ? AND ident = ?", guildId, s.ident);
+    run(ctx.db, "INSERT OR REPLACE INTO device_feed (guild_id, ident, name, vidpid, verdict) VALUES (?, ?, ?, ?, ?)", guildId, identity(d), d.name, d.vidpid ?? null, d.verdict);
   };
   const parts = messages(sections);
   if (parts.length > 0) {

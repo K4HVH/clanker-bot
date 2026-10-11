@@ -125,12 +125,14 @@ CREATE TABLE IF NOT EXISTS server_state (
 
 -- Which spec a server follows, and when it was last applied.
 -- The devices the device feed has posted (or found on its first read), so each is posted once.
+-- `ident` is the device's USB id where it has one, else its name: devices can share a name.
 CREATE TABLE IF NOT EXISTS device_feed (
   guild_id TEXT NOT NULL,
+  ident    TEXT NOT NULL,
   name     TEXT NOT NULL,
   vidpid   TEXT,
   verdict  TEXT NOT NULL,
-  PRIMARY KEY (guild_id, name)
+  PRIMARY KEY (guild_id, ident)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS device_feed_meta (
   guild_id  TEXT PRIMARY KEY,

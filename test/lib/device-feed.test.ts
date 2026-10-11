@@ -107,6 +107,28 @@ test("a device listed twice is one device, and posts once", async () => {
   expect(s.sent[1]!.content.match(/Attack Shark/g)).toHaveLength(1);
 });
 
+test("devices that share a name are told apart by their USB ids", async () => {
+  const receiver = (vidpid: string, boxes: number): FeedDevice => ({ name: "USB Receiver", kind: "mouse", verdict: "works", vidpid, boxes });
+  const three = [receiver("046d:c539", 2), receiver("046d:c53a", 3), receiver("046d:c547", 8)];
+  const s = setup([three, three, [...three, receiver("046d:c54d", 17)], [...three, { ...receiver("046d:c54d", 17), verdict: "doesnt" }]]);
+  await s.run();
+  await s.run();
+  expect(s.sent).toHaveLength(1);
+  await s.run();
+  expect(s.sent[1]!.content).toBe("Added to Devices:\n- **USB Receiver** (mouse): Supported, seen on 17 boxes\n<https://medius.k4tech.net/guide/compatibility>");
+  await s.run();
+  expect(s.sent[2]!.content).toContain("Changed on Devices:\n- **USB Receiver** (mouse): Unsupported, was Supported, seen on 17 boxes");
+  expect(s.sent).toHaveLength(3);
+});
+
+test("a reported device keeps its place when the usage stats are down and its USB id goes with them", async () => {
+  const s = setup([[{ ...atk, vidpid: "373b:1001", boxes: 4 }], { devices: [atk], stats: false }, [{ ...atk, vidpid: "373b:1001", boxes: 5 }]]);
+  await s.run();
+  await s.run();
+  await s.run();
+  expect(s.sent).toHaveLength(1);
+});
+
 test("a long post goes out in parts, and a part that fails is posted again with only what it carried", async () => {
   const many = Array.from({ length: 60 }, (_, i): FeedDevice => ({ name: `Mouse number ${i} with a long name`, kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/m${i}` }));
   const s = setup([[atk], [atk, ...many]]);
