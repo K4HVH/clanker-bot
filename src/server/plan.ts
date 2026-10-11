@@ -1074,6 +1074,14 @@ class Planner {
       if (ids.includes("pending")) return { ok: false, why: "pending" };
       return { ok: true, value: "roles" in value ? ids : ids[0] };
     }
+    if (typeof value === "string" && /\{#[a-z0-9-]+\}/.test(value)) {
+      // Text naming channels by key: filled in with their mentions, as a post is.
+      const keys = [...value.matchAll(/\{#([a-z0-9-]+)\}/g)].map((m) => m[1]!);
+      const ids = keys.map((k) => resolve(k, "channel"));
+      if (ids.includes("skip")) return { ok: false, why: "skip" };
+      if (ids.includes("pending")) return { ok: false, why: "pending" };
+      return { ok: true, value: value.replace(/\{#([a-z0-9-]+)\}/g, (_all, k: string) => `<#${this.channels.get(k)}>`) };
+    }
     return { ok: true, value: value === null ? undefined : value };
   }
 

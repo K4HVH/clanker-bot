@@ -653,7 +653,7 @@ class Runner {
       if ("role" in v) return this.role(v.role);
       return v.roles.map((k) => this.role(k));
     }
-    return v;
+    return typeof v === "string" ? this.fill(v) : v;
   }
 }
 

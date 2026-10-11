@@ -395,6 +395,11 @@ export function validateSpec(spec: ServerSpec): string[] {
       continue;
     }
     const at = `bot.${key}`;
+    if (typeof value === "string") {
+      for (const [, named] of value.matchAll(/\{#([a-z0-9-]+)\}/g)) {
+        if (!channelKeys.has(named!)) errors.push(`${at}: names unknown channel "${named}"`);
+      }
+    }
     if (setting.type === "channel") {
       if (value === null) continue;
       const channel = field(value, "channel");

@@ -314,3 +314,12 @@ test("a post taken out of the file is deleted with the deletions", async () => {
   expect(e.f.messages.some((m) => m.content.includes("Rule"))).toBe(false);
   expect((await planFor(e2, true)).ops).toEqual([]);
 });
+
+test("a text setting names a channel by key, stored as the channel's mention", async () => {
+  const e = env();
+  const e2 = { ...e, spec: { ...e.spec, bot: { ...e.spec.bot, ticket_check_fail_text: "Ask in {#general}." } } };
+  await applyPlan(e2, await planFor(e2, false));
+  const general = loadState(e.db, e.guildId).get(stateKey("channel", "general"));
+  expect(e.config.get<string>(e.guildId, "ticket_check_fail_text")).toBe(`Ask in <#${general}>.`);
+  expect((await planFor(e2, false)).ops).toEqual([]);
+});

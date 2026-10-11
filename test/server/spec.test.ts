@@ -102,3 +102,7 @@ test("the bot's role sits under a role the file names", () => {
   expect(errorsAfter((s) => (s.botRole = { after: "nobody" }))).toEqual(['botRole.after: unknown role "nobody"']);
   expect(errorsAfter((s) => (s.botRole = { after: "dev" }))).toEqual([]);
 });
+
+test("a text setting names channels the file has", () => {
+  expect(errorsAfter((s) => (s.bot = { ...s.bot, ticket_check_fail_text: "Ask in {#nowhere}." }))).toEqual(['bot.ticket_check_fail_text: names unknown channel "nowhere"']);
+});

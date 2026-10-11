@@ -130,6 +130,17 @@ export default defineServer({
       ],
     },
     {
+      key: "community",
+      type: "category",
+      name: "- Home",
+      was: ["Community"],
+      channels: [
+        { key: "general", type: "text", name: "general" },
+        { key: "vouches", type: "text", name: "⭐-vouch", was: ["vouches"], slowmode: 300 },
+        { key: "voice", type: "voice", name: "🗣️-vc", was: ["Voice"] },
+      ],
+    },
+    {
       key: "medius",
       type: "category",
       name: "- Medius Firmware",
@@ -175,17 +186,6 @@ export default defineServer({
           publish: true,
         },
         { key: "box-chat", type: "text", name: "hardware-chat", was: ["box-chat"] },
-      ],
-    },
-    {
-      key: "community",
-      type: "category",
-      name: "- Home",
-      was: ["Community"],
-      channels: [
-        { key: "general", type: "text", name: "general" },
-        { key: "vouches", type: "text", name: "⭐-vouch", was: ["vouches"], slowmode: 300 },
-        { key: "voice", type: "voice", name: "🗣️-vc", was: ["Voice"] },
       ],
     },
     {
@@ -312,7 +312,7 @@ export default defineServer({
     ticket_check_exempt_roles: { roles: ["cool-people"] },
     ticket_check_intro_text: "You need to pass a short intelligence check before you can open a ticket. Tickets are handled by a small team, so they're kept for the problems that need one. Read each question carefully.",
     ticket_check_exempt_staff: true,
-    ticket_check_fail_text: "Ask in the public help channels instead: more people see a question there, and an answer usually comes back sooner.",
+    ticket_check_fail_text: "Read the [Help page](https://medius.k4tech.net/guide/help) or ask in {#general}.",
     ticket_check_log_failures: true,
     memes_enabled: true,
     memes_success_replies: "",
