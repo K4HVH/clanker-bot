@@ -437,7 +437,7 @@ function channelSelectRow(token: string): ActionRowBuilder<ChannelSelectMenuBuil
   return new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
     new ChannelSelectMenuBuilder()
       .setCustomId(`purge_pick:${token}`)
-      .setPlaceholder("Choose channels…")
+      .setPlaceholder("Channels…")
       .setMinValues(1)
       .setMaxValues(25)
       .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
@@ -873,7 +873,7 @@ const scamSeedContext: ContextCommand = {
   },
 };
 
-// The "Not a scam" button automod posts on a match alert.
+// The "Remove signature" button automod posts on a match alert.
 const scamForgetButtonHandler: ComponentHandler = {
   customId: "scam:forget",
   type: "button",
