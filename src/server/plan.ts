@@ -930,7 +930,7 @@ class Planner {
     const field = (name: string, from: unknown, to: unknown) => {
       if (to !== undefined && from !== to) changes.push({ field: name, from, to });
     };
-    // A channel field naming a key that can't be planned is left as it is.
+    // A channel field naming a key that can't be planned is left as is.
     const channelField = (name: string, from: string | null, to: string | null | undefined) => {
       if (to === undefined || (to !== null && !this.usable(to))) return;
       field(name, from, to);

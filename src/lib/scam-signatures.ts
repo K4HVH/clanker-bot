@@ -123,7 +123,7 @@ export function forgetButton(kind: SignatureKind, value: string): ActionRowBuild
     new ButtonBuilder()
       .setCustomId(`scam:forget:${token}`)
       .setStyle(ButtonStyle.Secondary)
-      .setLabel("Not a scam, remove"),
+      .setLabel("Not a scam"),
   );
 }
 
