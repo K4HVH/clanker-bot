@@ -5,7 +5,7 @@ import { REGISTRY_BY_KEY } from "../lib/config";
 import { type PanelKind, PANELS, panelText } from "../lib/panels";
 import { after, copyable, type History } from "./history";
 import type { Live, LiveChannel, LiveOverwrite, LiveRole, LiveRule } from "./live";
-import { menuComponents, parsePosted, splitPost } from "./posts";
+import { type PostEmbed, embedKey, embedPost, menuComponents, parsePosted, splitPost } from "./posts";
 import { type AllowDeny, keepUnnamed, permissionDiff, toBits, widens } from "./permissions";
 import {
   type CategorySpec,
@@ -119,12 +119,24 @@ export type Op =
       index: number;
       channel: string;
       content: string;
+      embed?: PostEmbed; // the chunk as an embed, its text empty
       thread?: { title: string; pin: boolean }; // a forum post's first chunk starts its thread
       components?: unknown[]; // a role menu, on the last chunk
       menuHash?: string;
       panel?: { kind: PanelKind; text: string };
     }
-  | { t: "post.edit"; key: string; index: number; content: string; components?: unknown[]; menuHash?: string; clearMenu?: boolean; panel?: { kind: PanelKind; text: string } }
+  | {
+      t: "post.edit";
+      key: string;
+      index: number;
+      content: string;
+      embed?: PostEmbed;
+      clearEmbed?: boolean; // a post that was an embed, now text
+      components?: unknown[];
+      menuHash?: string;
+      clearMenu?: boolean;
+      panel?: { kind: PanelKind; text: string };
+    }
   | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
   | { t: "prune"; kind: "role" | "channel"; id: string; label: string; invites?: number; permanentInvites?: number; flags: Flag[] };
@@ -1119,7 +1131,10 @@ class Planner {
           const id = this.channels.get(key);
           return typeof id === "string" ? `<#${id}>` : all;
         });
-      const chunks = splitPost(readFileSync(join(spec.dir, post.file!), "utf8")).map(fill);
+      const file = readFileSync(join(spec.dir, post.file!), "utf8");
+      const chunks: { content: string; embed?: PostEmbed }[] = post.embed
+        ? embedPost(file, post.embed.color).map((e) => ({ content: "", embed: e.description === undefined ? e : { ...e, description: fill(e.description) } }))
+        : splitPost(file).map((text) => ({ content: fill(text) }));
       const last = chunks.length - 1;
       const menu = post.menu ? spec.menus?.find((m) => m.key === post.menu) : undefined;
       const components = menu ? menuComponents(menu) : undefined;
@@ -1131,22 +1146,26 @@ class Planner {
       };
       let recreate = false;
       for (let i = 0; i < chunks.length; i++) {
-        const content = chunks[i]!;
+        const { content, embed } = chunks[i]!;
+        const withEmbed = embed ? { embed } : {};
         const at = posted(i);
         const liveContent = at ? this.live.posts.get(at.message) : undefined;
+        const liveEmbed = at ? (this.live.postEmbeds.get(at.message) ?? null) : null;
         const threadGone = forum && i === 0 && at !== undefined && this.live.threads.get(at.channel) == null;
         const moved = at !== undefined && (at.forum ?? at.channel) !== channelId;
         const withMenu = i === last ? { ...(components ? { components, menuHash } : {}) } : {};
         if (recreate || at === undefined || liveContent == null || moved || threadGone) {
           if (at !== undefined && liveContent != null) this.ops.push({ t: "post.delete", key: post.key, index: i });
           const thread = forum && i === 0 ? { thread: { title: post.title ?? post.key, pin: post.pin ?? false } } : {};
-          this.ops.push({ t: "post.create", key: post.key, index: i, channel: post.channel, content, ...thread, ...withMenu });
+          this.ops.push({ t: "post.create", key: post.key, index: i, channel: post.channel, content, ...withEmbed, ...thread, ...withMenu });
           recreate = true; // later chunks must follow it, so they are posted again after it
         } else {
           const menuChanged = i === last && (menuHash ?? null) !== (postedMenu ?? null);
-          if (liveContent !== content || menuChanged) {
-            const clear = menuChanged && !components ? { clearMenu: true } : {};
-            this.ops.push({ t: "post.edit", key: post.key, index: i, content, ...withMenu, ...clear });
+          // A text post's link can unfurl into an embed; only one with no text was ever an embed post.
+          const embedChanged = embed ? liveEmbed !== embedKey(embed) : liveContent === "" && liveEmbed !== null;
+          if (liveContent !== content || embedChanged || menuChanged) {
+            const clear = { ...(menuChanged && !components ? { clearMenu: true } : {}), ...(embedChanged && !embed ? { clearEmbed: true } : {}) };
+            this.ops.push({ t: "post.edit", key: post.key, index: i, content, ...withEmbed, ...withMenu, ...clear });
           }
         }
       }

@@ -2,6 +2,7 @@ import { escapeMarkdown } from "discord.js";
 import type { AppContext } from "../core/context";
 import { many, one, run } from "../db/index";
 import { CONFIG_KEYS } from "./config";
+import { BAD, type Embed, OK, WARN, descriptions, packGroups } from "./embeds";
 
 // The device feed: the site's Devices list posted in a channel. The first read posts the whole list,
 // silently; after that, devices new to it or whose verdict changed. The list merges owners' reports with
@@ -19,9 +20,10 @@ export interface FeedDevice {
 }
 
 const VERDICT: Record<FeedDevice["verdict"], string> = { works: "Supported", partial: "Partial", doesnt: "Unsupported" };
+const COLOR: Record<FeedDevice["verdict"], number> = { works: OK, partial: WARN, doesnt: BAD };
+const VERDICTS = Object.keys(VERDICT) as FeedDevice["verdict"][];
 const KINDS = new Set(["mouse", "keyboard", "other"]);
 const PAGE = "https://medius.k4tech.net/guide/compatibility";
-const LIMIT = 2000;
 const SILENT = 4096; // Discord's suppress-notifications flag
 
 const source = (d: FeedDevice) => (d.reported ? `reported on ${d.reported}` : d.boxes ? `seen on ${d.boxes} boxes` : "");
@@ -29,14 +31,12 @@ const source = (d: FeedDevice) => (d.reported ? `reported on ${d.reported}` : d.
 // Names from the usage stats are whatever a device reports, so markdown in them is shown as typed.
 const plain = (s: string) => escapeMarkdown(s).replace(/[[\]]/g, "\\$&");
 
-// The longest line a message holds beside its heading and the page's link.
-const LINE = LIMIT - 120;
-
+// A device's line under its verdict's heading: what it was, if that changed, and where the list has it from.
 function line(d: FeedDevice, was?: FeedDevice["verdict"]): string {
-  const name = d.url ? `[**${plain(d.name)}**](<${d.url}>)` : `**${plain(d.name)}**`;
-  const parts = [VERDICT[d.verdict], ...(was ? [`was ${VERDICT[was]}`] : []), ...(source(d) ? [source(d)] : [])];
-  const text = `- ${name} (${d.kind}): ${parts.join(", ")}${d.note ? `. ${plain(d.note)}` : ""}`;
-  return text.length > LINE ? `${text.slice(0, LINE - 1)}…` : text;
+  const name = d.url ? `[**${plain(d.name)}**](${d.url})` : `**${plain(d.name)}**`;
+  const parts = [...(was ? [`was ${VERDICT[was]}`] : []), ...(source(d) ? [source(d)] : [])];
+  // One line a device: the lines of an embed are counted to know which devices it carries.
+  return `- ${name} (${d.kind})${parts.length > 0 ? `: ${parts.join(", ")}` : ""}${d.note ? `. ${plain(d.note)}` : ""}`.replace(/\s*\n\s*/g, " ");
 }
 
 const readable = (d: unknown): d is FeedDevice => {
@@ -55,27 +55,34 @@ interface Item {
   text: string;
 }
 
-// Sections cut into messages under Discord's limit, each with the devices it carries, the page's link on
-// the last.
-function messages(sections: { heading: string; items: Item[] }[]): { content: string; devices: FeedDevice[] }[] {
-  const footer = `\n<${PAGE}>`;
-  const out: { content: string; devices: FeedDevice[] }[] = [];
-  let cur = { content: "", devices: [] as FeedDevice[] };
+// Sections as embeds, one a verdict, each under the section's heading and coloured as the verdict; packed
+// into messages, each with the devices it carries.
+function messages(sections: { heading: string; items: Item[] }[]): { embeds: Embed[]; devices: FeedDevice[] }[] {
+  const embeds: (Embed & { group: string; devices: FeedDevice[] })[] = [];
   for (const s of sections) {
-    for (const [i, item] of s.items.entries()) {
-      const piece = `${i === 0 ? `${cur.content ? "\n\n" : ""}${s.heading}\n` : "\n"}${item.text}`;
-      if (cur.content && cur.content.length + piece.length + footer.length > LIMIT) {
-        out.push(cur);
-        cur = { content: i === 0 ? `${s.heading}\n${item.text}` : item.text, devices: [item.device] };
-      } else {
-        cur.content += cur.content ? piece : piece.replace(/^\n+/, "");
-        cur.devices.push(item.device);
+    for (const verdict of VERDICTS) {
+      const items = s.items.filter((i) => i.device.verdict === verdict);
+      // A verdict's devices past one embed's text go on in the next, under the same colour.
+      let at = 0;
+      for (const description of descriptions(items.map((i) => i.text))) {
+        const count = description.split("\n").length;
+        embeds.push({
+          group: `${s.heading} ${verdict}`,
+          author: { name: s.heading },
+          title: VERDICT[verdict],
+          url: PAGE,
+          color: COLOR[verdict],
+          description,
+          devices: items.slice(at, at + count).map((i) => i.device),
+        });
+        at += count;
       }
     }
   }
-  if (cur.content) out.push(cur);
-  if (out.length > 0) out[out.length - 1]!.content += footer;
-  return out;
+  return packGroups(embeds).map((message) => ({
+    embeds: message.map(({ group: _g, devices: _d, ...e }) => e),
+    devices: message.flatMap((e) => e.devices),
+  }));
 }
 
 interface Seen {
@@ -113,7 +120,7 @@ function matches(devices: FeedDevice[], seen: Seen[]): Map<FeedDevice, Seen> {
   return found;
 }
 
-type Postable = { send(o: { content: string; flags?: number; allowedMentions: { parse: [] } }): Promise<unknown> };
+type Postable = { send(o: { embeds: Embed[]; flags?: number; allowedMentions: { parse: [] } }): Promise<unknown> };
 
 export async function runFeed(
   ctx: AppContext,
@@ -148,7 +155,7 @@ export async function runFeed(
   if (!seeded) {
     // Only what isn't recorded yet, so a first post stopped part way carries on where it stopped.
     const rest = [...devices.values()].filter((d) => !match(d));
-    sections.push({ heading: "On the Devices list:", items: rest.map((device) => ({ device, text: line(device) })) });
+    sections.push({ heading: "On the Devices list", items: rest.map((device) => ({ device, text: line(device) })) });
   } else {
     const added: Item[] = [];
     const changed: Item[] = [];
@@ -157,8 +164,8 @@ export async function runFeed(
       if (!s) added.push({ device: d, text: line(d) });
       else if (s.verdict !== d.verdict) changed.push({ device: d, text: line(d, s.verdict) });
     }
-    if (added.length > 0) sections.push({ heading: "Added to Devices:", items: added });
-    if (changed.length > 0) sections.push({ heading: "Changed on Devices:", items: changed });
+    if (added.length > 0) sections.push({ heading: "Added to Devices", items: added });
+    if (changed.length > 0) sections.push({ heading: "Changed on Devices", items: changed });
   }
 
   const record = (d: FeedDevice) => {
@@ -177,7 +184,7 @@ export async function runFeed(
     if (!target) return; // left unrecorded, so it posts once the channel is back
     // Each part records its devices once it's sent, so a part that fails goes again with only the devices it held.
     for (const part of parts) {
-      await target.send({ content: part.content, ...(seeded ? {} : { flags: SILENT }), allowedMentions: { parse: [] } });
+      await target.send({ embeds: part.embeds, ...(seeded ? {} : { flags: SILENT }), allowedMentions: { parse: [] } });
       for (const d of part.devices) record(d);
     }
   }

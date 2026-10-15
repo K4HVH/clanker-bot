@@ -5,7 +5,7 @@ import type { ConfigService } from "../lib/config";
 import type { DiscordApi, Upload } from "./api";
 import { after, chunk, copyable, type History, type HistoryMessage, readHistory, readThreadCount, sentAt } from "./history";
 import { type Live, type RawOnboarding, readLive } from "./live";
-import { parsePosted } from "./posts";
+import { type PostEmbed, parsePosted } from "./posts";
 import {
   type AutoModBody,
   buildPlan,
@@ -547,7 +547,12 @@ class Runner {
       case "post.create": {
         const message = op.panel
           ? { ...panelMessage(op.panel.kind, op.panel.text), allowed_mentions: { parse: [] } }
-          : { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(op.components ? { components: op.components } : {}) };
+          : {
+              content: this.fill(op.content),
+              allowed_mentions: { parse: [] },
+              ...(op.embed ? { embeds: [this.fillEmbed(op.embed)] } : {}),
+              ...(op.components ? { components: op.components } : {}),
+            };
         if (op.thread) {
           // A forum post: its first chunk starts the thread, whose first message has the thread's id.
           const forumId = this.channel(op.channel);
@@ -574,7 +579,13 @@ class Runner {
         const components = op.components ?? (op.clearMenu ? [] : undefined);
         const body = op.panel
           ? { content: "", ...panelMessage(op.panel.kind, op.panel.text), allowed_mentions: { parse: [] } }
-          : { content: this.fill(op.content), allowed_mentions: { parse: [] }, ...(components ? { components } : {}) };
+          : {
+              content: this.fill(op.content),
+              allowed_mentions: { parse: [] },
+              // flags 0 clears "Remove embeds", which would keep the embed hidden.
+              ...(op.embed ? { embeds: [this.fillEmbed(op.embed)], flags: 0 } : op.clearEmbed ? { embeds: [] } : {}),
+              ...(components ? { components } : {}),
+            };
         await api.patch(`/channels/${at.channel}/messages/${at.message}`, body, reason);
         if (op.menuHash) this.put("post", `${op.key}#menu`, op.menuHash);
         else if (op.clearMenu) this.drop("post", `${op.key}#menu`);
@@ -611,6 +622,10 @@ class Runner {
   // A post's "{#key}" channel names left for a channel this run created.
   private fill(text: string): string {
     return text.replace(/\{#([a-z0-9-]+)\}/g, (_all, key: string) => `<#${this.channel(key)}>`);
+  }
+
+  private fillEmbed(e: PostEmbed): PostEmbed {
+    return e.description === undefined ? e : { ...e, description: this.fill(e.description) };
   }
 
   // A forum's settings in Discord's field names. Tags keep the ids of same-named tags the channel

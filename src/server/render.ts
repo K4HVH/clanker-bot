@@ -148,11 +148,11 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         if (op.panel) return ["Posts", `+ the ${op.panel.kind} panel in ${channel(op.channel)}: "${op.panel.text}"`];
         const what = op.thread ? `forum post "${op.thread.title}"${op.thread.pin ? ", pinned" : ""}` : `${op.key}, part ${op.index + 1}`;
         const menu = op.components ? ", with its role menu" : "";
-        return ["Posts", `+ ${what} (${op.content.length} characters) in ${channel(op.channel)}${menu}`];
+        return ["Posts", `+ ${what} (${size(op)}) in ${channel(op.channel)}${menu}`];
       }
       case "post.edit":
         if (op.panel) return ["Posts", `${op.key}: the ${op.panel.kind} panel's text -> "${op.panel.text}"`];
-        return ["Posts", `${op.key}, part ${op.index + 1}: edited (${op.content.length} characters)${op.components ? ", role menu updated" : op.clearMenu ? ", role menu removed" : ""}`];
+        return ["Posts", `${op.key}, part ${op.index + 1}: edited (${size(op)})${op.components ? ", role menu updated" : op.clearMenu ? ", role menu removed" : ""}`];
       case "post.title":
         return ["Posts", `${op.key}: title "${op.title}"${op.pin ? ", pinned" : ", not pinned"}`];
       case "post.delete":
@@ -164,6 +164,12 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
 }
 
 // The invites a deleted channel takes with it.
+// A post chunk's length: its text's, or its embed's.
+function size(op: { content: string; embed?: { title?: string; description?: string } }): string {
+  if (!op.embed) return `${op.content.length} characters`;
+  return `an embed, ${(op.embed.title?.length ?? 0) + (op.embed.description?.length ?? 0)} characters`;
+}
+
 function invitesText(op: { invites?: number; permanentInvites?: number }): string {
   if (!op.invites) return "";
   const kept = op.permanentInvites ? ` (${op.permanentInvites} never expire${op.permanentInvites === 1 ? "s" : ""})` : "";

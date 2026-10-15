@@ -1,5 +1,6 @@
 import type { DiscordApi } from "./api";
 import { statusOf } from "./api";
+import { embedKey } from "./posts";
 
 // The live server as the planner sees it: Discord's objects, cut down to the fields a spec manages
 // and with permissions as bigints.
@@ -118,6 +119,7 @@ export interface Live {
   rules: LiveRule[];
   posts: Map<string, string | null>; // message id -> content; null when the message is gone
   embeds: Map<string, string | null>; // message id -> its first embed's text (a panel's)
+  postEmbeds: Map<string, string | null>; // message id -> its first embed the bot made, as embedKey compares it
   threads: Map<string, { name: string; flags: number } | null>; // forum posts' threads; null when gone
   botId: string;
   botTopPosition: number;
@@ -238,11 +240,18 @@ export async function readLive(
 
   const posts = new Map<string, string | null>();
   const embeds = new Map<string, string | null>();
+  const postEmbeds = new Map<string, string | null>();
   for (const { channelId, messageId } of postIds) {
     try {
-      const m = await api.get<{ content: string; embeds?: { description?: string }[] }>(`/channels/${channelId}/messages/${messageId}`);
+      const m = await api.get<{ content: string; flags?: number; embeds?: { type?: string; title?: string; url?: string; description?: string; color?: number }[] }>(
+        `/channels/${channelId}/messages/${messageId}`,
+      );
       posts.set(messageId, m.content);
       embeds.set(messageId, m.embeds?.[0]?.description ?? null);
+      // A link's preview is an embed too; those the bot sends are "rich". Embeds hidden with "Remove embeds"
+      // (the suppress-embeds flag) count as none.
+      const hidden = ((m.flags ?? 0) & 4) !== 0;
+      postEmbeds.set(messageId, hidden ? null : embedKey(m.embeds?.find((e) => (e.type ?? "rich") === "rich")));
     } catch (error) {
       // 404: deleted by hand, or its channel is gone. Anything else is a real failure to report.
       if (statusOf(error) !== 404) throw error;
@@ -331,6 +340,7 @@ export async function readLive(
     })),
     posts,
     embeds,
+    postEmbeds,
     threads,
     botId: me.id,
     botTopPosition,

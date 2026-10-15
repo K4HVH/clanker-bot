@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import { type FeedDevice, runFeed } from "../../src/lib/device-feed";
 import { silentContext } from "../helpers/fakes";
 
+const GREEN = 0x10b981;
+const AMBER = 0xf59e0b;
+const RED = 0xdc2626;
+
 const PAGE = "https://medius.k4tech.net/guide/compatibility";
 const atk: FeedDevice = { name: "ATK X1 NK 8K", kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/atk-x1-nk-8k` };
 const shark: FeedDevice = {
@@ -14,10 +18,23 @@ const shark: FeedDevice = {
 };
 const probe: FeedDevice = { name: "Probe Mouse", kind: "mouse", verdict: "works", vidpid: "1234:abcd", boxes: 2, url: `${PAGE}/probe-mouse` };
 
+interface Embed {
+  author?: { name: string };
+  title?: string;
+  url?: string;
+  color?: number;
+  description?: string;
+}
+
 interface Sent {
-  content: string;
+  embeds: Embed[];
   flags?: number;
 }
+
+// A message's text as a reader sees it, embed by embed.
+const body = (m: Sent) => m.embeds.map((e) => [e.author?.name, e.title, e.description].filter(Boolean).join("\n")).join("\n\n");
+const size = (m: Sent) => m.embeds.reduce((n, e) => n + (e.author?.name.length ?? 0) + (e.title?.length ?? 0) + (e.description?.length ?? 0), 0);
+const heading = (section: string, title: string, color: number, description: string): Embed => ({ author: { name: section }, title, url: PAGE, color, description });
 
 function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[]) {
   const ctx = silentContext();
@@ -38,7 +55,7 @@ function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[])
               failAt = -1;
               throw new Error("refused");
             }
-            sent.push({ content: o.content, ...(o.flags ? { flags: o.flags } : {}) });
+            sent.push({ embeds: o.embeds, ...(o.flags ? { flags: o.flags } : {}) });
           },
         }
       : null;
@@ -50,17 +67,20 @@ function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[])
   };
 }
 
-test("the first read posts the whole list, silently", async () => {
+test("the first read posts the whole list, silently, an embed a verdict in its colour", async () => {
   const s = setup([[atk, shark]]);
   await s.run();
   expect(s.sent).toEqual([
     {
-      content: [
-        "On the Devices list:",
-        `- [**ATK X1 NK 8K**](<${PAGE}/atk-x1-nk-8k>) (mouse): Supported, reported on v3.4.5`,
-        `- [**Attack Shark R5 Ultra**](<${PAGE}/attack-shark-r5-ultra>) (mouse): Partial, reported on v3.0.1. Over wireless, the vendor's app can't see it`,
-        `<${PAGE}>`,
-      ].join("\n"),
+      embeds: [
+        heading("On the Devices list", "Supported", GREEN, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): reported on v3.4.5`),
+        heading(
+          "On the Devices list",
+          "Partial",
+          AMBER,
+          `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`,
+        ),
+      ],
       flags: 4096,
     },
   ]);
@@ -73,12 +93,15 @@ test("a device new to the list is posted, from a report or from the stats", asyn
   await s.run();
   await s.run();
   expect(s.sent[1]).toEqual({
-    content: [
-      "Added to Devices:",
-      `- [**Attack Shark R5 Ultra**](<${PAGE}/attack-shark-r5-ultra>) (mouse): Partial, reported on v3.0.1. Over wireless, the vendor's app can't see it`,
-      `- [**Probe Mouse**](<${PAGE}/probe-mouse>) (mouse): Supported, seen on 2 boxes`,
-      `<${PAGE}>`,
-    ].join("\n"),
+    embeds: [
+      heading("Added to Devices", "Supported", GREEN, `- [**Probe Mouse**](${PAGE}/probe-mouse) (mouse): seen on 2 boxes`),
+      heading(
+        "Added to Devices",
+        "Partial",
+        AMBER,
+        `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`,
+      ),
+    ],
   });
   await s.run();
   expect(s.sent).toHaveLength(2);
@@ -88,7 +111,9 @@ test("a device whose verdict changed is posted with what it was", async () => {
   const s = setup([[atk], [{ ...atk, verdict: "doesnt" }]]);
   await s.run();
   await s.run();
-  expect(s.sent[1]!.content).toContain(`Changed on Devices:\n- [**ATK X1 NK 8K**](<${PAGE}/atk-x1-nk-8k>) (mouse): Unsupported, was Supported, reported on v3.4.5`);
+  expect(s.sent[1]).toEqual({
+    embeds: [heading("Changed on Devices", "Unsupported", RED, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): was Supported, reported on v3.4.5`)],
+  });
 });
 
 test("a stats device that gains a report later is the same device", async () => {
@@ -104,7 +129,7 @@ test("a device listed twice is one device, and posts once", async () => {
   await s.run();
   await s.run();
   expect(s.sent).toHaveLength(2);
-  expect(s.sent[1]!.content.match(/Attack Shark/g)).toHaveLength(1);
+  expect(body(s.sent[1]!).match(/Attack Shark/g)).toHaveLength(1);
 });
 
 test("devices that share a name are told apart by their USB ids", async () => {
@@ -115,9 +140,9 @@ test("devices that share a name are told apart by their USB ids", async () => {
   await s.run();
   expect(s.sent).toHaveLength(1);
   await s.run();
-  expect(s.sent[1]!.content).toBe("Added to Devices:\n- **USB Receiver** (mouse): Supported, seen on 17 boxes\n<https://medius.k4tech.net/guide/compatibility>");
+  expect(s.sent[1]).toEqual({ embeds: [heading("Added to Devices", "Supported", GREEN, "- **USB Receiver** (mouse): seen on 17 boxes")] });
   await s.run();
-  expect(s.sent[2]!.content).toContain("Changed on Devices:\n- **USB Receiver** (mouse): Unsupported, was Supported, seen on 17 boxes");
+  expect(s.sent[2]).toEqual({ embeds: [heading("Changed on Devices", "Unsupported", RED, "- **USB Receiver** (mouse): was Supported, seen on 17 boxes")] });
   expect(s.sent).toHaveLength(3);
 });
 
@@ -157,7 +182,7 @@ test("a report taking over a stats device posts its verdict once, whichever id i
   const s = setup([[w, v], [rep], { devices: [repDown], stats: false }, [{ ...rep, vidpid: "aaaa:0001" }]]);
   await s.run();
   await s.run();
-  expect(s.sent[1]!.content).toBe("Changed on Devices:\n- **Bar** (mouse): Partial, was Supported, reported on v3.4.5\n<https://medius.k4tech.net/guide/compatibility>");
+  expect(s.sent[1]).toEqual({ embeds: [heading("Changed on Devices", "Partial", AMBER, "- **Bar** (mouse): was Supported, reported on v3.4.5")] });
   await s.run();
   await s.run();
   expect(s.sent).toHaveLength(2);
@@ -167,15 +192,15 @@ test("a device's name can't carry markdown into the post", async () => {
   const odd: FeedDevice = { name: "**Big** [x](https://bad.example) ]", kind: "mouse", verdict: "works", vidpid: "1:1", boxes: 2, url: `${PAGE}/odd` };
   const s = setup([[odd]]);
   await s.run();
-  expect(s.sent[0]!.content).toContain(`- [**\\*\\*Big\\*\\* \\[x\\](https://bad.example) \\]**](<${PAGE}/odd>) (mouse)`);
+  expect(body(s.sent[0]!)).toContain(`- [**\\*\\*Big\\*\\* \\[x\\](https://bad.example) \\]**](${PAGE}/odd) (mouse)`);
 });
 
-test("a line longer than a message is cut to fit, so the read still finishes", async () => {
-  const wordy: FeedDevice = { name: "Wordy", kind: "mouse", verdict: "works", reported: "v3.4.5", note: "n".repeat(2500) };
+test("a line longer than an embed is cut to fit, so the read still finishes", async () => {
+  const wordy: FeedDevice = { name: "Wordy", kind: "mouse", verdict: "works", reported: "v3.4.5", note: "n".repeat(5000) };
   const s = setup([[atk, wordy]]);
   await s.run();
-  expect(s.sent.every((m) => m.content.length <= 2000)).toBe(true);
-  expect(s.sent.map((m) => m.content).join("\n")).toContain("**Wordy**");
+  expect(s.sent.every((m) => size(m) <= 6000 && m.embeds.every((e) => (e.description ?? "").length <= 4096))).toBe(true);
+  expect(s.sent.map(body).join("\n")).toContain("**Wordy**");
   await s.run();
   expect(s.sent.length).toBeLessThanOrEqual(2);
 });
@@ -189,16 +214,28 @@ test("a long post goes out in parts, and a part that fails is posted again with 
   const firstPart = s.sent.length - 1;
   expect(firstPart).toBeGreaterThanOrEqual(1);
   await s.run();
-  const all = s.sent.slice(1).map((m) => m.content).join("\n");
+  const all = s.sent.slice(1).map(body).join("\n");
   for (const d of many) expect(all.split(`**${d.name}**`).length - 1).toBe(1);
-  expect(s.sent.slice(1).every((m) => m.content.length <= 2000)).toBe(true);
+  expect(s.sent.slice(1).every((m) => m.embeds.length <= 10 && size(m) <= 6000)).toBe(true);
+});
+
+test("every message names its section and verdict, even one that opens part way through a verdict", async () => {
+  const many = Array.from({ length: 150 }, (_, i): FeedDevice => ({ name: `Mouse number ${i} with a long name`, kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/m${i}` }));
+  const s = setup([many]);
+  await s.run();
+  expect(s.sent.length).toBeGreaterThan(1);
+  for (const m of s.sent) {
+    expect(m.embeds[0]).toMatchObject({ author: { name: "On the Devices list" }, title: "Supported" });
+    expect(m.embeds.slice(1).every((e) => e.title === undefined && e.author === undefined)).toBe(true);
+    expect(size(m)).toBeLessThanOrEqual(6000);
+  }
 });
 
 test("entries the feed can't read are left out", async () => {
   const s = setup([[atk, { name: "", kind: "mouse", verdict: "works" }, { name: "Odd", kind: "mouse", verdict: "maybe" }] as unknown as FeedDevice[]]);
   await s.run();
-  expect(s.sent[0]!.content).not.toContain("Odd");
-  expect(s.sent[0]!.content).toContain("ATK X1 NK 8K");
+  expect(body(s.sent[0]!)).not.toContain("Odd");
+  expect(body(s.sent[0]!)).toContain("ATK X1 NK 8K");
 });
 
 test("an empty list, or one without the usage stats, isn't taken as the first read", async () => {
@@ -208,8 +245,8 @@ test("an empty list, or one without the usage stats, isn't taken as the first re
   expect(s.sent).toEqual([]);
   await s.run();
   expect(s.sent).toHaveLength(1);
-  expect(s.sent[0]!.content).toContain("On the Devices list:");
-  expect(s.sent[0]!.content).toContain("Probe Mouse");
+  expect(body(s.sent[0]!)).toContain("On the Devices list");
+  expect(body(s.sent[0]!)).toContain("Probe Mouse");
 });
 
 test("no channel set, or a list that can't be read, posts nothing", async () => {
@@ -228,12 +265,12 @@ test("a first post stopped part way carries on with what's left", async () => {
   const flaky = {
     send: async (o: Sent) => {
       if (++calls === 2) throw new Error("refused");
-      s.sent.push({ content: o.content, ...(o.flags ? { flags: o.flags } : {}) });
+      s.sent.push({ embeds: o.embeds, ...(o.flags ? { flags: o.flags } : {}) });
     },
   };
   const list = async () => new Response(JSON.stringify({ devices: many, stats: true }), { status: 200 });
   await runFeed(s.ctx, "g", async () => flaky, list as unknown as typeof fetch).catch(() => {});
   await runFeed(s.ctx, "g", async () => flaky, list as unknown as typeof fetch);
-  const all = s.sent.map((m) => m.content).join("\n");
+  const all = s.sent.map(body).join("\n");
   for (const d of many) expect(all.split(`**${d.name}**`).length - 1).toBe(1);
 });

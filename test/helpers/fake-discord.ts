@@ -315,9 +315,16 @@ export class FakeDiscord implements DiscordApi {
     if ((m = route.match(/^\/channels\/(\d+)\/threads$/))) {
       const forum = this.channel(m[1]!);
       const thread = this.addChannel({ name: String(b.name), type: 11, parent_id: forum.id });
-      const first = b.message as { content: string; components?: unknown[] };
+      const first = b.message as { content: string; components?: unknown[]; embeds?: Record<string, unknown>[] };
       // A forum thread's first message has the thread's id.
-      const msg: RawMessage = { id: thread.id, channel_id: thread.id, content: first.content, author: { id: this.botId }, ...(first.components ? { components: first.components } : {}) };
+      const msg: RawMessage = {
+        id: thread.id,
+        channel_id: thread.id,
+        content: first.content,
+        author: { id: this.botId },
+        ...(first.components ? { components: first.components } : {}),
+        ...(first.embeds ? { embeds: first.embeds } : {}),
+      };
       this.messages.push(msg);
       return structuredClone({ ...thread, message: msg }) as T;
     }
@@ -371,6 +378,8 @@ export class FakeDiscord implements DiscordApi {
       msg.content = String(b.content);
       if (b.components !== undefined) msg.components = b.components as unknown[];
       if (b.embeds !== undefined) msg.embeds = b.embeds as Record<string, unknown>[];
+      // An edit can set or clear only the suppress-embeds flag.
+      if (b.flags !== undefined) msg.flags = (Number(msg.flags ?? 0) & ~4) | (Number(b.flags) & 4);
       return structuredClone(msg) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)$/))) {
