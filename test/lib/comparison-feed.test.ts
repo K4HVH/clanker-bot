@@ -7,10 +7,14 @@ const SITE = "https://medius.k4tech.net";
 const summary = (over: Partial<Summary> = {}): Summary => ({
   firmware: { stock: "V4.094", medius: "3.4.6" },
   url: `${SITE}/comparison`,
-  total: { medius: 48, stock: 18, same: 120 },
+  highlights: [
+    { name: "Report latency, 1 kHz mouse", stock: { text: "1.43-1.44 ms" }, medius: { text: "1.07 ms" }, result: "medius" },
+    { name: "KMBox Net programs", stock: { text: "Toolkit Forwarding mode" }, medius: { text: "No" }, result: "stock" },
+    { name: "Absolute move", stock: { text: "km.moveto", code: true }, medius: { text: "No" }, result: "stock" },
+  ],
   areas: [
-    { title: "Devices", url: `${SITE}/comparison/devices`, medius: 27, stock: 5, same: 80 },
-    { title: "Passthrough", url: `${SITE}/comparison/passthrough`, medius: 21, stock: 13, same: 40 },
+    { title: "Devices", url: `${SITE}/comparison/devices` },
+    { title: "Passthrough", url: `${SITE}/comparison/passthrough` },
   ],
   defects: { stock: 11, medius: 0, url: `${SITE}/comparison/defects` },
   ...over,
@@ -18,18 +22,21 @@ const summary = (over: Partial<Summary> = {}): Summary => ({
 
 const FIRST = {
   title: "Stock V4.094 vs Medius 3.4.6",
+  url: `${SITE}/comparison`,
+  color: 0x0080ff,
   description: [`Stock has [11 defects](${SITE}/comparison/defects). Medius has none.`, "", `**[Read the full comparison](${SITE}/comparison)**`].join("\n"),
   fields: [
-    { name: "Medius ahead", value: "48", inline: true },
-    { name: "Stock ahead", value: "18", inline: true },
-    { name: "Equal", value: "120", inline: true },
-    { name: "Devices", value: `Medius 27, stock 5, equal 80\n[All results](${SITE}/comparison/devices)`, inline: true },
-    { name: "Passthrough", value: `Medius 21, stock 13, equal 40\n[All results](${SITE}/comparison/passthrough)`, inline: true },
+    { name: "Report latency, 1 kHz mouse", value: "Stock: 1.43-1.44 ms\nMedius: **1.07 ms** ✓", inline: true },
+    { name: "KMBox Net programs", value: "Stock: **Toolkit Forwarding mode** ✓\nMedius: No", inline: true },
+    { name: "Absolute move", value: "Stock: **`km.moveto`** ✓\nMedius: No", inline: true },
+    { name: "All results", value: `[Devices](${SITE}/comparison/devices) | [Passthrough](${SITE}/comparison/passthrough)` },
   ],
 };
 
 interface Embed {
   title?: string;
+  url?: string;
+  color?: number;
   description?: string;
   fields?: { name: string; value: string; inline?: boolean }[];
 }
@@ -92,7 +99,7 @@ function setup(first: unknown) {
   };
 }
 
-test("the summary is one embed, posted silently: the totals, each box's defects and each area, every one linking the site", async () => {
+test("the summary is one embed, posted silently: each box's defects, a few benchmarks with the box ahead in bold, and every area's results linked", async () => {
   const s = setup(summary());
   await s.run();
   expect([...s.c1.posts.values()]).toEqual([{ id: "m1", content: "", embeds: [FIRST], flags: 4096 }]);
@@ -103,6 +110,11 @@ test("a box with defects links them, one with none says so", () => {
   expect(both.description).toContain(`Stock has [1 defect](${SITE}/comparison/defects). Medius has [2 defects](${SITE}/comparison/defects).`);
 });
 
+test("a benchmark where neither box is ahead shows both plain", () => {
+  const even = render(summary({ highlights: [{ name: "Reports", stock: { text: "All" }, medius: { text: "All" }, result: "equal" }] }));
+  expect(even.fields![0]!.value).toBe("Stock: All\nMedius: All");
+});
+
 test("a summary that hasn't changed touches nothing", async () => {
   const s = setup(summary());
   await s.run();
@@ -110,13 +122,14 @@ test("a summary that hasn't changed touches nothing", async () => {
   expect(s.c1.log).toEqual(["send m1"]);
 });
 
-test("a changed count edits the post in place", async () => {
+test("a changed result edits the post in place", async () => {
   const s = setup(summary());
   await s.run();
-  s.serve(summary({ total: { medius: 49, stock: 18, same: 119 } }));
+  const [first, ...rest] = summary().highlights;
+  s.serve(summary({ highlights: [{ ...first!, medius: { text: "1.05 ms" } }, ...rest] }));
   await s.run();
   expect(s.c1.log).toEqual(["send m1", "edit m1"]);
-  expect(s.c1.embeds()[0]![0]!.fields![0]).toEqual({ name: "Medius ahead", value: "49", inline: true });
+  expect(s.c1.embeds()[0]![0]!.fields![0]).toEqual({ name: "Report latency, 1 kHz mouse", value: "Stock: 1.43-1.44 ms\nMedius: **1.05 ms** ✓", inline: true });
 });
 
 test("a post someone deleted is posted again", async () => {
@@ -159,9 +172,16 @@ test("a summary posted as text before becomes the embed in place", async () => {
 });
 
 test("site text is shown as typed", () => {
-  const odd = render(summary({ areas: [{ ...summary().areas[0]!, title: "Odd *area*" }], firmware: { stock: "V4_094", medius: "3.4.6" } }));
-  expect(odd.fields![3]!.name).toBe("Odd \\*area\\*");
+  const odd = render(
+    summary({
+      firmware: { stock: "V4_094", medius: "3.4.6" },
+      highlights: [{ name: "Odd *name*", stock: { text: "a_b" }, medius: { text: "km.`x`", code: true }, result: null }],
+      areas: [{ title: "Odd [area]", url: `${SITE}/comparison/odd` }],
+    }),
+  );
   expect(odd.title).toBe("Stock V4\\_094 vs Medius 3.4.6");
+  expect(odd.fields![0]).toEqual({ name: "Odd \\*name\\*", value: "Stock: a\\_b\nMedius: `km.x`", inline: true });
+  expect(odd.fields![1]!.value).toBe(`[Odd \\[area\\]](${SITE}/comparison/odd)`);
 });
 
 test("a summary that can't be read, or no channel set, posts nothing and keeps what's posted", async () => {
@@ -174,8 +194,10 @@ test("a summary that can't be read, or no channel set, posts nothing and keeps w
     { ...summary(), firmware: null },
     noDefects,
     { ...summary(), areas: [] },
-    { ...summary(), areas: [{ title: "Devices", url: `${SITE}/comparison/devices`, medius: 1 }] },
-    { ...summary(), total: { medius: -1, stock: 0, same: 0 } },
+    { ...summary(), areas: [{ title: "Devices" }] },
+    { ...summary(), highlights: [] },
+    { ...summary(), highlights: [{ name: "Latency", stock: { text: "1 ms" } }] },
+    { ...summary(), defects: { stock: -1, medius: 0, url: `${SITE}/comparison/defects` } },
   ]) {
     s.serve(bad);
     await s.run();

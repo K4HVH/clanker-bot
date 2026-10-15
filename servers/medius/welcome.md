@@ -1,4 +1,4 @@
-# Medius
+# [Medius](https://medius.k4tech.net)
 Free replacement firmware for the MAKCU.
 
 - [Start here](https://medius.k4tech.net/guide)

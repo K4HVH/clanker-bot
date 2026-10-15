@@ -151,7 +151,7 @@ export function describer(spec: ServerSpec): (op: Op) => [string, string] {
         return ["Posts", `+ ${what} (${size(op)}) in ${channel(op.channel)}${menu}`];
       }
       case "post.edit":
-        if (op.panel) return ["Posts", `${op.key}: the ${op.panel.kind} panel's text -> "${op.panel.text}"`];
+        if (op.panel) return ["Posts", op.panel.recolor ? `${op.key}: the ${op.panel.kind} panel's colour` : `${op.key}: the ${op.panel.kind} panel's text -> "${op.panel.text}"`];
         return ["Posts", `${op.key}, part ${op.index + 1}: edited (${size(op)})${op.components ? ", role menu updated" : op.clearMenu ? ", role menu removed" : ""}`];
       case "post.title":
         return ["Posts", `${op.key}: title "${op.title}"${op.pin ? ", pinned" : ", not pinned"}`];

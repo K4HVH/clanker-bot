@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { type FeedDevice, runFeed } from "../../src/lib/device-feed";
 import { silentContext } from "../helpers/fakes";
 
-const GREEN = 0x2ecc71;
-const AMBER = 0xf1c40f;
-const RED = 0xe74c3c;
+const GREEN = 0x10b981;
+const AMBER = 0xf59e0b;
+const RED = 0xdc2626;
 
 const PAGE = "https://medius.k4tech.net/guide/compatibility";
 const atk: FeedDevice = { name: "ATK X1 NK 8K", kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/atk-x1-nk-8k` };
@@ -20,6 +20,7 @@ const probe: FeedDevice = { name: "Probe Mouse", kind: "mouse", verdict: "works"
 
 interface Embed {
   title?: string;
+  url?: string;
   color?: number;
   description?: string;
 }
@@ -32,7 +33,7 @@ interface Sent {
 // A message's text as a reader sees it, embed by embed.
 const body = (m: Sent) => m.embeds.map((e) => [e.title, e.description].filter(Boolean).join("\n")).join("\n\n");
 const size = (m: Sent) => m.embeds.reduce((n, e) => n + (e.title?.length ?? 0) + (e.description?.length ?? 0), 0);
-const embed = (title: string, color: number, description: string): Embed => ({ title, color, description });
+const embed = (title: string, color: number, description: string): Embed => ({ title, url: PAGE, color, description });
 
 function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[]) {
   const ctx = silentContext();

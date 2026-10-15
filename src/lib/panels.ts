@@ -1,5 +1,6 @@
 import { type APIActionRowComponent, type APIButtonComponent, type APIEmbed, ButtonStyle, ComponentType } from "discord.js";
 import { CONFIG_KEYS, REGISTRY_BY_KEY } from "./config";
+import { ACCENT } from "./embeds";
 
 // The bot's panels: the ticket and captcha panels (an embed and the one button members press) and the
 // honeypot's warning (a yellow embed). The panel commands and a spec's panel posts all build them here,
@@ -14,8 +15,8 @@ interface Panel {
 }
 
 export const PANELS: Record<PanelKind, Panel> = {
-  ticket: { title: "Support", button: { label: "Open Ticket", customId: "ticket_open" }, setting: CONFIG_KEYS.ticketPanelText },
-  verify: { title: "Server Verification", button: { label: "Verify", customId: "verify_start" }, setting: CONFIG_KEYS.verificationPanelText },
+  ticket: { title: "Support", color: ACCENT, button: { label: "Open Ticket", customId: "ticket_open" }, setting: CONFIG_KEYS.ticketPanelText },
+  verify: { title: "Server Verification", color: ACCENT, button: { label: "Verify", customId: "verify_start" }, setting: CONFIG_KEYS.verificationPanelText },
   honeypot: { color: 0xf1c40f, setting: CONFIG_KEYS.honeypotPanelText },
 };
 

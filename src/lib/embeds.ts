@@ -23,10 +23,11 @@ export const FIELDS = 25;
 const NAME = 256;
 const VALUE = 1024;
 
-// The bot's colours, as its logs use them.
-export const GREEN = 0x2ecc71;
-export const YELLOW = 0xf1c40f;
-export const RED = 0xe74c3c;
+// The site's colours: its accent for the bot's posts and panels, and ok, warn and bad for a verdict.
+export const ACCENT = 0x0080ff;
+export const OK = 0x10b981;
+export const WARN = 0xf59e0b;
+export const BAD = 0xdc2626;
 
 export const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 

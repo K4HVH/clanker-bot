@@ -2,7 +2,7 @@ import { escapeMarkdown } from "discord.js";
 import type { AppContext } from "../core/context";
 import { many, one, run } from "../db/index";
 import { CONFIG_KEYS } from "./config";
-import { type Embed, GREEN, RED, YELLOW, descriptions, packGroups } from "./embeds";
+import { BAD, type Embed, OK, WARN, descriptions, packGroups } from "./embeds";
 
 // The device feed: the site's Devices list posted in a channel. The first read posts the whole list,
 // silently; after that, devices new to it or whose verdict changed. The list merges owners' reports with
@@ -20,10 +20,11 @@ export interface FeedDevice {
 }
 
 const VERDICT: Record<FeedDevice["verdict"], string> = { works: "Supported", partial: "Partial", doesnt: "Unsupported" };
-const COLOR: Record<FeedDevice["verdict"], number> = { works: GREEN, partial: YELLOW, doesnt: RED };
+const COLOR: Record<FeedDevice["verdict"], number> = { works: OK, partial: WARN, doesnt: BAD };
 // Unsupported first: the devices a reader most needs to find.
 const VERDICTS: FeedDevice["verdict"][] = ["doesnt", "partial", "works"];
 const KINDS = new Set(["mouse", "keyboard", "other"]);
+const PAGE = "https://medius.k4tech.net/guide/compatibility";
 const SILENT = 4096; // Discord's suppress-notifications flag
 
 const source = (d: FeedDevice) => (d.reported ? `reported on ${d.reported}` : d.boxes ? `seen on ${d.boxes} boxes` : "");
@@ -68,6 +69,7 @@ function messages(sections: { heading?: string; items: Item[] }[]): { embeds: Em
         embeds.push({
           group: `${s.heading} ${verdict}`,
           title: s.heading ? `${s.heading}: ${VERDICT[verdict]}` : VERDICT[verdict],
+          url: PAGE,
           color: COLOR[verdict],
           description,
           devices: items.slice(at, at + count).map((i) => i.device),

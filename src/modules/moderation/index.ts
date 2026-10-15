@@ -37,6 +37,7 @@ import {
 import { runExport } from "./export";
 import { runForget } from "./forget";
 import { assertActionable, recordAndAnnounce } from "./shared";
+import { ACCENT } from "../../lib/embeds";
 
 const warnSub: Subcommand = {
   description: "Warn a member.",
@@ -768,7 +769,7 @@ const historySub: Subcommand = {
       used += line.length + 1;
     }
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
+      .setColor(ACCENT)
       .setTitle(`Moderation history: ${user.tag}`)
       .setDescription(lines.join("\n"))
       .setFooter({ text: `${records.length} most recent` });

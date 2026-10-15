@@ -119,6 +119,7 @@ export interface Live {
   rules: LiveRule[];
   posts: Map<string, string | null>; // message id -> content; null when the message is gone
   embeds: Map<string, string | null>; // message id -> its first embed's text (a panel's)
+  embedColors: Map<string, number | null>; // message id -> its first embed's colour (a panel's)
   postEmbeds: Map<string, string | null>; // message id -> its first embed the bot made, as embedKey compares it
   threads: Map<string, { name: string; flags: number } | null>; // forum posts' threads; null when gone
   botId: string;
@@ -241,6 +242,7 @@ export async function readLive(
   const posts = new Map<string, string | null>();
   const embeds = new Map<string, string | null>();
   const postEmbeds = new Map<string, string | null>();
+  const embedColors = new Map<string, number | null>();
   for (const { channelId, messageId } of postIds) {
     try {
       const m = await api.get<{ content: string; flags?: number; embeds?: { type?: string; title?: string; url?: string; description?: string; color?: number }[] }>(
@@ -248,6 +250,7 @@ export async function readLive(
       );
       posts.set(messageId, m.content);
       embeds.set(messageId, m.embeds?.[0]?.description ?? null);
+      embedColors.set(messageId, m.embeds?.[0]?.color ?? null);
       // A link's preview is an embed too; those the bot sends are "rich". Embeds hidden with "Remove embeds"
       // (the suppress-embeds flag) count as none.
       const hidden = ((m.flags ?? 0) & 4) !== 0;
@@ -340,6 +343,7 @@ export async function readLive(
     })),
     posts,
     embeds,
+    embedColors,
     postEmbeds,
     threads,
     botId: me.id,

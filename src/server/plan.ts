@@ -135,7 +135,7 @@ export type Op =
       components?: unknown[];
       menuHash?: string;
       clearMenu?: boolean;
-      panel?: { kind: PanelKind; text: string };
+      panel?: { kind: PanelKind; text: string; recolor?: boolean }; // recolor: only the colour changed
     }
   | { t: "post.title"; key: string; title: string; pin: boolean }
   | { t: "post.delete"; key: string; index: number }
@@ -181,7 +181,7 @@ export interface PlanInput {
   // Delete live roles and channels the spec doesn't name (Discord's defaults on a new server, say).
   prune?: boolean;
   histories?: Map<string, History>; // retired channels' messages, by channel id
-  panels?: Map<string, { channel: string; message: string; text: string | null }>; // panels found in their channels, by post key
+  panels?: Map<string, { channel: string; message: string; text: string | null; color: number | null }>; // panels found in their channels, by post key
 }
 
 // Each wanted item with the live id it keeps: the live one of the same title, else the one in its place
@@ -1186,10 +1186,15 @@ class Planner {
   }
 
   // A panel already in its channel (posted by hand before the spec named it) is taken over, not posted
-  // again; its text follows the bot setting.
+  // again; its text follows the bot setting, and its colour the bot's.
   planPanel(key: string, kind: PanelKind, channel: string, channelId: string | null): void {
     const setting = PANELS[kind].setting;
     const text = panelText(kind, this.input.spec.bot[setting], this.input.settings[setting]);
+    const color = PANELS[kind].color ?? null;
+    const edit = (liveText: string | null | undefined, liveColor: number | null | undefined) => {
+      if (liveText !== text) this.ops.push({ t: "post.edit", key, index: 0, content: "", panel: { kind, text } });
+      else if ((liveColor ?? null) !== color) this.ops.push({ t: "post.edit", key, index: 0, content: "", panel: { kind, text, recolor: true } });
+    };
     const panel = { kind, text };
     const stored = this.input.state.get(stateKey("post", `${key}#0`));
     const at = stored === undefined ? undefined : parsePosted(stored);
@@ -1197,7 +1202,7 @@ class Planner {
       const found = this.input.panels?.get(key);
       if (found) {
         this.ops.push({ t: "bind", kind: "post", key: `${key}#0`, id: `${found.channel}/${found.message}`, label: `the ${kind} panel` });
-        if (found.text !== text) this.ops.push({ t: "post.edit", key, index: 0, content: "", panel });
+        edit(found.text, found.color);
       } else {
         this.ops.push({ t: "post.create", key, index: 0, channel, content: "", panel });
       }
@@ -1207,8 +1212,8 @@ class Planner {
     if (live == null || at.channel !== channelId) {
       if (live != null) this.ops.push({ t: "post.delete", key, index: 0 });
       this.ops.push({ t: "post.create", key, index: 0, channel, content: "", panel });
-    } else if (this.live.embeds.get(at.message) !== text) {
-      this.ops.push({ t: "post.edit", key, index: 0, content: "", panel });
+    } else {
+      edit(this.live.embeds.get(at.message), this.live.embedColors.get(at.message));
     }
   }
 

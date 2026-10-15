@@ -36,6 +36,7 @@ import {
   setChallenge,
   setChallengeDmMessage,
 } from "../../db/verification";
+import { ACCENT } from "../../lib/embeds";
 
 const DAY_MS = 86_400_000;
 // Ephemeral replies edit via an interaction token that dies at 15 min; cap under it.
@@ -212,7 +213,7 @@ async function issueCaptcha(
   const build = (isDm: boolean): Payload => {
     const shownExpiry = isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
+      .setColor(ACCENT)
       .setTitle("Server Verification")
       .setDescription(
         isDm
@@ -403,7 +404,7 @@ async function reviveDmSession(
     anchor = await channel
       .send({
         embeds: [
-          new EmbedBuilder().setColor(0x5865f2).setTitle("Server Verification").setDescription("Checking your code…"),
+          new EmbedBuilder().setColor(ACCENT).setTitle("Server Verification").setDescription("Checking your code…"),
         ],
       })
       .catch(() => null);

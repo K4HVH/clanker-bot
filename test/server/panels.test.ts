@@ -3,6 +3,7 @@ import { createDatabase } from "../../src/db/index";
 import { ConfigService } from "../../src/lib/config";
 import { panelMessage } from "../../src/lib/panels";
 import { applyPlan, planFor } from "../../src/server/apply";
+import { renderPlan } from "../../src/server/render";
 import { defineServer, type ServerSpec, validateSpec } from "../../src/server/spec";
 import { FakeDiscord } from "../helpers/fake-discord";
 
@@ -59,6 +60,24 @@ test("a panel already in its channel is taken over, not posted twice", async () 
   await applyPlan(e, plan);
   expect(panelsIn(f, "ticket")).toHaveLength(1);
   expect((await planFor(e, false)).ops).toEqual([]);
+});
+
+test("a panel drawn before the bot's colour is recoloured in place, found in its channel or posted by the spec", async () => {
+  const plain = { embeds: [{ title: "Support", description: DEFAULT_TICKET }], components: panelMessage("ticket", DEFAULT_TICKET).components };
+  const f = new FakeDiscord();
+  const ticket = f.addChannel({ name: "ticket" });
+  const old = f.addMessage(ticket.id, "", f.botId, plain as never);
+  const e = env(spec(), f);
+  const plan = await planFor(e, false);
+  expect(plan.ops).toContainEqual(expect.objectContaining({ t: "post.edit", key: "ticket-panel", panel: { kind: "ticket", text: DEFAULT_TICKET, recolor: true } }));
+  expect(renderPlan(plan, spec())).toContain("ticket-panel: the ticket panel's colour");
+  await applyPlan(e, plan);
+  expect(panelsIn(f, "ticket")).toEqual([expect.objectContaining({ id: old.id, embeds: panelMessage("ticket", DEFAULT_TICKET).embeds })]);
+  expect((await planFor(e, false)).ops).toEqual([]);
+
+  panelsIn(f, "verify")[0]!.embeds = [{ title: "Server Verification", description: panelsIn(f, "verify")[0]!.embeds![0]!.description }];
+  const again = await planFor(e, false);
+  expect(again.ops).toEqual([expect.objectContaining({ t: "post.edit", key: "verify-panel", panel: expect.objectContaining({ recolor: true }) })]);
 });
 
 test("new panel text in the file edits the panel", async () => {

@@ -2,22 +2,23 @@ import { escapeMarkdown } from "discord.js";
 import type { AppContext } from "../core/context";
 import { one, run } from "../db/index";
 import { CONFIG_KEYS } from "./config";
-import { type Embed, field } from "./embeds";
+import { ACCENT, type Embed, field } from "./embeds";
 
-// The comparison summary: the site's comparison of stock and Medius in brief, kept in a channel. Each read
-// posts it if it isn't there and edits it in place when the site's results change.
+// The comparison summary: a few of the site's benchmarks for stock and Medius, kept in a channel. Each
+// read posts it if it isn't there and edits it in place when the site's results change.
 
-interface Count {
-  medius: number;
-  stock: number;
-  same: number;
+type Box = "stock" | "medius";
+
+interface Cell {
+  text: string;
+  code?: boolean;
 }
 
 export interface Summary {
-  firmware: { stock: string; medius: string };
+  firmware: Record<Box, string>;
   url: string;
-  total: Count;
-  areas: (Count & { title: string; url: string })[];
+  highlights: { name: string; stock: Cell; medius: Cell; result: string | null }[];
+  areas: { title: string; url: string }[];
   defects: { stock: number; medius: number; url: string };
 }
 
@@ -28,28 +29,34 @@ const UNKNOWN_MESSAGE = 10008;
 const plain = (s: string) => escapeMarkdown(s).replace(/[[\]]/g, "\\$&");
 const str = (x: unknown): x is string => typeof x === "string";
 const num = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0;
-const isCount = (c: Count | undefined) => num(c?.medius) && num(c?.stock) && num(c?.same);
+const isCell = (c: Cell | undefined) => str(c?.text);
 
-// The summary, or null if any of it can't be read: one missing an area would state less than the site.
+// The summary, or null if any of it can't be read: one missing a benchmark or an area would state less
+// than the site.
 function readSummary(body: unknown): Summary | null {
   const b = body as Summary | null;
-  if (!b || !str(b.firmware?.stock) || !str(b.firmware?.medius) || !str(b.url) || !isCount(b.total)) return null;
-  if (!Array.isArray(b.areas) || b.areas.length === 0 || !b.areas.every((a) => str(a?.title) && str(a?.url) && isCount(a))) return null;
+  if (!b || !str(b.firmware?.stock) || !str(b.firmware?.medius) || !str(b.url)) return null;
+  if (!Array.isArray(b.highlights) || b.highlights.length === 0 || !b.highlights.every((h) => str(h?.name) && isCell(h?.stock) && isCell(h?.medius))) return null;
+  if (!Array.isArray(b.areas) || b.areas.length === 0 || !b.areas.every((a) => str(a?.title) && str(a?.url))) return null;
   if (!num(b.defects?.stock) || !num(b.defects?.medius) || !str(b.defects?.url)) return null;
   return b;
 }
 
-// One embed: the totals, each box's defects, and a field per area, each linking the site.
+// A box's value, bold and ticked where that box is ahead.
+const value = (h: Summary["highlights"][number], box: Box) => {
+  const text = h[box].code ? `\`${h[box].text.replace(/`/g, "")}\`` : plain(h[box].text);
+  return `${box === "stock" ? "Stock" : "Medius"}: ${h.result === box ? `**${text}** ✓` : text}`;
+};
+
+// One embed: each box's defects, a field per benchmark, and a link to every area's results.
 export function render(s: Summary): Embed {
   const defects = (box: string, n: number) => (n === 0 ? `${box} has none` : `${box} has [${n} defect${n === 1 ? "" : "s"}](${s.defects.url})`);
   const description = [`${defects("Stock", s.defects.stock)}. ${defects("Medius", s.defects.medius)}.`, "", `**[Read the full comparison](${s.url})**`].join("\n");
   const fields = [
-    field("Medius ahead", String(s.total.medius), true),
-    field("Stock ahead", String(s.total.stock), true),
-    field("Equal", String(s.total.same), true),
-    ...s.areas.map((a) => field(plain(a.title), `Medius ${a.medius}, stock ${a.stock}, equal ${a.same}\n[All results](${a.url})`, true)),
+    ...s.highlights.map((h) => field(plain(h.name), `${value(h, "stock")}\n${value(h, "medius")}`, true)),
+    field("All results", s.areas.map((a) => `[${plain(a.title)}](${a.url})`).join(" | ")),
   ];
-  return { title: `Stock ${plain(s.firmware.stock)} vs Medius ${plain(s.firmware.medius)}`, description, fields };
+  return { title: `Stock ${plain(s.firmware.stock)} vs Medius ${plain(s.firmware.medius)}`, url: s.url, color: ACCENT, description, fields };
 }
 
 export interface Board {

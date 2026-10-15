@@ -4,6 +4,8 @@ import { defineServer } from "../../src/server/spec";
 // first plan binds them and renames them, keeping their history. See medius-fw
 // docs/superpowers/specs/2026-10-11-discord-rework-design.md.
 
+const SITE_BLUE = 0x0080ff; // the site's accent, as the bot's panels and feeds use it
+
 // Read-only for those who can see the channel: they read and react, nobody posts.
 const readOnly = {
   SendMessages: false,
@@ -243,9 +245,9 @@ export default defineServer({
     ],
   },
   posts: [
-    { key: "rules", channel: "rules", file: "rules.md", embed: true },
-    { key: "welcome", channel: "start-here", file: "welcome.md", embed: true },
-    { key: "help", channel: "help", file: "help.md", embed: true },
+    { key: "rules", channel: "rules", file: "rules.md", embed: { color: SITE_BLUE } },
+    { key: "welcome", channel: "start-here", file: "welcome.md", embed: { color: SITE_BLUE } },
+    { key: "help", channel: "help", file: "help.md", embed: { color: SITE_BLUE } },
     { key: "ticket-panel", channel: "ticket", panel: "ticket" },
     { key: "verify-panel", channel: "verify", panel: "verify" },
     // The honeypot is the voice channel's text chat: anyone who posts there is banned.

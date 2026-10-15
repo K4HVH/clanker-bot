@@ -22,6 +22,7 @@ import { countText, renderPlan } from "../../server/render";
 import { type ServerSpec, validateSpec } from "../../server/spec";
 import { SPECS } from "../../server/specs";
 import { getSpecName, markApplied, setSpecName } from "../../server/state";
+import { ACCENT } from "../../lib/embeds";
 
 // /server: the server as code. Plan shows what applying the server's spec would change; the Apply
 // button runs exactly that plan, refusing if the server changed since it was shown. Owner only:
@@ -131,7 +132,7 @@ export async function applyButton(interaction: ButtonInteraction, ctx: AppContex
     await logModAlert(
       ctx,
       guild,
-      new EmbedBuilder().setColor(0x5865f2).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
+      new EmbedBuilder().setColor(ACCENT).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
     );
     const reply =
       summary.length <= INLINE_MAX

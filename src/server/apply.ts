@@ -96,11 +96,11 @@ export async function planFor(env: Omit<ApplyEnv, "reason">, deletions: boolean,
     histories.set(id, { messages: await readHistory(env.api, id), threads: await readThreadCount(env.api, env.guildId, id) });
   }
   // A panel posted by hand is the bot's message that isPanel recognises, among the channel's last 50.
-  const found = new Map<string, { channel: string; message: string; text: string | null }>();
+  const found = new Map<string, { channel: string; message: string; text: string | null; color: number | null }>();
   for (const { key, kind, channelId } of panels) {
     const recent = await env.api.get<RawPanelMessage[]>(`/channels/${channelId}/messages?limit=50`);
     const m = recent.find((x) => x.author.id === live.botId && isPanel(kind, x));
-    if (m) found.set(key, { channel: channelId, message: m.id, text: m.embeds?.[0]?.description ?? null });
+    if (m) found.set(key, { channel: channelId, message: m.id, text: m.embeds?.[0]?.description ?? null, color: m.embeds?.[0]?.color ?? null });
   }
   return buildPlan({ ...input, histories, panels: found });
 }
