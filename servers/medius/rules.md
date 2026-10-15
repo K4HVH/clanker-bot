@@ -5,5 +5,3 @@
 3. No spam: repeated messages, mass mentions, or the same post in several channels.
 4. Support is through tickets: {#ticket}. Don't DM or ping staff for support.
 5. Staff decisions stand. To appeal one, open a ticket.
-
-Breaking a rule gets a warning, timeout, kick or ban.
