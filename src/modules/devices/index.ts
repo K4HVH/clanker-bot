@@ -2,28 +2,11 @@ import { Events, type Guild } from "discord.js";
 import type { AppContext } from "../../core/context";
 import type { BotModule, Listener } from "../../core/module";
 import { runFeed } from "../../lib/device-feed";
+import { repeat } from "../../lib/repeat";
 
 const EVERY_MS = 10 * 60_000;
 
 type Postable = Parameters<typeof runFeed>[2] extends (id: string) => Promise<infer P> ? P : never;
-
-// Runs `read` now and again `everyMs` after each run ends, so a slow run (a long first post) is never
-// overlapped by the next, and one that throws doesn't stop the rest.
-export function repeat(read: () => Promise<void>, everyMs: number, failed: (error: unknown) => void = () => {}): () => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let stopped = false;
-  const loop = async () => {
-    await read().catch(failed);
-    if (stopped) return;
-    timer = setTimeout(() => void loop(), everyMs);
-    timer.unref?.();
-  };
-  void loop();
-  return () => {
-    stopped = true;
-    clearTimeout(timer);
-  };
-}
 
 async function feedGuild(ctx: AppContext, guild: Guild): Promise<void> {
   await runFeed(ctx, guild.id, async (id) => {

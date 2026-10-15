@@ -8,5 +8,6 @@ Free replacement firmware for the MAKCU.
 **Options:** <https://medius.k4tech.net/guide/options>
 **Help:** <https://medius.k4tech.net/guide/help>
 **Native API:** <https://medius.k4tech.net/native>
+**Comparison:** <https://medius.k4tech.net/comparison>
 
 Support is through tickets: {#ticket}

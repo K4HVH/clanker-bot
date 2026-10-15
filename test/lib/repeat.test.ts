@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { repeat } from "../../src/modules/devices/index";
+import { repeat } from "../../src/lib/repeat";
 
 test("a read slower than the interval is never overlapped by the next", async () => {
   let running = 0;

@@ -154,6 +154,7 @@ export default defineServer({
           overwrites: { verified: { ...readOnly } },
           publish: true,
         },
+        { key: "comparison", type: "text", name: "📊-comparison", overwrites: { verified: { ...readOnly } } },
         {
           key: "device-reports",
           type: "text",
@@ -342,6 +343,7 @@ export default defineServer({
     automod_executable_exts: ".exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1",
     verification_welcome_channel_id: { channel: "start-here" },
     device_feed_channel_id: { channel: "device-reports" },
+    comparison_channel_id: { channel: "comparison" },
     retention_moderation_days: 365,
     retention_tickets_days: 365,
     retention_member_log_days: 90,

@@ -123,9 +123,8 @@ CREATE TABLE IF NOT EXISTS server_state (
   PRIMARY KEY (guild_id, kind, key)
 ) WITHOUT ROWID;
 
--- Which spec a server follows, and when it was last applied.
 -- The devices the device feed has posted (or found on its first read), so each is posted once.
--- `ident` is the device's USB id where it has one, else its name: devices can share a name.
+-- `ident` is a report's name, or the USB id of a device only the usage stats know: those can share a name.
 CREATE TABLE IF NOT EXISTS device_feed (
   guild_id TEXT NOT NULL,
   ident    TEXT NOT NULL,
@@ -139,6 +138,17 @@ CREATE TABLE IF NOT EXISTS device_feed_meta (
   seeded_at INTEGER NOT NULL
 );
 
+-- The comparison summary's messages, in order, with what each holds, so a read edits only what changed.
+CREATE TABLE IF NOT EXISTS comparison_posts (
+  guild_id   TEXT NOT NULL,
+  part       INTEGER NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  PRIMARY KEY (guild_id, part)
+) WITHOUT ROWID;
+
+-- Which spec a server follows, and when it was last applied.
 CREATE TABLE IF NOT EXISTS server_meta (
   guild_id   TEXT PRIMARY KEY,
   spec       TEXT NOT NULL,

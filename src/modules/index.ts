@@ -1,5 +1,6 @@
 import type { BotModule } from "../core/module";
 import { automodModule } from "./automod";
+import { comparisonModule } from "./comparison";
 import { configModule } from "./config";
 import { devicesModule } from "./devices";
 import { guardsModule } from "./guards";
@@ -21,6 +22,7 @@ import { verificationModule } from "./verification";
 export const modules: BotModule[] = [
   configModule,
   devicesModule,
+  comparisonModule,
   loggingModule,
   moderationModule,
   // Honeypot before automod: the scan() early-return is what actually protects the trap channel,
