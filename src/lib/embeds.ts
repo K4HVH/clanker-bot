@@ -63,8 +63,19 @@ export function descriptions(lines: string[], max = DESCRIPTION): string[] {
   return out;
 }
 
-// Embeds in order, packed into as few messages as Discord takes.
+// Embeds in order, packed into as few messages as Discord takes. Discord shows embeds of one message that
+// share a link as a single card with the first one's text, so a link already in the message is dropped.
 export function pack<T extends Embed>(embeds: T[]): T[][] {
+  return group(embeds).map((message) =>
+    message.map((e, i) => {
+      if (!e.url || !message.slice(0, i).some((x) => x.url === e.url)) return e;
+      const { url: _, ...rest } = e;
+      return rest as T;
+    }),
+  );
+}
+
+function group<T extends Embed>(embeds: T[]): T[][] {
   const out: T[][] = [];
   let cur: T[] = [];
   let size = 0;

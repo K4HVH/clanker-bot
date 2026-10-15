@@ -34,6 +34,8 @@ interface Sent {
 const body = (m: Sent) => m.embeds.map((e) => [e.title, e.description].filter(Boolean).join("\n")).join("\n\n");
 const size = (m: Sent) => m.embeds.reduce((n, e) => n + (e.title?.length ?? 0) + (e.description?.length ?? 0), 0);
 const embed = (title: string, color: number, description: string): Embed => ({ title, url: PAGE, color, description });
+// An embed after the first in its message, which carries no link: Discord shows embeds sharing one as one card.
+const after = (title: string, color: number, description: string): Embed => ({ title, color, description });
 
 function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[]) {
   const ctx = silentContext();
@@ -74,8 +76,8 @@ test("the first read posts the whole list, silently, an embed a verdict in its c
     {
       embeds: [
         embed("Unsupported", RED, `- [**Ace 68 Pro**](${PAGE}/ace-68-pro) (keyboard): reported on v3.0.1`),
-        embed("Partial", AMBER, `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`),
-        embed("Supported", GREEN, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): reported on v3.4.5`),
+        after("Partial", AMBER, `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`),
+        after("Supported", GREEN, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): reported on v3.4.5`),
       ],
       flags: 4096,
     },
@@ -91,7 +93,7 @@ test("a device new to the list is posted, from a report or from the stats", asyn
   expect(s.sent[1]).toEqual({
     embeds: [
       embed("New: Partial", AMBER, `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`),
-      embed("New: Supported", GREEN, `- [**Probe Mouse**](${PAGE}/probe-mouse) (mouse): seen on 2 boxes`),
+      after("New: Supported", GREEN, `- [**Probe Mouse**](${PAGE}/probe-mouse) (mouse): seen on 2 boxes`),
     ],
   });
   await s.run();
