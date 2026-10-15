@@ -160,7 +160,7 @@ export interface PostSpec {
   title?: string; // a forum post's title: the post is a thread
   pin?: boolean; // pin the forum post
   menu?: string; // a role menu's key: its select menus follow the text
-  embed?: { color: number }; // the file shown as embeds in this colour, not as text
+  embed?: true | { color: number }; // the file as embeds, in the colour given or none
 }
 
 // Role menus: questions whose answers give roles. A post shows one as select menus; picking gives or
@@ -381,8 +381,8 @@ export function validateSpec(spec: ServerSpec): string[] {
     if (forumKeys.has(post.channel) && !post.title) errors.push(`post "${post.key}": a post in a forum needs a title`);
     if (post.title !== undefined && post.title.length > 100) errors.push(`post "${post.key}": title is longer than 100 characters`);
     if (post.menu !== undefined && !menuKeys.has(post.menu)) errors.push(`post "${post.key}": unknown menu "${post.menu}"`);
-    if (post.embed !== undefined && post.panel !== undefined) errors.push(`post "${post.key}": a panel is drawn by the bot, so it takes no embed`);
-    if (post.embed !== undefined && !(Number.isInteger(post.embed.color) && post.embed.color >= 0 && post.embed.color <= 0xffffff)) {
+    if (post.embed !== undefined && post.panel !== undefined) errors.push(`post "${post.key}": a panel takes no embed`);
+    if (typeof post.embed === "object" && !(Number.isInteger(post.embed.color) && post.embed.color >= 0 && post.embed.color <= 0xffffff)) {
       errors.push(`post "${post.key}": embed colour must be a 24-bit colour such as 0x0080ff`);
     }
     if (postKeys.has(post.key)) errors.push(`post key "${post.key}" used twice`);
@@ -398,7 +398,7 @@ export function validateSpec(spec: ServerSpec): string[] {
       const text = readFileSync(join(spec.dir, post.file), "utf8");
       // An empty file would plan the post's deletion.
       if (text.trim() === "") errors.push(`post "${post.key}": ${post.file} is empty`);
-      if (post.embed && (embedPost(text, post.embed.color)[0]?.title?.length ?? 0) > 256) errors.push(`post "${post.key}": its title is longer than 256 characters`);
+      if (post.embed && (embedPost(text)[0]?.title?.length ?? 0) > 256) errors.push(`post "${post.key}": its title is longer than 256 characters`);
       for (const [, key] of text.matchAll(/\{#([a-z0-9-]+)\}/g)) {
         if (!channelKeys.has(key!)) errors.push(`post "${post.key}": names unknown channel "${key}"`);
       }

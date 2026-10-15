@@ -54,6 +54,14 @@ test("an embed post is one embed: the file's title and link, its text with chann
   expect((await planFor({ ...e, spec: spec() }, false)).ops).toEqual([]);
 });
 
+test("an embed post given no colour is drawn as the bot's panels are", async () => {
+  const e = env();
+  await apply(e, spec({ posts: [{ key: "rules", channel: "rules", file: "embed.md", embed: true }] }));
+  const [m] = inChannel(e, "rules");
+  expect(m!.embeds).toEqual([{ title: "Rules", url: "https://example.com/rules", description: expect.stringContaining("2. No spam.") }]);
+  expect((await planFor({ ...e, spec: spec({ posts: [{ key: "rules", channel: "rules", file: "embed.md", embed: true }] }) }, false)).ops).toEqual([]);
+});
+
 test("a text post becomes an embed in place, and back to text, each planning clean after", async () => {
   const e = env();
   const text = spec({ posts: [{ key: "rules", channel: "rules", file: "embed.md" }] });
@@ -117,6 +125,7 @@ test("a file is titled by its first heading, linked or not, and cut at a descrip
   expect(embedPost("# Help\nAsk away.", 1)).toEqual([{ title: "Help", description: "Ask away.", color: 1 }]);
   expect(embedPost("# [Help](https://x.example/help)\nAsk.", 1)).toEqual([{ title: "Help", url: "https://x.example/help", description: "Ask.", color: 1 }]);
   expect(embedPost("No heading here.", 1)).toEqual([{ description: "No heading here.", color: 1 }]);
+  expect(embedPost("# Plain\nText.")).toEqual([{ title: "Plain", description: "Text." }]);
   expect(embedPost("# Only a title", 1)).toEqual([{ title: "Only a title", color: 1 }]);
   const long = embedPost(`# Long\n${Array.from({ length: 3 }, (_, i) => `## Part ${i}\n${"x".repeat(3000)}`).join("\n\n")}`, 1);
   expect(long).toHaveLength(3);
@@ -126,7 +135,7 @@ test("a file is titled by its first heading, linked or not, and cut at a descrip
 });
 
 test("an embed is for a file post, in a 24-bit colour", () => {
-  expect(validateSpec(spec({ posts: [{ key: "x", channel: "rules", panel: "ticket", embed: { color: BLUE } }] }))).toContain('post "x": a panel is drawn by the bot, so it takes no embed');
+  expect(validateSpec(spec({ posts: [{ key: "x", channel: "rules", panel: "ticket", embed: { color: BLUE } }] }))).toContain('post "x": a panel takes no embed');
   expect(validateSpec(spec({ posts: [{ key: "x", channel: "rules", file: "embed.md", embed: { color: 0x1000000 } }] }))).toContain(
     'post "x": embed colour must be a 24-bit colour such as 0x0080ff',
   );

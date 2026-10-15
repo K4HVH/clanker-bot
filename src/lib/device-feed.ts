@@ -2,7 +2,7 @@ import { escapeMarkdown } from "discord.js";
 import type { AppContext } from "../core/context";
 import { many, one, run } from "../db/index";
 import { CONFIG_KEYS } from "./config";
-import { BAD, type Embed, OK, WARN, descriptions, packGroups } from "./embeds";
+import { type Embed, GREEN, RED, YELLOW, descriptions, packGroups } from "./embeds";
 
 // The device feed: the site's Devices list posted in a channel. The first read posts the whole list,
 // silently; after that, devices new to it or whose verdict changed. The list merges owners' reports with
@@ -20,10 +20,10 @@ export interface FeedDevice {
 }
 
 const VERDICT: Record<FeedDevice["verdict"], string> = { works: "Supported", partial: "Partial", doesnt: "Unsupported" };
-const COLOR: Record<FeedDevice["verdict"], number> = { works: OK, partial: WARN, doesnt: BAD };
-const VERDICTS = Object.keys(VERDICT) as FeedDevice["verdict"][];
+const COLOR: Record<FeedDevice["verdict"], number> = { works: GREEN, partial: YELLOW, doesnt: RED };
+// Unsupported first: the devices a reader most needs to find.
+const VERDICTS: FeedDevice["verdict"][] = ["doesnt", "partial", "works"];
 const KINDS = new Set(["mouse", "keyboard", "other"]);
-const PAGE = "https://medius.k4tech.net/guide/compatibility";
 const SILENT = 4096; // Discord's suppress-notifications flag
 
 const source = (d: FeedDevice) => (d.reported ? `reported on ${d.reported}` : d.boxes ? `seen on ${d.boxes} boxes` : "");
@@ -55,9 +55,8 @@ interface Item {
   text: string;
 }
 
-// Sections as embeds, one a verdict, each under the section's heading and coloured as the verdict; packed
-// into messages, each with the devices it carries.
-function messages(sections: { heading: string; items: Item[] }[]): { embeds: Embed[]; devices: FeedDevice[] }[] {
+// Sections as embeds, one a verdict in its colour; packed into messages, each with the devices it carries.
+function messages(sections: { heading?: string; items: Item[] }[]): { embeds: Embed[]; devices: FeedDevice[] }[] {
   const embeds: (Embed & { group: string; devices: FeedDevice[] })[] = [];
   for (const s of sections) {
     for (const verdict of VERDICTS) {
@@ -68,9 +67,7 @@ function messages(sections: { heading: string; items: Item[] }[]): { embeds: Emb
         const count = description.split("\n").length;
         embeds.push({
           group: `${s.heading} ${verdict}`,
-          author: { name: s.heading },
-          title: VERDICT[verdict],
-          url: PAGE,
+          title: s.heading ? `${s.heading}: ${VERDICT[verdict]}` : VERDICT[verdict],
           color: COLOR[verdict],
           description,
           devices: items.slice(at, at + count).map((i) => i.device),
@@ -151,11 +148,11 @@ export async function runFeed(
   const found = matches([...devices.values()], seen);
   const match = (d: FeedDevice) => found.get(d);
 
-  const sections: { heading: string; items: Item[] }[] = [];
+  const sections: { heading?: string; items: Item[] }[] = [];
   if (!seeded) {
     // Only what isn't recorded yet, so a first post stopped part way carries on where it stopped.
     const rest = [...devices.values()].filter((d) => !match(d));
-    sections.push({ heading: "On the Devices list", items: rest.map((device) => ({ device, text: line(device) })) });
+    sections.push({ items: rest.map((device) => ({ device, text: line(device) })) });
   } else {
     const added: Item[] = [];
     const changed: Item[] = [];
@@ -164,8 +161,8 @@ export async function runFeed(
       if (!s) added.push({ device: d, text: line(d) });
       else if (s.verdict !== d.verdict) changed.push({ device: d, text: line(d, s.verdict) });
     }
-    if (added.length > 0) sections.push({ heading: "Added to Devices", items: added });
-    if (changed.length > 0) sections.push({ heading: "Changed on Devices", items: changed });
+    if (added.length > 0) sections.push({ heading: "New", items: added });
+    if (changed.length > 0) sections.push({ heading: "Changed", items: changed });
   }
 
   const record = (d: FeedDevice) => {

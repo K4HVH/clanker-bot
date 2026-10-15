@@ -4,8 +4,6 @@ import { defineServer } from "../../src/server/spec";
 // first plan binds them and renames them, keeping their history. See medius-fw
 // docs/superpowers/specs/2026-10-11-discord-rework-design.md.
 
-const SITE_BLUE = 0x0080ff; // the site's accent: the bot's posts are embeds in it
-
 // Read-only for those who can see the channel: they read and react, nobody posts.
 const readOnly = {
   SendMessages: false,
@@ -225,7 +223,7 @@ export default defineServer({
     { key: "tools", name: "🔧-tools", was: ["tools"], into: "backup" },
     { key: "box-intro", name: "🔲-medius-box", was: ["box-intro"], into: "backup" },
   ],
-  // Discord's own spam checks, as Medius has them (the mention-spam rule is the one Discord makes when
+  // Discord's spam checks, as Medius has them (the mention-spam rule is the one Discord makes when
   // Community comes on). No keyword rules: rule 2 is enforced by staff.
   automod: [
     { key: "spam", name: "Block Suspected Spam Content", trigger: "spam", block: true, alert: "logs", exemptChannels: ["logs"] },
@@ -245,9 +243,9 @@ export default defineServer({
     ],
   },
   posts: [
-    { key: "rules", channel: "rules", file: "rules.md", embed: { color: SITE_BLUE } },
-    { key: "welcome", channel: "start-here", file: "welcome.md", embed: { color: SITE_BLUE } },
-    { key: "help", channel: "help", file: "help.md", embed: { color: SITE_BLUE } },
+    { key: "rules", channel: "rules", file: "rules.md", embed: true },
+    { key: "welcome", channel: "start-here", file: "welcome.md", embed: true },
+    { key: "help", channel: "help", file: "help.md", embed: true },
     { key: "ticket-panel", channel: "ticket", panel: "ticket" },
     { key: "verify-panel", channel: "verify", panel: "verify" },
     // The honeypot is the voice channel's text chat: anyone who posts there is banned.

@@ -74,7 +74,7 @@ const onCreate: Listener<Events.MessageCreate> = {
     if (!claims.claim(`${guild.id}:${message.author.id}`)) return;
 
     // Fail closed on member resolution: an instant ban must never fire against a moderator whose
-    // member object simply didn't resolve. (Automod's `member?.permissions` fails open, fine for
+    // member object didn't resolve. (Automod's `member?.permissions` fails open, fine for
     // a delete + warn, not for a ban.)
     const member: GuildMember | null =
       message.member ?? (await guild.members.fetch(message.author.id).catch(() => null));
@@ -142,7 +142,7 @@ const onCreate: Listener<Events.MessageCreate> = {
           });
         }
       } else {
-        effective = "flag"; // couldn't carry it out, report honestly
+        effective = "flag"; // couldn't carry it out, so the report says flag
       }
     }
 

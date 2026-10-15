@@ -19,7 +19,7 @@ import type { BotModule, ComponentHandler, ContextCommand, SlashCommand } from "
 
 // Build allowedMentions that mirror what the INVOKER could do by hand, so /say can't be used to
 // mass-ping through the bot's elevated permissions. @users is always fine (anyone can ping a user).
-// @everyone/@here and NON-mentionable roles require the invoker's own Mention Everyone permission;
+// @everyone/@here and NON-mentionable roles require the invoker to have Mention Everyone;
 // without it, only roles that are already mentionable (which anyone can ping) are allowed through.
 function allowedMentionsFor(
   content: string,

@@ -138,15 +138,13 @@ CREATE TABLE IF NOT EXISTS device_feed_meta (
   seeded_at INTEGER NOT NULL
 );
 
--- The comparison summary's messages, in order, with what each holds, so a read edits only what changed.
+-- The comparison summary's message and what it holds, so a read edits it only when that changes.
 CREATE TABLE IF NOT EXISTS comparison_posts (
-  guild_id   TEXT NOT NULL,
-  part       INTEGER NOT NULL,
+  guild_id   TEXT PRIMARY KEY,
   channel_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
-  content    TEXT NOT NULL,
-  PRIMARY KEY (guild_id, part)
-) WITHOUT ROWID;
+  content    TEXT NOT NULL
+);
 
 -- Which spec a server follows, and when it was last applied.
 CREATE TABLE IF NOT EXISTS server_meta (

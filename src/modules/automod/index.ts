@@ -330,7 +330,7 @@ function sprayAlert(user: { id: string; username: string }, label: string): Embe
 async function scan(ctx: AppContext, message: Message, isEdit: boolean): Promise<void> {
   const guild = message.guild;
   if (!guild || message.author.bot) return;
-  // The honeypot owns its channel: it acts on its own terms, so automod never touches it.
+  // The honeypot handles its channel, so automod never touches it.
   if (inHoneypotChannel(ctx, message)) return;
   const guildId = guild.id;
 

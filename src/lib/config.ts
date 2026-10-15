@@ -115,7 +115,7 @@ export const CONFIG_KEYS = {
   // Device feed: new and changed devices on the site's Devices list, posted as they appear.
   deviceFeedChannelId: "device_feed_channel_id",
   deviceFeedUrl: "device_feed_url",
-  // Comparison: the site's comparison of stock and Medius, kept current in a channel.
+  // Comparison: the site's comparison summary, kept in a channel.
   comparisonChannelId: "comparison_channel_id",
   comparisonUrl: "comparison_url",
 } as const;
@@ -242,7 +242,7 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketDmTranscript, category: "tickets", type: "bool", default: true, label: "DM the transcript to the opener on close", description: "DM the transcript to the ticket opener when it closes." },
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
-  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket. Only staff can." },
+  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close it." },
   { key: K.ticketMinSubjectWords, category: "tickets", type: "int", min: 0, max: 30, default: 10, label: "Minimum words in the description (0=off)", description: "Refuse to open a ticket until the member has described the problem in at least this many words. Kills the two-word ticket nobody can act on. Discord enforces a rough length as they type, and the count is checked properly on submit. Staff opening a ticket for someone else are not asked." },
   // Ticket Check: a short generated reasoning test in front of ticket creation, for
   // guilds drowning in tickets from people who will not read. Off by default.
@@ -289,7 +289,7 @@ export const REGISTRY: Setting[] = [
   { key: K.scamSeedDomains, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: domains", description: "Include scam domains when seeding. Skips anything allowlisted or on shared hosting." },
   { key: K.scamSeedImages, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: image hashes", description: "Include a SHA-256 of the scam image when seeding. The image itself is never stored." },
   { key: K.scamMaxImageMb, category: "automod-scam-seed", type: "int", min: 1, max: 25, default: 8, label: "Seed: max image size (MB)", description: "Images larger than this are matched by size and dimensions only, never downloaded to hash. Used by both seeding and matching." },
-  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out on its own." },
+  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out." },
   { key: K.scamSeedMaxEntries, category: "automod-scam-seed", type: "int", min: 50, max: 5000, default: 500, label: "Seed: max stored signatures", description: "Cap on seeded signatures per kind. The oldest are evicted past this limit." },
   { key: K.verificationWelcomeChannelId, category: "verification", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "After verifying, point to", description: "The channel the success message names, where new members pick what they see." },
   // Privacy. Discord's Developer Terms have a bot delete what it no longer needs; these say when.
@@ -297,7 +297,7 @@ export const REGISTRY: Setting[] = [
   { key: K.retentionTicketsDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep closed tickets (days)", description: "A closed ticket's record and transcript, and its closing post in the mod log, are deleted after this long." },
   { key: K.deviceFeedChannelId, category: "device-feed", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Device feed channel", description: "Where devices new or changed on the site's Devices list are posted. Unset = off." },
   { key: K.deviceFeedUrl, category: "device-feed", type: "text", default: "https://medius.k4tech.net/api/devices", label: "Devices list", description: "The site's Devices list as JSON, read every 10 minutes." },
-  { key: K.comparisonChannelId, category: "comparison", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Comparison channel", description: "Where the site's comparison of stock and Medius is posted and kept current. Unset = off." },
+  { key: K.comparisonChannelId, category: "comparison", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Comparison channel", description: "Where the site's comparison summary is posted. Unset = off." },
   { key: K.comparisonUrl, category: "comparison", type: "text", default: "https://medius.k4tech.net/api/comparison", label: "Comparison summary", description: "The site's comparison summary as JSON, read every 10 minutes." },
   { key: K.retentionMemberLogDays, category: "privacy", type: "int", min: 7, max: 3650, default: 90, label: "Keep member-log posts (days)", description: "The bot's member-log posts (edited and deleted messages, joins, leaves, role and name changes) are deleted after this long." },
 ];
@@ -455,7 +455,7 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
     case "roles":
       return (
         Array.isArray(value) &&
-        // Discord's own cap on a select. Anything longer could be stored but never shown,
+        // Discord's cap on a select. Anything longer could be stored but never shown,
         // and would be lost the first time an admin touched the picker.
         value.length <= ROLE_PICKER_MAX &&
         value.every((v) => typeof v === "string" && SNOWFLAKE.test(v)) &&

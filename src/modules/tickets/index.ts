@@ -366,7 +366,7 @@ async function openTicketFlow(
     // the owner whether the bar is set right, rather than only seeing who failed.
     // Only for a ticket they opened themselves: staff opening one with `for:` skips the
     // check entirely, so attaching the member's pass to it would report a check that had
-    // nothing to do with this ticket, and consume the note their own ticket needed.
+    // nothing to do with this ticket, and consume the note the member's ticket needed.
     const check = via ? undefined : takePassNote(guildId, opener.id);
     if (check) {
       logEmbed.addFields({
@@ -436,7 +436,7 @@ const openSub: Subcommand = {
       return;
     }
     // Tickets are opt-in per guild: the panel button only exists once an admin posts one,
-    // so without a gate of its own this command would be live in every guild the bot joins,
+    // so without a gate this command would be live in every guild the bot joins,
     // including ones that never configured tickets (where it creates a root-level channel
     // nobody but the opener can see, and no staff role to answer it).
     const configured =
@@ -757,7 +757,7 @@ const modalHandler: ComponentHandler = {
     const subject = modal.fields.fields.has("subject")
       ? modal.fields.getTextInputValue("subject")
       : "";
-    // Discord's own minimum is a character count, so a long enough string of nothing much
+    // Discord's minimum is a character count, so a long enough string of nothing much
     // still reaches us. This is where the words are actually counted.
     const short = subjectDenial(subject, minSubjectWords(ctx, modal.guild.id));
     if (short) {

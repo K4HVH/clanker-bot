@@ -27,7 +27,7 @@ export function onHoneypotHit(handler: Handler): void {
   handlers.push(handler);
 }
 
-// Fire-and-forget: a slow or throwing subscriber must not block the honeypot's own removal path.
+// Fire-and-forget: a slow or throwing subscriber must not block the honeypot's removal path.
 export function emitHoneypotHit(hit: HoneypotHit): void {
   for (const handler of handlers) {
     Promise.resolve()

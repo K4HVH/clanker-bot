@@ -2,8 +2,8 @@ import type { Message, PartialMessage } from "discord.js";
 import type { AppContext } from "../core/context";
 import { CONFIG_KEYS } from "./config";
 
-// True when a channel IS the configured honeypot OR a thread whose parent is it. Threads have
-// their own channel id, so a plain `id === honeypotChannelId` check would let someone bait-post
+// True when a channel IS the configured honeypot OR a thread whose parent is it. A thread's
+// channel id isn't its parent's, so a plain `id === honeypotChannelId` check would let someone bait-post
 // inside a thread and escape (and would leave automod un-exempted there). Mirrors verify-channel.
 export function channelIsHoneypot(
   ctx: AppContext,

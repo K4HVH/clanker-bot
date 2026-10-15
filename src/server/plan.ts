@@ -1133,7 +1133,7 @@ class Planner {
         });
       const file = readFileSync(join(spec.dir, post.file!), "utf8");
       const chunks: { content: string; embed?: PostEmbed }[] = post.embed
-        ? embedPost(file, post.embed.color).map((e) => ({ content: "", embed: e.description === undefined ? e : { ...e, description: fill(e.description) } }))
+        ? embedPost(file, post.embed === true ? undefined : post.embed.color).map((e) => ({ content: "", embed: e.description === undefined ? e : { ...e, description: fill(e.description) } }))
         : splitPost(file).map((text) => ({ content: fill(text) }));
       const last = chunks.length - 1;
       const menu = post.menu ? spec.menus?.find((m) => m.key === post.menu) : undefined;

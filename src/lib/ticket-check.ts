@@ -10,7 +10,7 @@
 // the prompt text the way a member would read it.
 
 // A seeded PRNG (mulberry32). Production seeds from crypto; tests pin the seed so a
-// generator that is wrong about its own answer fails reproducibly rather than one run
+// generator that is wrong about its answer fails reproducibly rather than one run
 // in fifty. Math.random is deliberately not used: an unseedable generator can only be
 // tested by trusting it.
 export type Rng = () => number;
@@ -98,7 +98,7 @@ function assemble(
 // smallest" came to answer the shelf question 94% of the time without reading it.
 //
 // So the rank is DRAWN first, then that many distractors are taken from below the answer
-// and the rest from above, keeping the generator's own plausible mistakes wherever they
+// and the rest from above, keeping the generator's plausible mistakes wherever they
 // happen to fall and padding with near-misses only to make up the numbers. An off-by-one
 // is the mistake a rushed reader makes anyway, so a padded option is still a fair one.
 function assembleNumeric(
@@ -636,7 +636,7 @@ const meaning: Generator = {
 
 // Spelling: the one English check nothing but knowing the word will get you through.
 // Every option is the same word, so length, wordiness and plausibility are all useless.
-// No misspelling here is a real word in its own right, or there would be two answers.
+// No misspelling here is also a real word, or there would be two answers.
 const SPELLING_WORDS = [
   { correct: "receive", wrong: ["recieve", "receeve", "reciave"] },
   { correct: "separate", wrong: ["seperate", "seperete", "sepparate"] },

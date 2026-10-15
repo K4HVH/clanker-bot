@@ -3,7 +3,7 @@ import type { AppContext } from "../core/context";
 import { CONFIG_KEYS } from "./config";
 
 // True when a channel IS the configured verify channel OR a thread whose parent is it.
-// Threads have their own channel id, so a plain `id === verifyChannelId` check would let
+// A thread's channel id isn't its parent's, so a plain `id === verifyChannelId` check would let
 // thread activity bypass the scrub/skip.
 export function channelIsVerify(
   ctx: AppContext,

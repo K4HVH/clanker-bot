@@ -108,7 +108,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       const current = String(ctx.config.getEffective(guildId, s.key) ?? "");
       const chosen = s.choices?.find((c) => c.value === current);
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\`${descLine(s)}`),
+        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "Unset")}\`${descLine(s)}`),
       );
       const select = new StringSelectMenuBuilder()
         .setCustomId(`cfg:choice:${s.key}`)
@@ -136,7 +136,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       const select = new RoleSelectMenuBuilder()
         .setCustomId(`cfg:roles:${s.key}`)
         .setPlaceholder("Roles…")
-        // Zero so the list can be emptied again, and Discord's own cap as the ceiling:
+        // Zero so the list can be emptied again, and Discord's cap as the ceiling:
         // no reason for this to be a smaller number than the picker itself allows.
         .setMinValues(0)
         .setMaxValues(25);

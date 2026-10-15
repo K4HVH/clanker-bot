@@ -56,10 +56,10 @@ export interface PostEmbed {
   title?: string;
   url?: string;
   description?: string;
-  color: number;
+  color?: number;
 }
 
-export function embedPost(markdown: string, color: number): PostEmbed[] {
+export function embedPost(markdown: string, color?: number): PostEmbed[] {
   const text = markdown.replace(/\r\n/g, "\n").trim();
   const [first = "", ...rest] = text.split("\n");
   const head = first.match(/^# (?:\[(.+)\]\((\S+)\)|(.+))$/);
@@ -67,8 +67,9 @@ export function embedPost(markdown: string, color: number): PostEmbed[] {
   const url = head?.[2];
   const parts = splitPost(head ? rest.join("\n") : text, DESCRIPTION);
   const titled = { ...(title ? { title } : {}), ...(url ? { url } : {}) };
-  if (parts.length === 0) return title ? [{ ...titled, color }] : [];
-  return parts.map((description, i) => ({ ...(i === 0 ? titled : {}), description, color }));
+  const tint = color === undefined ? {} : { color };
+  if (parts.length === 0) return title ? [{ ...titled, ...tint }] : [];
+  return parts.map((description, i) => ({ ...(i === 0 ? titled : {}), description, ...tint }));
 }
 
 // What the planner compares of a post's embed: the parts the spec sets.

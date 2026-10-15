@@ -344,7 +344,7 @@ async function purgeChannel(
     const slice = recent.slice(i, i + 100);
     const one = slice[0];
     // Suppress every id up front (don't re-surface purged content in the member-log). Suppress the
-    // whole slice, not just the lone-message branch: bulkDelete's own 14-day filter can trim a
+    // whole slice, not just the lone-message branch: bulkDelete's 14-day filter can trim a
     // 2+ slice down to one, at which point discord.js falls back to a single DELETE that fires a
     // per-message MessageDelete, which would otherwise be echoed.
     for (const m of slice) suppressDeletion(m.id);

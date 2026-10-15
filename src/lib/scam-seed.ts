@@ -14,7 +14,7 @@ const SAFE_DOMAINS = [
   "reddit.com", "twitter.com", "x.com", "imgur.com", "pastebin.com",
 ];
 
-// Public suffixes / shared-hosting apexes that must never be seeded on their own, since seeding one
+// Public suffixes / shared-hosting apexes that must never be seeded alone, since seeding one
 // would block every site on that host. We always store the FULL hostname, so a scam on shared
 // hosting (scam.vercel.app) is still seedable; only the bare apex is refused.
 const NEVER_SEED_EXACT = new Set([

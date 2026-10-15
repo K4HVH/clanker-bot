@@ -208,7 +208,7 @@ async function issueCaptcha(
   // surface it renders on: a DM message ("Reply to this message"), or an in-channel ephemeral
   // ("Type the code…") capped at the interaction-token life, so the same rotated captcha
   // fanned to both surfaces reads correctly on each. The image/code/status are shared; each
-  // surface still needs its own AttachmentBuilder (a Buffer can't be re-streamed to two uploads).
+  // surface still needs a separate AttachmentBuilder (a Buffer can't be re-streamed to two uploads).
   const build = (isDm: boolean): Payload => {
     const shownExpiry = isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
     const embed = new EmbedBuilder()

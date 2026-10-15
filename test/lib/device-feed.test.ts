@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { type FeedDevice, runFeed } from "../../src/lib/device-feed";
 import { silentContext } from "../helpers/fakes";
 
-const GREEN = 0x10b981;
-const AMBER = 0xf59e0b;
-const RED = 0xdc2626;
+const GREEN = 0x2ecc71;
+const AMBER = 0xf1c40f;
+const RED = 0xe74c3c;
 
 const PAGE = "https://medius.k4tech.net/guide/compatibility";
 const atk: FeedDevice = { name: "ATK X1 NK 8K", kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/atk-x1-nk-8k` };
@@ -19,9 +19,7 @@ const shark: FeedDevice = {
 const probe: FeedDevice = { name: "Probe Mouse", kind: "mouse", verdict: "works", vidpid: "1234:abcd", boxes: 2, url: `${PAGE}/probe-mouse` };
 
 interface Embed {
-  author?: { name: string };
   title?: string;
-  url?: string;
   color?: number;
   description?: string;
 }
@@ -32,9 +30,9 @@ interface Sent {
 }
 
 // A message's text as a reader sees it, embed by embed.
-const body = (m: Sent) => m.embeds.map((e) => [e.author?.name, e.title, e.description].filter(Boolean).join("\n")).join("\n\n");
-const size = (m: Sent) => m.embeds.reduce((n, e) => n + (e.author?.name.length ?? 0) + (e.title?.length ?? 0) + (e.description?.length ?? 0), 0);
-const heading = (section: string, title: string, color: number, description: string): Embed => ({ author: { name: section }, title, url: PAGE, color, description });
+const body = (m: Sent) => m.embeds.map((e) => [e.title, e.description].filter(Boolean).join("\n")).join("\n\n");
+const size = (m: Sent) => m.embeds.reduce((n, e) => n + (e.title?.length ?? 0) + (e.description?.length ?? 0), 0);
+const embed = (title: string, color: number, description: string): Embed => ({ title, color, description });
 
 function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[]) {
   const ctx = silentContext();
@@ -67,19 +65,16 @@ function setup(lists: (FeedDevice[] | { devices: unknown[]; stats: boolean })[])
   };
 }
 
-test("the first read posts the whole list, silently, an embed a verdict in its colour", async () => {
-  const s = setup([[atk, shark]]);
+test("the first read posts the whole list, silently, an embed a verdict in its colour, unsupported first", async () => {
+  const ace: FeedDevice = { name: "Ace 68 Pro", kind: "keyboard", verdict: "doesnt", reported: "v3.0.1", url: `${PAGE}/ace-68-pro` };
+  const s = setup([[atk, shark, ace]]);
   await s.run();
   expect(s.sent).toEqual([
     {
       embeds: [
-        heading("On the Devices list", "Supported", GREEN, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): reported on v3.4.5`),
-        heading(
-          "On the Devices list",
-          "Partial",
-          AMBER,
-          `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`,
-        ),
+        embed("Unsupported", RED, `- [**Ace 68 Pro**](${PAGE}/ace-68-pro) (keyboard): reported on v3.0.1`),
+        embed("Partial", AMBER, `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`),
+        embed("Supported", GREEN, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): reported on v3.4.5`),
       ],
       flags: 4096,
     },
@@ -94,13 +89,8 @@ test("a device new to the list is posted, from a report or from the stats", asyn
   await s.run();
   expect(s.sent[1]).toEqual({
     embeds: [
-      heading("Added to Devices", "Supported", GREEN, `- [**Probe Mouse**](${PAGE}/probe-mouse) (mouse): seen on 2 boxes`),
-      heading(
-        "Added to Devices",
-        "Partial",
-        AMBER,
-        `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`,
-      ),
+      embed("New: Partial", AMBER, `- [**Attack Shark R5 Ultra**](${PAGE}/attack-shark-r5-ultra) (mouse): reported on v3.0.1. Over wireless, the vendor's app can't see it`),
+      embed("New: Supported", GREEN, `- [**Probe Mouse**](${PAGE}/probe-mouse) (mouse): seen on 2 boxes`),
     ],
   });
   await s.run();
@@ -112,7 +102,7 @@ test("a device whose verdict changed is posted with what it was", async () => {
   await s.run();
   await s.run();
   expect(s.sent[1]).toEqual({
-    embeds: [heading("Changed on Devices", "Unsupported", RED, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): was Supported, reported on v3.4.5`)],
+    embeds: [embed("Changed: Unsupported", RED, `- [**ATK X1 NK 8K**](${PAGE}/atk-x1-nk-8k) (mouse): was Supported, reported on v3.4.5`)],
   });
 });
 
@@ -140,9 +130,9 @@ test("devices that share a name are told apart by their USB ids", async () => {
   await s.run();
   expect(s.sent).toHaveLength(1);
   await s.run();
-  expect(s.sent[1]).toEqual({ embeds: [heading("Added to Devices", "Supported", GREEN, "- **USB Receiver** (mouse): seen on 17 boxes")] });
+  expect(s.sent[1]).toEqual({ embeds: [embed("New: Supported", GREEN, "- **USB Receiver** (mouse): seen on 17 boxes")] });
   await s.run();
-  expect(s.sent[2]).toEqual({ embeds: [heading("Changed on Devices", "Unsupported", RED, "- **USB Receiver** (mouse): was Supported, seen on 17 boxes")] });
+  expect(s.sent[2]).toEqual({ embeds: [embed("Changed: Unsupported", RED, "- **USB Receiver** (mouse): was Supported, seen on 17 boxes")] });
   expect(s.sent).toHaveLength(3);
 });
 
@@ -182,7 +172,7 @@ test("a report taking over a stats device posts its verdict once, whichever id i
   const s = setup([[w, v], [rep], { devices: [repDown], stats: false }, [{ ...rep, vidpid: "aaaa:0001" }]]);
   await s.run();
   await s.run();
-  expect(s.sent[1]).toEqual({ embeds: [heading("Changed on Devices", "Partial", AMBER, "- **Bar** (mouse): was Supported, reported on v3.4.5")] });
+  expect(s.sent[1]).toEqual({ embeds: [embed("Changed: Partial", AMBER, "- **Bar** (mouse): was Supported, reported on v3.4.5")] });
   await s.run();
   await s.run();
   expect(s.sent).toHaveLength(2);
@@ -219,14 +209,14 @@ test("a long post goes out in parts, and a part that fails is posted again with 
   expect(s.sent.slice(1).every((m) => m.embeds.length <= 10 && size(m) <= 6000)).toBe(true);
 });
 
-test("every message names its section and verdict, even one that opens part way through a verdict", async () => {
+test("every message names its verdict, even one that opens part way through it", async () => {
   const many = Array.from({ length: 150 }, (_, i): FeedDevice => ({ name: `Mouse number ${i} with a long name`, kind: "mouse", verdict: "works", reported: "v3.4.5", url: `${PAGE}/m${i}` }));
   const s = setup([many]);
   await s.run();
   expect(s.sent.length).toBeGreaterThan(1);
   for (const m of s.sent) {
-    expect(m.embeds[0]).toMatchObject({ author: { name: "On the Devices list" }, title: "Supported" });
-    expect(m.embeds.slice(1).every((e) => e.title === undefined && e.author === undefined)).toBe(true);
+    expect(m.embeds[0]!.title).toBe("Supported");
+    expect(m.embeds.slice(1).every((e) => e.title === undefined)).toBe(true);
     expect(size(m)).toBeLessThanOrEqual(6000);
   }
 });
@@ -245,7 +235,7 @@ test("an empty list, or one without the usage stats, isn't taken as the first re
   expect(s.sent).toEqual([]);
   await s.run();
   expect(s.sent).toHaveLength(1);
-  expect(body(s.sent[0]!)).toContain("On the Devices list");
+  expect(s.sent[0]!.embeds.map((e) => e.title)).toEqual(["Supported"]);
   expect(body(s.sent[0]!)).toContain("Probe Mouse");
 });
 
