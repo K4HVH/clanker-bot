@@ -140,6 +140,13 @@ describe("what Apply can't do comes with instructions", () => {
     const result = await applyPlan(e, await planFor(e, false));
     expect(result.failed?.hint).toBe('Discord refused a value from the spec. Check it, then plan again. Or do it by hand: + role "Dev": Administrator');
   });
+
+  test("an error with no hint of its own says to plan again, then what to do by hand", async () => {
+    const e = env();
+    e.f.refuse((w) => w.method === "POST" && w.route.endsWith("/roles"), 404, 0, "404: Not Found");
+    const result = await applyPlan(e, await planFor(e, false));
+    expect(result.failed?.hint).toBe('Plan again. If it fails the same way, do it by hand: + role "Dev": Administrator');
+  });
 });
 
 describe("a category's overwrite changes", () => {

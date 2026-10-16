@@ -83,3 +83,23 @@ test("a mention-spam rule Discord made when Community came on is taken over, not
   expect(f.rules.filter((r) => r.trigger_type === 5)).toHaveLength(1);
   expect((await planFor(e, false)).ops).toEqual([]);
 });
+
+// Medius, 2026-10-16: two seconds after Community came on, the restored rule was listed and its update answered 404.
+test("a rule Discord is still bringing back is taken over once it answers", async () => {
+  const f = new FakeDiscord();
+  f.onCommunity = () => {
+    f.addRule({ name: "Block Mention Spam", trigger_type: 5, trigger_metadata: { mention_total_limit: 20, mention_raid_protection_enabled: true } });
+    f.ruleUnknownFor = 2;
+  };
+  const s = spec({
+    guild: { verificationLevel: "low", explicitContentFilter: "all", community: { rules: "rules", updates: "staff" } },
+    channels: [
+      { key: "rules", type: "text", name: "rules" },
+      { key: "staff", type: "text", name: "staff" },
+    ],
+  });
+  const e = env(s, f);
+  expect((await applyPlan(e, await planFor(e, false))).failed).toBeNull();
+  expect(f.rules.filter((r) => r.trigger_type === 5)).toHaveLength(1);
+  expect((await planFor(e, false)).ops).toEqual([]);
+});

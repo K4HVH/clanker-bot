@@ -106,6 +106,9 @@ export class FakeDiscord implements DiscordApi {
   botRoles: string[] = [];
   members: { user: { id: string; bot?: boolean }; roles: string[] }[] = [];
   onCommunity?: () => void; // what Discord does itself when Community comes on
+  // Updates to a rule that answer 404 though the rule is listed: Discord, just after Community came on, listed the rule it
+  // brought back and didn't yet know its id.
+  ruleUnknownFor = 0;
   invites: { code: string; channel: { id: string }; uses: number; max_age: number }[] = [];
   invitesHidden = false; // the bot lacks Manage Server
   writes: Write[] = [];
@@ -368,7 +371,7 @@ export class FakeDiscord implements DiscordApi {
     }
     if ((m = route.match(/^\/guilds\/\d+\/auto-moderation\/rules\/(\d+)$/))) {
       const rule = this.rules.find((r) => r.id === m![1]);
-      if (!rule) throw new FakeError("unknown rule", 404);
+      if (!rule || this.ruleUnknownFor-- > 0) throw new FakeError("404: Not Found", 404, 0);
       return structuredClone(Object.assign(rule, body)) as T;
     }
     if ((m = route.match(/^\/channels\/(\d+)\/messages\/(\d+)$/))) {

@@ -18,7 +18,7 @@ import { adoptSource } from "../../server/adopt";
 import { type DiscordApi, restApi } from "../../server/api";
 import { applyPlan, applySummary, planFor } from "../../server/apply";
 import { readLive } from "../../server/live";
-import { countText, renderPlan } from "../../server/render";
+import { countText, describeOp, renderPlan } from "../../server/render";
 import { type ServerSpec, validateSpec } from "../../server/spec";
 import { SPECS } from "../../server/specs";
 import { getSpecName, markApplied, setSpecName } from "../../server/state";
@@ -129,11 +129,17 @@ export async function applyButton(interaction: ButtonInteraction, ctx: AppContex
     const result = await applyPlan({ ...env, reason: `Server plan applied by ${interaction.user.username}` }, plan);
     markApplied(ctx.db, guild.id, Date.now());
     const summary = applySummary(result, plan, spec);
-    await logModAlert(
-      ctx,
-      guild,
-      new EmbedBuilder().setColor(ACCENT).setTitle(`Applied server plan: ${result.done} change${result.done === 1 ? "" : "s"}.`),
-    );
+    const changes = `${result.done} change${result.done === 1 ? "" : "s"}`;
+    const alert = new EmbedBuilder().setColor(ACCENT);
+    // One that stopped says so here too: the reply is the owner's alone, and may be dismissed.
+    if (result.failed) {
+      alert
+        .setTitle(`Server plan stopped after ${changes}.`)
+        .setDescription(`Stopped at: ${describeOp(result.failed.op, spec)}\nDiscord said: ${result.failed.error}`.slice(0, 4096));
+    } else {
+      alert.setTitle(`Applied server plan: ${changes}.`);
+    }
+    await logModAlert(ctx, guild, alert);
     const reply =
       summary.length <= INLINE_MAX
         ? { content: summary, components: [] }

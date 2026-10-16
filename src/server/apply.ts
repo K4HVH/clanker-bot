@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { BotDatabase } from "../db/index";
 import type { ConfigService } from "../lib/config";
-import type { DiscordApi, Upload } from "./api";
+import { type DiscordApi, statusOf, type Upload } from "./api";
 import { after, chunk, copyable, type History, type HistoryMessage, readHistory, readThreadCount, sentAt } from "./history";
 import { type Live, type RawOnboarding, readLive } from "./live";
 import { type PostEmbed, parsePosted } from "./posts";
@@ -56,6 +56,10 @@ export interface ApplyResult {
 
 // What to do about a write Discord refused, by its error code: fix the cause and plan again, or make
 // the change by hand.
+// How long a rule Discord made itself may answer 404: tried this many times, this far apart.
+const RULE_SETTLE_TRIES = 10;
+const RULE_SETTLE_MS = 500;
+
 export function failureHint(op: Op, error: unknown, spec: ServerSpec): string {
   const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
   const byHand = `Or do it by hand: ${describeOp(op, spec)}`;
@@ -77,7 +81,7 @@ export function failureHint(op: Op, error: unknown, spec: ServerSpec): string {
     case 40005:
       return "A file in that message is bigger than the bot may upload to this server. Keep the file somewhere else, delete the message, then plan again.";
     default:
-      return `Plan again. If it fails the same way: ${byHand.slice(4)}`;
+      return `Plan again. If it fails the same way, do it by hand: ${describeOp(op, spec)}`;
   }
 }
 
@@ -517,15 +521,22 @@ class Runner {
       }
       case "automod.create": {
         // A server has one spam and one mention-spam rule at most, and Discord makes the mention-spam
-        // one itself when Community comes on: one already there is taken over and set to the file.
-        if (op.body.trigger !== 1) {
+        // one itself when Community comes on: one already there is taken over and set to the file. For a
+        // few seconds after Community came on, Discord lists the rule it made (or brought back) and
+        // answers 404 to an update of it, so a 404 is tried again.
+        for (let tries = 1; op.body.trigger !== 1; tries++) {
           const rules = await api.get<{ id: string; trigger_type: number }[]>(`${this.g}/auto-moderation/rules`);
           const there = rules.find((r) => r.trigger_type === op.body.trigger);
-          if (there) {
+          if (!there) break;
+          try {
             await api.patch(`${this.g}/auto-moderation/rules/${there.id}`, this.ruleBody(op.body), reason);
-            this.put("automod", op.key, there.id);
-            return;
+          } catch (error) {
+            if (statusOf(error) !== 404 || tries >= RULE_SETTLE_TRIES) throw error;
+            await new Promise((r) => setTimeout(r, RULE_SETTLE_MS));
+            continue;
           }
+          this.put("automod", op.key, there.id);
+          return;
         }
         const r = await api.post<{ id: string }>(`${this.g}/auto-moderation/rules`, { ...this.ruleBody(op.body), event_type: 1, trigger_type: op.body.trigger }, reason);
         this.put("automod", op.key, r.id);

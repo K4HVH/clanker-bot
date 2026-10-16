@@ -132,3 +132,22 @@ test("the Apply result still arrives when Discord no longer takes edits to the r
   await applyButton(i, ctx, deps(f));
   expect(JSON.stringify(posted.at(-1))).toContain(`Applied ${plan.ops.length} changes.`);
 });
+
+test("an Apply that stops says so in the mod log, with where and why", async () => {
+  const f = new FakeDiscord();
+  const ctx: AppContext = silentContext();
+  ctx.config.set(f.guildId, "mod_log_channel_id", "999");
+  const logged: { embeds: { data: { title?: string; description?: string } }[] }[] = [];
+  f.refuse((w) => w.method === "POST" && w.route.endsWith("/roles"), 400, 50035, "Invalid Form Body");
+  const plan = await planFor({ api: f, db: ctx.db, config: ctx.config, guildId: f.guildId, spec: fixture }, false);
+  const { i } = interaction(f, f.ownerId, { customId: `server:apply:${plan.fingerprint.slice(0, 32)}:0:fixture` });
+  (i as { guild: { channels: { cache: Map<string, unknown> } } }).guild.channels.cache.set("999", {
+    isTextBased: () => true,
+    send: async (o: (typeof logged)[number]) => void logged.push(o),
+  });
+  await applyButton(i, ctx, deps(f));
+  const embed = logged.at(-1)!.embeds[0]!.data;
+  expect(embed.title).toMatch(/^Server plan stopped after \d+ changes?\.$/);
+  expect(embed.description).toStartWith("Stopped at: + role");
+  expect(embed.description).toContain("Discord said: Invalid Form Body");
+});
