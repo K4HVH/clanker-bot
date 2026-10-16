@@ -228,6 +228,61 @@ test("the fingerprint follows the live server", async () => {
   expect((await plan(f, spec(), state)).fingerprint).not.toBe(a.fingerprint);
 });
 
+// Discord lists what it keys by id in any order: Medius's 13 features and #abcurves's overwrites came back shuffled
+// on every read, so no Apply matched its plan.
+test("the fingerprint and the plan ignore the order Discord lists things in", async () => {
+  const { f, state, rules, logs, dev } = matching();
+  const helper = f.addRole({ name: "Helper", position: 2 });
+  f.guild.features = ["INVITE_SPLASH", "ANIMATED_ICON", "AUTO_MODERATION"];
+  f.invites = [
+    { code: "a", channel: { id: rules.id }, uses: 0, max_age: 0 },
+    { code: "b", channel: { id: logs.id }, uses: 0, max_age: 86400 },
+  ];
+  const ch = f.channels.find((c) => c.id === rules.id)!;
+  ch.permission_overwrites = [
+    { id: "900", type: 1, allow: "1024", deny: "0" },
+    { id: "901", type: 1, allow: "1024", deny: "0" },
+    { id: dev.id, type: 0, allow: "0", deny: "2048" },
+  ];
+  f.addRule({ name: "Spam", trigger_type: 3, exempt_roles: [dev.id, helper.id], exempt_channels: [rules.id, logs.id] });
+  f.onboarding = {
+    enabled: false,
+    mode: 0,
+    default_channel_ids: [rules.id, logs.id],
+    prompts: [{ id: "p", type: 0, title: "Pings", single_select: false, required: false, in_onboarding: true, options: [{ id: "o", title: "All", description: null, role_ids: [dev.id, helper.id], channel_ids: [rules.id, logs.id] }] }],
+  };
+  const a = await plan(f, spec(), state);
+
+  f.guild.features = ["AUTO_MODERATION", "INVITE_SPLASH", "ANIMATED_ICON"];
+  f.invites.reverse();
+  ch.permission_overwrites.reverse();
+  f.roles.reverse();
+  f.channels.reverse();
+  f.rules[0]!.exempt_roles.reverse();
+  f.rules[0]!.exempt_channels.reverse();
+  f.onboarding.default_channel_ids.reverse();
+  f.onboarding.prompts[0]!.options[0]!.role_ids.reverse();
+  f.onboarding.prompts[0]!.options[0]!.channel_ids.reverse();
+  const b = await plan(f, spec(), state);
+  expect(b.unmanaged).toEqual(a.unmanaged);
+  expect(b.fingerprint).toBe(a.fingerprint);
+});
+
+test("an AutoMod rule's exemptions compare as sets", async () => {
+  const { f, state, rules, logs, dev } = matching();
+  const helper = f.addRole({ name: "Helper", position: 2 });
+  const live = f.addRule({ name: "Spam", trigger_type: 3, exempt_roles: [helper.id, dev.id], exempt_channels: [logs.id, rules.id] });
+  const s = spec({
+    roles: [
+      { key: "dev", name: "Dev", permissions: ["Administrator"] },
+      { key: "helper", name: "Helper", permissions: [] },
+    ],
+    automod: [{ key: "spam", name: "Spam", trigger: "spam", exemptRoles: ["dev", "helper"], exemptChannels: ["rules", "logs"] }],
+  });
+  const bound = new Map([...state, [stateKey("role", "helper"), helper.id], [stateKey("automod", "spam"), live.id]]);
+  expect(only(await plan(f, s, bound), "automod.update")).toEqual([]);
+});
+
 test("an announcement channel without Community is a manual step", async () => {
   const f = new FakeDiscord();
   const p = await plan(f, spec({ roles: [], channels: [{ key: "news", type: "announcement", name: "news" }] }), new Map());

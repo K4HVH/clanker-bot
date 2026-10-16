@@ -192,6 +192,13 @@ interface RawGuild {
   mfa_level: number;
 }
 
+// Discord lists what it keys by id (roles, channels, overwrites, AutoMod rules and their exemptions, onboarding's channel and role ids,
+// invites, the server's features) in no fixed order: Medius's features and #abcurves's overwrites came back shuffled on
+// every read. The plan's fingerprint hashes this read, so each is sorted here; a list whose order is the server's own
+// (forum tags, onboarding's prompts and options, keywords) stays as Discord sent it.
+const byId = <T extends { id: string }>(a: T, b: T): number => (a.id === b.id ? 0 : BigInt(a.id) < BigInt(b.id) ? -1 : 1);
+const ids = (list: string[]): string[] => [...list].sort((a, b) => byId({ id: a }, { id: b }));
+
 export async function readLive(
   api: DiscordApi,
   guildId: string,
@@ -209,20 +216,28 @@ export async function readLive(
   let invites: Live["invites"] = null;
   try {
     const raw = await api.get<{ channel: { id: string } | null; max_age: number }[]>(`/guilds/${guildId}/invites`);
-    invites = raw.filter((i) => i.channel).map((i) => ({ channelId: i.channel!.id, permanent: i.max_age === 0 }));
+    invites = raw
+      .filter((i) => i.channel)
+      .map((i) => ({ channelId: i.channel!.id, permanent: i.max_age === 0 }))
+      .sort((a, b) => byId({ id: a.channelId }, { id: b.channelId }) || Number(a.permanent) - Number(b.permanent));
   } catch (error) {
     const status = statusOf(error);
     if (status !== 403 && status !== 404) throw error;
   }
   let onboarding: RawOnboarding | null = null;
   try {
-    onboarding = await api.get<RawOnboarding>(`/guilds/${guildId}/onboarding`);
+    const raw = await api.get<RawOnboarding>(`/guilds/${guildId}/onboarding`);
+    onboarding = {
+      ...raw,
+      default_channel_ids: ids(raw.default_channel_ids),
+      prompts: raw.prompts.map((p) => ({ ...p, options: p.options.map((o) => ({ ...o, role_ids: ids(o.role_ids), channel_ids: ids(o.channel_ids) })) })),
+    };
   } catch (error) {
     const status = statusOf(error);
     if (status !== 403 && status !== 404) throw error;
   }
 
-  const liveRoles: LiveRole[] = roles.map((r) => ({
+  const liveRoles: LiveRole[] = [...roles].sort(byId).map((r) => ({
     id: r.id,
     name: r.name,
     color: r.color,
@@ -290,11 +305,11 @@ export async function readLive(
       safetyAlertsChannelId: g.safety_alerts_channel_id,
       rulesChannelId: g.rules_channel_id,
       publicUpdatesChannelId: g.public_updates_channel_id,
-      features: g.features,
+      features: [...g.features].sort(),
       mfaLevel: g.mfa_level,
     },
     roles: liveRoles,
-    channels: channels.map((c) => ({
+    channels: [...channels].sort(byId).map((c) => ({
       id: c.id,
       type: c.type,
       name: c.name,
@@ -303,7 +318,7 @@ export async function readLive(
       nsfw: c.nsfw ?? false,
       parentId: c.parent_id ?? null,
       position: c.position,
-      overwrites: (c.permission_overwrites ?? []).map((o) => ({
+      overwrites: [...(c.permission_overwrites ?? [])].sort((a, b) => a.type - b.type || byId(a, b)).map((o) => ({
         id: o.id,
         type: o.type,
         allow: BigInt(o.allow),
@@ -321,7 +336,7 @@ export async function readLive(
             }
           : null,
     })),
-    rules: rules.map((r) => ({
+    rules: [...rules].sort(byId).map((r) => ({
       id: r.id,
       name: r.name,
       enabled: r.enabled,
@@ -338,8 +353,8 @@ export async function readLive(
         if (a.metadata?.duration_seconds) out.seconds = a.metadata.duration_seconds;
         return out;
       }),
-      exemptRoles: r.exempt_roles,
-      exemptChannels: r.exempt_channels,
+      exemptRoles: ids(r.exempt_roles),
+      exemptChannels: ids(r.exempt_channels),
     })),
     posts,
     embeds,

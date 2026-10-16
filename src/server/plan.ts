@@ -1023,8 +1023,9 @@ class Planner {
       regex: rule.regex ?? [],
       allow: rule.allow ?? [],
       actions,
-      exemptRoles: (rule.exemptRoles ?? []).filter((k) => !this.absentRoles.has(k)),
-      exemptChannels: rule.exemptChannels ?? [],
+      // Sets, compared sorted: Discord keeps no order for them.
+      exemptRoles: (rule.exemptRoles ?? []).filter((k) => !this.absentRoles.has(k)).sort(),
+      exemptChannels: [...(rule.exemptChannels ?? [])].sort(),
     };
   }
 
@@ -1045,8 +1046,8 @@ class Planner {
         if (a.seconds !== undefined) out.seconds = a.seconds;
         return out;
       }),
-      exemptRoles: rule.exemptRoles.map((id) => this.roleKeyById.get(id) ?? id),
-      exemptChannels: rule.exemptChannels.map((id) => this.channelKeyById.get(id) ?? id),
+      exemptRoles: rule.exemptRoles.map((id) => this.roleKeyById.get(id) ?? id).sort(),
+      exemptChannels: rule.exemptChannels.map((id) => this.channelKeyById.get(id) ?? id).sort(),
     };
   }
 
