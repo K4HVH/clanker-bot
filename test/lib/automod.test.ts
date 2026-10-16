@@ -1,12 +1,16 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   checkContent,
   type ContentRules,
+  DEFAULT_EXECUTABLE_EXTS,
   decideEscalation,
+  executableName,
   extractHostnames,
   hasUnallowedLink,
   isCapsSpam,
   parseDomainList,
+  parseExtList,
+  pickViolation,
   type Tier,
 } from "../../src/lib/automod";
 
@@ -191,4 +195,39 @@ test("escalation: no tiers enabled is warn-only", () => {
   const d = decide(50, 0, 0, []);
   expect(d.action).toBeNull();
   expect(d.suppressWarnDm).toBe(false);
+});
+
+describe("executable attachments", () => {
+  const exts = parseExtList(DEFAULT_EXECUTABLE_EXTS);
+  const noRules: ContentRules = { invites: false, links: false, linkAllowlist: "", wordBlocklist: "", mentionLimit: 0, massMention: false, caps: false };
+  const input = (over: Partial<Parameters<typeof pickViolation>[0]>) => ({
+    content: "",
+    attachmentNames: [],
+    executables: exts,
+    mentionCount: 0,
+    massMention: false,
+    rules: noRules,
+    ...over,
+  });
+
+  test("an executable with no text is still caught", () => {
+    expect(pickViolation(input({ attachmentNames: ["Loader.exe"] }))).toBe("executable attachment");
+  });
+
+  test("the check off lets it through", () => {
+    expect(pickViolation(input({ attachmentNames: ["Loader.exe"], executables: null }))).toBeNull();
+  });
+
+  test("the content rules still run on text", () => {
+    expect(pickViolation(input({ content: "discord.gg/abc", rules: { ...noRules, invites: true } }))).toBe("invite link");
+  });
+
+  test("names match by their last extension, in any case", () => {
+    expect(executableName(["log.txt", "Loader.EXE"], exts)).toBe("Loader.EXE");
+    expect(executableName(["setup.exe.txt", "notes.md"], exts)).toBeNull();
+  });
+
+  test("the extension list is normalised", () => {
+    expect(parseExtList("exe, .DLL\n.dll")).toEqual([".exe", ".dll"]);
+  });
 });

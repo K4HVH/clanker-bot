@@ -34,7 +34,10 @@ import {
   seededReply,
   takeForgetToken,
 } from "../../lib/scam-signatures";
+import { runExport } from "./export";
+import { runForget } from "./forget";
 import { assertActionable, recordAndAnnounce } from "./shared";
+import { ACCENT } from "../../lib/embeds";
 
 const warnSub: Subcommand = {
   description: "Warn a member.",
@@ -342,7 +345,7 @@ async function purgeChannel(
     const slice = recent.slice(i, i + 100);
     const one = slice[0];
     // Suppress every id up front (don't re-surface purged content in the member-log). Suppress the
-    // whole slice, not just the lone-message branch: bulkDelete's own 14-day filter can trim a
+    // whole slice, not just the lone-message branch: bulkDelete's 14-day filter can trim a
     // 2+ slice down to one, at which point discord.js falls back to a single DELETE that fires a
     // per-message MessageDelete, which would otherwise be echoed.
     for (const m of slice) suppressDeletion(m.id);
@@ -435,7 +438,7 @@ function channelSelectRow(token: string): ActionRowBuilder<ChannelSelectMenuBuil
   return new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
     new ChannelSelectMenuBuilder()
       .setCustomId(`purge_pick:${token}`)
-      .setPlaceholder("Choose channels…")
+      .setPlaceholder("Channels…")
       .setMinValues(1)
       .setMaxValues(25)
       .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
@@ -766,7 +769,7 @@ const historySub: Subcommand = {
       used += line.length + 1;
     }
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
+      .setColor(ACCENT)
       .setTitle(`Moderation history: ${user.tag}`)
       .setDescription(lines.join("\n"))
       .setFooter({ text: `${records.length} most recent` });
@@ -871,7 +874,7 @@ const scamSeedContext: ContextCommand = {
   },
 };
 
-// The "Not a scam" button automod posts on a match alert.
+// The "Remove signature" button automod posts on a match alert.
 const scamForgetButtonHandler: ComponentHandler = {
   customId: "scam:forget",
   type: "button",
@@ -902,7 +905,7 @@ export const moderationModule: BotModule = {
     featureCommand({
       name: "mod",
       description: "Moderation actions.",
-      // Baseline visibility; each verb runtime-checks its own permission above, and
+      // Baseline visibility; each verb runtime-checks its permission above, and
       // admins can fine-tune per-subcommand access in Discord's Integrations UI.
       defaultMemberPermissions: PermissionFlagsBits.ModerateMembers,
       subcommands: {
@@ -916,6 +919,20 @@ export const moderationModule: BotModule = {
         purge: purgeSub,
         history: historySub,
         clearhistory: clearHistorySub,
+        forget: {
+          description: "Delete everything the bot holds on a member, at their request.",
+          permission: PermissionFlagsBits.ModerateMembers,
+          options: (s) =>
+            s.addUserOption((o) => o.setName("user").setDescription("The member, or the user id of someone who left").setRequired(true)),
+          execute: (interaction, ctx) => runForget(interaction, ctx),
+        },
+        export: {
+          description: "Copy everything the bot holds on a member, at their request.",
+          permission: PermissionFlagsBits.ModerateMembers,
+          options: (s) =>
+            s.addUserOption((o) => o.setName("user").setDescription("The member, or the user id of someone who left").setRequired(true)),
+          execute: (interaction, ctx) => runExport(interaction, ctx),
+        },
         scamseed: scamSeedSub,
         scamforget: scamForgetSub,
       },

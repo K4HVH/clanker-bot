@@ -17,6 +17,7 @@ import type { AppContext } from "../../core/context";
 import type { BotModule, ComponentHandler, Listener, SlashCommand } from "../../core/module";
 import { type CaptchaDifficulty, ensureWasm, generateCode, renderCaptcha } from "../../lib/captcha";
 import { CONFIG_KEYS } from "../../lib/config";
+import { panelMessage } from "../../lib/panels";
 import { suppressDeletion, suppressedDeletions } from "../../lib/log-suppress";
 import { logMemberEvent, logModAlert, userValue } from "../../lib/modlog";
 import { inVerifyChannel } from "../../lib/verify-channel";
@@ -26,6 +27,7 @@ import {
   isCodeShaped,
   memberHasRole,
   verifyFlags,
+  verifiedText,
 } from "../../lib/verification-logic";
 import {
   type Challenge,
@@ -34,6 +36,7 @@ import {
   setChallenge,
   setChallengeDmMessage,
 } from "../../db/verification";
+import { ACCENT } from "../../lib/embeds";
 
 const DAY_MS = 86_400_000;
 // Ephemeral replies edit via an interaction token that dies at 15 min; cap under it.
@@ -83,7 +86,7 @@ function surfaceSession(userKey: string, channelId: string): Session | undefined
 }
 
 // Push a payload to EVERY open surface for the user. `make` is called once PER SURFACE (with
-// that surface's Session) so each gets payload text/expiry flavored for it, and its own
+// that surface's Session) so each gets payload text/expiry flavored for it, and a separate
 // attachment instance: a Buffer can't be safely streamed to two uploads.
 async function refreshAll(userKey: string, make: (s: Session) => Payload): Promise<void> {
   await Promise.all(userSessions(userKey).map((s) => s.refresh(make(s)).catch(() => {})));
@@ -206,11 +209,11 @@ async function issueCaptcha(
   // surface it renders on: a DM message ("Reply to this message"), or an in-channel ephemeral
   // ("Type the code…") capped at the interaction-token life, so the same rotated captcha
   // fanned to both surfaces reads correctly on each. The image/code/status are shared; each
-  // surface still needs its own AttachmentBuilder (a Buffer can't be re-streamed to two uploads).
+  // surface still needs a separate AttachmentBuilder (a Buffer can't be re-streamed to two uploads).
   const build = (isDm: boolean): Payload => {
     const shownExpiry = isDm ? expiresAt : Math.min(expiresAt, Date.now() + EPHEMERAL_CAP_MS);
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
+      .setColor(ACCENT)
       .setTitle("Server Verification")
       .setDescription(
         isDm
@@ -401,7 +404,7 @@ async function reviveDmSession(
     anchor = await channel
       .send({
         embeds: [
-          new EmbedBuilder().setColor(0x5865f2).setTitle("Server Verification").setDescription("Checking your code…"),
+          new EmbedBuilder().setColor(ACCENT).setTitle("Server Verification").setDescription("Checking your code…"),
         ],
       })
       .catch(() => null);
@@ -546,7 +549,8 @@ const onMessage: Listener<Events.MessageCreate> = {
         }
         deleteChallenge(ctx.db, guildId, userId);
         const solvedAt = session?.issuedAt ?? userSessions(k)[0]?.issuedAt;
-        await broadcast(() => terminal("Verified", "✅ You're verified. Welcome!", 0x2ecc71));
+        const welcome = ctx.config.get<string>(guildId, CONFIG_KEYS.verificationWelcomeChannelId);
+        await broadcast(() => terminal("Verified", verifiedText(welcome), 0x2ecc71));
         endAllSessions(k);
         await logVerified(ctx, guild, user, solvedAt);
         return;
@@ -621,15 +625,7 @@ const panelSub: Subcommand = {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setTitle("Server Verification")
-      .setDescription(
-        ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.verificationPanelText),
-      );
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId("verify_start").setLabel("Verify").setStyle(ButtonStyle.Success),
-    );
-    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.channel.send(panelMessage("verify", ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.verificationPanelText)));
     await interaction.reply({ content: "Panel posted.", flags: MessageFlags.Ephemeral });
   },
 };
@@ -965,7 +961,18 @@ const newCodeHandler: ComponentHandler = {
   },
 };
 
+// Cooldown keys are "<guild>:<kind or user>:..." and name the user somewhere after the guild.
+function forgetVerification(guildId: string, userId: string): void {
+  const k = key(guildId, userId);
+  endAllSessions(k);
+  processing.delete(k);
+  for (const map of [renderCooldown, modAlertCooldown]) {
+    for (const entry of map.keys()) if (entry.startsWith(`${guildId}:`) && entry.includes(userId)) map.delete(entry);
+  }
+}
+
 export const verificationModule: BotModule = {
+  forget: (_ctx, guildId, userId) => forgetVerification(guildId, userId),
   name: "verification",
   commands: [
     featureCommand({

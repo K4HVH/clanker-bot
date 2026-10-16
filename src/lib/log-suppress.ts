@@ -5,7 +5,7 @@ export const suppressedDeletions = new Set<string>();
 
 // Record a to-be-deleted message id; auto-forgets after a grace period in case the MessageDelete
 // event never arrives (deletion failed / message uncached). The grace must comfortably outlast a
-// single delete's own latency: an individual delete of a >14-day message (the /mod purge slow
+// single delete's latency: an individual delete of a >14-day message (the /mod purge slow
 // path) can sit behind Discord's strict rate limit for several seconds before its event lands.
 export function suppressDeletion(messageId: string): void {
   suppressedDeletions.add(messageId);

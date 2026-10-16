@@ -13,5 +13,6 @@ COPY package.json bun.lock ./
 COPY schema.sql ./schema.sql
 COPY assets ./assets
 COPY src ./src
+COPY servers ./servers
 # Migrations run on startup inside src/index.ts before the gateway connects.
 CMD ["bun", "run", "src/index.ts"]

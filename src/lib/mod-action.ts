@@ -48,7 +48,7 @@ export interface ModActionInput {
 
 // Carry out one moderation action, applying the shared permission/hierarchy gate and the correct
 // DM ordering. Returns true iff the Discord action actually landed. NEVER throws and NEVER logs,
-// each caller owns its own record-keeping (automod writes a case, guards writes an alert, the
+// each caller keeps its record (automod writes a case, guards writes an alert, the
 // honeypot writes both), so logging is deliberately left out.
 export async function applyModAction(input: ModActionInput): Promise<boolean> {
   const { guild, member, userId, type } = input;

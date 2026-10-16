@@ -222,6 +222,7 @@ const onMention: Listener<Events.MessageCreate> = {
 };
 
 export const memesModule: BotModule = {
+  forget: (_ctx, _guildId, userId) => void lastReply.delete(userId),
   name: "memes",
   listeners: [onMention] as Listener[],
 };

@@ -35,3 +35,22 @@ test("every category panel stays within Discord's V2 component and character lim
     expect(chars).toBeLessThanOrEqual(4000);
   }
 });
+
+test("a category's panel names what each picker holds, and Reset says it resets every category", () => {
+  const config = new ConfigService(makeTestDb());
+  const ctx = { config } as unknown as Parameters<typeof buildPanel>[0];
+  const placeholders = new Set<string>();
+  const resets = new Set<string>();
+  const walk = (o: unknown): void => {
+    if (Array.isArray(o)) for (const x of o) walk(x);
+    else if (o && typeof o === "object") {
+      const r = o as Record<string, unknown>;
+      if (typeof r.placeholder === "string") placeholders.add(r.placeholder);
+      if (typeof r.custom_id === "string" && r.custom_id.startsWith("cfg:reset:")) resets.add(String(r.label));
+      for (const v of Object.values(r)) walk(v);
+    }
+  };
+  for (const c of CATEGORIES) walk(buildPanel(ctx, "g", c.id).map((p) => (p as { toJSON(): unknown }).toJSON()));
+  expect([...placeholders].filter((p) => /^(Select|Choose) (a |an )?\w/.test(p))).toEqual([]);
+  expect([...resets]).toEqual(["Reset all"]);
+});

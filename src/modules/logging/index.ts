@@ -136,7 +136,7 @@ const onLeave: Listener<Events.GuildMemberRemove> = {
     };
     // Wait for a possible kick/ban audit entry to arrive, then only log a plain "left" if
     // this wasn't a mod/bot removal (those are logged elsewhere: an attributed mod-log line
-    // for a human, or a case for the bot's own). Runs outside the listener error boundary,
+    // for a human, or a case for one the bot made). Runs outside the listener error boundary,
     // so guard the promise itself.
     setTimeout(() => {
       if (wasModRemoved(userId)) return;
@@ -162,7 +162,7 @@ const onMemberUpdate: Listener<Events.GuildMemberUpdate> = {
 };
 
 // Attributed manual actions (bans/kicks/timeouts/role & channel changes) done outside the
-// bot. The bot's own actions are dropped by planAuditEntry (already logged as cases).
+// bot. Actions the bot took are dropped by planAuditEntry (already logged as cases).
 const onAudit: Listener<Events.GuildAuditLogEntryCreate> = {
   event: Events.GuildAuditLogEntryCreate,
   async handle(ctx, entry, guild) {
@@ -207,6 +207,7 @@ const onReady: Listener<Events.ClientReady> = {
 };
 
 export const loggingModule: BotModule = {
+  forget: (_ctx, _guildId, userId) => void modRemoved.delete(userId),
   name: "logging",
   listeners: [
     onDelete,

@@ -4,6 +4,7 @@ import {
   FAST_SOLVE_MS,
   isCodeShaped,
   memberHasRole,
+  verifiedText,
   verifyFlags,
 } from "../../src/lib/verification-logic";
 
@@ -45,4 +46,9 @@ test("memberHasRole handles both the manager and raw-array shapes", () => {
   expect(memberHasRole({ cache: { has: () => false } }, "r")).toBe(false);
   expect(memberHasRole(null, "r")).toBe(false);
   expect(memberHasRole(undefined, "r")).toBe(false);
+});
+
+test("the captcha's success points at the start-here channel when one is set", () => {
+  expect(verifiedText()).toBe("✅ You're verified. Welcome!");
+  expect(verifiedText("123")).toBe("✅ You're verified. Welcome! Start in <#123>.");
 });

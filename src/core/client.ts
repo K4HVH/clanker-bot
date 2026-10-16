@@ -1,10 +1,17 @@
-import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials, REST } from "discord.js";
 import { CommandRouter } from "./command-router";
 import { ComponentRouter } from "./component-router";
 import type { AppContext } from "./context";
 import type { BotModule } from "./module";
+import { registerGuildCommands } from "./register-commands";
 
-export function createClient(modules: BotModule[], ctx: AppContext): Client {
+export type GuildRegistrar = (guildId: string) => Promise<void>;
+
+export function createClient(
+  modules: BotModule[],
+  ctx: AppContext,
+  register: GuildRegistrar = commandRegistrar(modules, ctx),
+): Client {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -67,8 +74,19 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
     }
   }
 
+  // Commands go to every guild: the ones the bot is in at startup, and any it joins later.
+  const registerIn = (guildId: string) =>
+    void register(guildId).catch((error: unknown) => {
+      ctx.logger.error("command registration failed", {
+        guildId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  client.on(Events.GuildCreate, (guild) => registerIn(guild.id));
+
   client.once(Events.ClientReady, (c) => {
     ctx.logger.info("logged in", { tag: c.user.tag });
+    for (const guildId of c.guilds.cache.keys()) registerIn(guildId);
     // Fill the member cache once: GUILD_CREATE only ships a slice of the member list, and a
     // member who isn't cached leaves as a partial: the leave log then has no join date or
     // roles to report. Joins and member updates keep the cache current from here on.
@@ -83,4 +101,12 @@ export function createClient(modules: BotModule[], ctx: AppContext): Client {
   });
 
   return client;
+}
+
+function commandRegistrar(modules: BotModule[], ctx: AppContext): GuildRegistrar {
+  const rest = new REST().setToken(ctx.env.token);
+  return async (guildId) => {
+    const count = await registerGuildCommands(rest, ctx.env.applicationId, guildId, modules);
+    ctx.logger.info("registered guild commands", { count, guildId });
+  };
 }

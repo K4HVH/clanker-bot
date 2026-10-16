@@ -4,6 +4,7 @@ import {
   CONFIG_KEYS,
   coerceSetting,
   ConfigService,
+  getSetting,
   migrateConfig,
   parseRoleIds,
   REGISTRY,
@@ -313,4 +314,9 @@ test("getEffective never hands out the registry's own default object", () => {
   expect(a).not.toBe(b);
   a.push("mutated");
   expect(cfg.getEffective<string[]>("g3", CONFIG_KEYS.honeypotExemptRoles)).toEqual([]);
+});
+
+test("the executable check is a setting, off by default", () => {
+  expect(getSetting("automod_executables")?.default).toBe(false);
+  expect(getSetting("automod_executable_exts")?.default).toBe(".exe, .dll, .sys, .scr, .msi, .bat, .cmd, .ps1");
 });

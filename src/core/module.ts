@@ -46,4 +46,7 @@ export interface BotModule {
   contextCommands?: ContextCommand[];
   listeners?: Listener[];
   components?: ComponentHandler[];
+  // Drop whatever the module holds in memory about one member (trackers, sessions, cooldowns), for
+  // /mod forget. Database rows are deleted by the forget command itself.
+  forget?(ctx: AppContext, guildId: string, userId: string): void;
 }

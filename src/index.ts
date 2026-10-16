@@ -2,7 +2,6 @@ import { loadEnv } from "./core/env";
 import { createClient } from "./core/client";
 import type { AppContext } from "./core/context";
 import { createLogger } from "./core/logger";
-import { registerGuildCommands } from "./core/register-commands";
 import { createDatabase } from "./db/index";
 import { modules } from "./modules";
 import { ConfigService, migrateConfig } from "./lib/config";
@@ -18,9 +17,6 @@ async function main(): Promise<void> {
 
   const config = new ConfigService(db);
   const ctx: AppContext = { db, logger, env, config };
-
-  const registered = await registerGuildCommands(env, modules);
-  logger.info("registered guild commands", { count: registered, guildId: env.guildId });
 
   const client = createClient(modules, ctx);
   const stopScheduler = startScheduler(ctx, client, env.schedulerPollIntervalMs);

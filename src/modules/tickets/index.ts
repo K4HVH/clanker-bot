@@ -37,6 +37,7 @@ import {
 } from "../../db/tickets";
 import { clearCheckResult, recordCheckPass } from "../../db/ticket-check";
 import { CONFIG_KEYS } from "../../lib/config";
+import { panelMessage } from "../../lib/panels";
 import { userValue } from "../../lib/modlog";
 import { buildTicketArchive } from "../../lib/ticket-transcript";
 import {
@@ -204,6 +205,18 @@ async function closeTicketFlow(
   await channel.delete(`Ticket #${num} closed`).catch(() => {});
 }
 
+// Close a ticket by deleting its channel, with no transcript and no mod-log post: for /mod forget,
+// whose request ticket would otherwise be archived with the data it asked to have deleted.
+// False when the channel couldn't be deleted, so the caller can say so.
+export async function closeTicketQuietly(channel: { id: string; delete(reason?: string): Promise<unknown> }): Promise<boolean> {
+  openTicketChannels.delete(channel.id);
+  warnedTickets.delete(channel.id);
+  return channel.delete("Closed at the member's request").then(
+    () => true,
+    () => false,
+  );
+}
+
 // Whether `openerId` is out of ticket slots, as a message to show whoever asked. `via` is
 // set when staff are opening on that member's behalf, so the wording addresses them about
 // someone else. Shared by the panel button's pre-check and the open flow itself.
@@ -353,7 +366,7 @@ async function openTicketFlow(
     // the owner whether the bar is set right, rather than only seeing who failed.
     // Only for a ticket they opened themselves: staff opening one with `for:` skips the
     // check entirely, so attaching the member's pass to it would report a check that had
-    // nothing to do with this ticket, and consume the note their own ticket needed.
+    // nothing to do with this ticket, and consume the note the member's ticket needed.
     const check = via ? undefined : takePassNote(guildId, opener.id);
     if (check) {
       logEmbed.addFields({
@@ -380,13 +393,7 @@ const panelSub: Subcommand = {
       await interaction.reply({ content: "Can't post here.", flags: MessageFlags.Ephemeral });
       return;
     }
-    const embed = new EmbedBuilder()
-      .setTitle("Support")
-      .setDescription(ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText));
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId("ticket_open").setLabel("Open Ticket").setStyle(ButtonStyle.Success),
-    );
-    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.channel.send(panelMessage("ticket", ctx.config.getEffective<string>(interaction.guildId, CONFIG_KEYS.ticketPanelText)));
     await interaction.reply({ content: "Panel posted.", flags: MessageFlags.Ephemeral });
   },
 };
@@ -429,7 +436,7 @@ const openSub: Subcommand = {
       return;
     }
     // Tickets are opt-in per guild: the panel button only exists once an admin posts one,
-    // so without a gate of its own this command would be live in every guild the bot joins,
+    // so without a gate this command would be live in every guild the bot joins,
     // including ones that never configured tickets (where it creates a root-level channel
     // nobody but the opener can see, and no staff role to answer it).
     const configured =
@@ -750,7 +757,7 @@ const modalHandler: ComponentHandler = {
     const subject = modal.fields.fields.has("subject")
       ? modal.fields.getTextInputValue("subject")
       : "";
-    // Discord's own minimum is a character count, so a long enough string of nothing much
+    // Discord's minimum is a character count, so a long enough string of nothing much
     // still reaches us. This is where the words are actually counted.
     const short = subjectDenial(subject, minSubjectWords(ctx, modal.guild.id));
     if (short) {
@@ -950,6 +957,7 @@ async function scanInactivity(ctx: AppContext, client: Client, now: number): Pro
 }
 
 export const ticketsModule: BotModule = {
+  forget: (_ctx, guildId, userId) => clearCheckSession(guildId, userId),
   name: "tickets",
   commands: [
     featureCommand({

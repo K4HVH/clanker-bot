@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
   user_id    TEXT    NOT NULL,
   reason     TEXT,
   run_at     INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  quiet      INTEGER NOT NULL DEFAULT 0  -- 1 = its member was forgotten: act, record nothing
 );
 CREATE INDEX IF NOT EXISTS scheduled_actions_run_at_idx ON scheduled_actions (run_at);
 
@@ -110,3 +111,44 @@ CREATE TABLE IF NOT EXISTS scam_signature (
   PRIMARY KEY (guild_id, kind, value)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS scam_signature_expiry_idx ON scam_signature (expires_at);
+
+-- Server as code: each server's key -> Discord id map, so a spec names things by key and a renamed
+-- channel stays the same channel. kind: role | channel | automod | post | asset. A post's key carries
+-- its chunk index ("rules#0"); an asset's id is the SHA-256 of the file last applied.
+CREATE TABLE IF NOT EXISTS server_state (
+  guild_id   TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  discord_id TEXT NOT NULL,
+  PRIMARY KEY (guild_id, kind, key)
+) WITHOUT ROWID;
+
+-- The devices the device feed has posted (or found on its first read), so each is posted once.
+-- `ident` is a report's name, or the USB id of a device only the usage stats know: those can share a name.
+CREATE TABLE IF NOT EXISTS device_feed (
+  guild_id TEXT NOT NULL,
+  ident    TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  vidpid   TEXT,
+  verdict  TEXT NOT NULL,
+  PRIMARY KEY (guild_id, ident)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS device_feed_meta (
+  guild_id  TEXT PRIMARY KEY,
+  seeded_at INTEGER NOT NULL
+);
+
+-- The comparison summary's message and what it holds, so a read edits it only when that changes.
+CREATE TABLE IF NOT EXISTS comparison_posts (
+  guild_id   TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  content    TEXT NOT NULL
+);
+
+-- Which spec a server follows, and when it was last applied.
+CREATE TABLE IF NOT EXISTS server_meta (
+  guild_id   TEXT PRIMARY KEY,
+  spec       TEXT NOT NULL,
+  applied_at INTEGER
+);

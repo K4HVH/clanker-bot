@@ -127,7 +127,7 @@ export function getSession(token: string): Session | undefined {
 }
 
 // The check this member has open, if any. There is at most one. A finished run is not
-// one: it is only still here so its own message's buttons resolve quietly.
+// one: it is only still here so the buttons on its message resolve quietly.
 export function sessionFor(guildId: string, userId: string): Session | undefined {
   for (const session of sessions.values()) {
     if (session.guildId === guildId && session.userId === userId && !session.finished) {
@@ -154,7 +154,7 @@ export function clearCheckSession(guildId: string, userId: string): void {
 }
 
 // Abandoned checks are never answered, so nothing else would ever remove them. Called
-// from the ticket module's existing five-minute scan rather than a timer of its own.
+// from the ticket module's existing five-minute scan rather than a separate timer.
 //
 // Running out of time counts as a failure, deliberately: otherwise "open the panel, read
 // the questions, walk away, click again" hands out fresh questions at no cost, and the
@@ -163,7 +163,7 @@ export function sweepSessions(ctx: AppContext, now: number): void {
   for (const [token, session] of sessions) {
     if (session.deadline > now) continue;
     sessions.delete(token);
-    // A finished run has already been settled; it was only being kept so its own buttons
+    // A finished run has already been settled; it was only being kept so its buttons
     // resolved quietly. Charging it here would double-charge the member.
     if (session.finished) continue;
     // Nor is anyone charged in a guild that has since switched the check off: nobody
@@ -231,7 +231,7 @@ function cryptoRng(): Rng {
 // Discord caps an embed description at 4096 characters and discord.js THROWS rather than
 // truncating, so an over-long setting would take the whole gate down with it: the button
 // handler would answer "something went wrong" and nobody could open a ticket. Guild copy
-// gets a generous cap of its own, and the finished description a hard one, so no
+// gets a generous cap, and the finished description a hard one, so no
 // combination of settings can produce a message that cannot be sent.
 const COPY_MAX = 1500;
 const DESCRIPTION_MAX = 4096;
@@ -254,7 +254,7 @@ function retryLine(until: number): string {
 function questionBody(session: Session, policy: CheckPolicy, resumed = false) {
   const question = session.questions[session.current]!;
   const total = session.questions.length;
-  // The guild's own words introduce the check, then get out of the way: repeating them
+  // The guild's text introduces the check, then get out of the way: repeating them
   // above every question would only push the question itself down the message. The line
   // below is generated rather than written, so it stays true when the knobs change.
   const intro =
@@ -388,7 +388,7 @@ export async function gateTicket(
   // Coming back to a check already in progress returns THAT question, on the clock it
   // started. Building a fresh quiz here instead would mean anyone could keep reopening
   // the panel until the first question looked easy, at no cost: the abandoned one was
-  // simply dropped, so it never counted against them either.
+  // dropped, so it never counted against them either.
   const live = sessionFor(guild.id, user.id);
   if (live) {
     // The newest way in wins, so passing a check started from the panel still opens with

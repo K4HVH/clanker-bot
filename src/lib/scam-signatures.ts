@@ -106,7 +106,7 @@ export async function matchSignatures(
   return null;
 }
 
-// "Not a scam" buttons carry a short token, not the (possibly long) signature value, since Discord
+// "Remove signature" buttons carry a short token, not the (possibly long) signature value, since Discord
 // caps a customId at 100 chars. The token map is in-memory, so a button from before a restart
 // resolves to expired (the /mod scamforget command still works for those). automod's scan stashes
 // the token when it posts a match alert; the moderation module's button handler reads it back.
@@ -123,7 +123,7 @@ export function forgetButton(kind: SignatureKind, value: string): ActionRowBuild
     new ButtonBuilder()
       .setCustomId(`scam:forget:${token}`)
       .setStyle(ButtonStyle.Secondary)
-      .setLabel("Not a scam, remove"),
+      .setLabel("Remove signature"),
   );
 }
 

@@ -1,5 +1,6 @@
 import { ChannelType } from "discord.js";
 import { GUARD_ACTIONS, SCAM_ACTIONS } from "./actions";
+import { DEFAULT_EXECUTABLE_EXTS } from "./automod";
 import { CHECK_CATEGORIES } from "./ticket-check";
 import { type BotDatabase, many, one } from "../db/index";
 
@@ -24,6 +25,8 @@ export const CONFIG_KEYS = {
   automodLinks: "automod_links",
   automodLinkAllowlist: "automod_link_allowlist",
   automodWordBlocklist: "automod_word_blocklist",
+  automodExecutables: "automod_executables",
+  automodExecutableExts: "automod_executable_exts",
   automodMentionLimit: "automod_mention_limit",
   automodMassMention: "automod_mass_mention",
   automodCaps: "automod_caps",
@@ -103,6 +106,18 @@ export const CONFIG_KEYS = {
   scamMaxImageMb: "scam_max_image_mb",
   scamSeedTtlDays: "scam_seed_ttl_days",
   scamSeedMaxEntries: "scam_seed_max_entries",
+  // Verification: the channel the success message points at.
+  verificationWelcomeChannelId: "verification_welcome_channel_id",
+  // Privacy: how long the bot keeps what it records about members.
+  retentionModerationDays: "retention_moderation_days",
+  retentionTicketsDays: "retention_tickets_days",
+  retentionMemberLogDays: "retention_member_log_days",
+  // Device feed: new and changed devices on the site's Devices list, posted as they appear.
+  deviceFeedChannelId: "device_feed_channel_id",
+  deviceFeedUrl: "device_feed_url",
+  // Comparison: the site's comparison summary, kept in a channel.
+  comparisonChannelId: "comparison_channel_id",
+  comparisonUrl: "comparison_url",
 } as const;
 
 // ── Registry: the single source of truth for every setting ──────────────────
@@ -144,6 +159,7 @@ export const CATEGORIES: Category[] = [
   // All the Automod pages sit together, in enforcement order.
   { id: "automod", label: "Automod", accentColor: 0xe74c3c },
   { id: "automod-actions", label: "Automod Actions", accentColor: 0xc0392b },
+  { id: "automod-attachments", label: "Automod Attachments", accentColor: 0xc0392b },
   { id: "automod-scam", label: "Automod Scam", accentColor: 0xd35400 },
   { id: "automod-scam-seed", label: "Automod Scam Seeding", accentColor: 0xd35400 },
   { id: "guards", label: "Guards", accentColor: 0x9b59b6 },
@@ -153,6 +169,9 @@ export const CATEGORIES: Category[] = [
   { id: "ticket-check-results", label: "Ticket Check Results", accentColor: 0x2980b9 },
   { id: "memes", label: "Memes", accentColor: 0xe67e22 },
   { id: "honeypot", label: "Honeypot", accentColor: 0xf1c40f },
+  { id: "privacy", label: "Privacy", accentColor: 0x95a5a6 },
+  { id: "device-feed", label: "Device Feed", accentColor: 0x2ecc71 },
+  { id: "comparison", label: "Comparison", accentColor: 0x2ecc71 },
 ];
 
 const K = CONFIG_KEYS;
@@ -183,6 +202,8 @@ export const REGISTRY: Setting[] = [
   { key: K.automodLinks, category: "automod", type: "bool", default: false, label: "Block links", description: "Delete messages with a URL whose domain isn't in the allowlist below." },
   { key: K.automodLinkAllowlist, category: "automod", type: "text", default: "", label: "Link allowlist", description: "Domains that are always allowed, comma/newline separated (e.g. github.com, youtube.com). Subdomains match. Empty = block every link.", placeholder: "github.com, youtube.com\ndocs.espressif.com" },
   { key: K.automodWordBlocklist, category: "automod", type: "text", default: "", label: "Word blocklist", description: "Banned words/phrases, one per line: a word (case-insensitive substring, 3+ chars) or a /regex/. Commas also separate words on a line.", placeholder: "slur1, slur2\n/free ?nitro/" },
+  { key: K.automodExecutables, category: "automod-attachments", type: "bool", default: false, label: "Block executable attachments", description: "Delete a message carrying a program (by the extensions below) from anyone without Manage Messages. Checked on messages with no text too." },
+  { key: K.automodExecutableExts, category: "automod-attachments", type: "text", default: DEFAULT_EXECUTABLE_EXTS, label: "Executable extensions", description: "Attachment endings the check above blocks, comma or newline separated.", placeholder: ".exe, .dll, .bat" },
   { key: K.automodMentionLimit, category: "automod", type: "int", min: 0, max: 50, default: 0, label: "Max mentions per message (0=off)", description: "Delete a message mentioning more than this many users/roles combined. 0 disables." },
   { key: K.automodMassMention, category: "automod", type: "bool", default: false, label: "Block @everyone / @here", description: "Delete a message that pings @everyone or @here (from a non-staff member)." },
   { key: K.automodCaps, category: "automod", type: "bool", default: false, label: "Block excessive caps", description: "Delete a longer message (24+ letters) that is mostly UPPERCASE." },
@@ -221,7 +242,7 @@ export const REGISTRY: Setting[] = [
   { key: K.ticketDmTranscript, category: "tickets", type: "bool", default: true, label: "DM the transcript to the opener on close", description: "DM the transcript to the ticket opener when it closes." },
   { key: K.ticketArchiveImages, category: "tickets", type: "bool", default: true, label: "Include posted images in the archive (.zip)", description: "Bundle posted images with the transcript as a .zip on close." },
   { key: K.ticketCloseConfirm, category: "tickets", type: "bool", default: true, label: "Confirm before closing (Close button)", description: "Ask for confirmation before the Close button closes a ticket." },
-  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close their own ticket. Only staff can." },
+  { key: K.ticketStaffOnlyClose, category: "tickets", type: "bool", default: false, label: "Only staff can close tickets (not the opener)", description: "When on, the opener can't close it." },
   { key: K.ticketMinSubjectWords, category: "tickets", type: "int", min: 0, max: 30, default: 10, label: "Minimum words in the description (0=off)", description: "Refuse to open a ticket until the member has described the problem in at least this many words. Kills the two-word ticket nobody can act on. Discord enforces a rough length as they type, and the count is checked properly on submit. Staff opening a ticket for someone else are not asked." },
   // Ticket Check: a short generated reasoning test in front of ticket creation, for
   // guilds drowning in tickets from people who will not read. Off by default.
@@ -268,8 +289,17 @@ export const REGISTRY: Setting[] = [
   { key: K.scamSeedDomains, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: domains", description: "Include scam domains when seeding. Skips anything allowlisted or on shared hosting." },
   { key: K.scamSeedImages, category: "automod-scam-seed", type: "bool", default: true, label: "Seed: image hashes", description: "Include a SHA-256 of the scam image when seeding. The image itself is never stored." },
   { key: K.scamMaxImageMb, category: "automod-scam-seed", type: "int", min: 1, max: 25, default: 8, label: "Seed: max image size (MB)", description: "Images larger than this are matched by size and dimensions only, never downloaded to hash. Used by both seeding and matching." },
-  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out on its own." },
+  { key: K.scamSeedTtlDays, category: "automod-scam-seed", type: "int", min: 1, max: 365, default: 30, label: "Seed: signature lifetime (days)", description: "Seeded signatures expire after this many days, so a wrong entry ages out." },
   { key: K.scamSeedMaxEntries, category: "automod-scam-seed", type: "int", min: 50, max: 5000, default: 500, label: "Seed: max stored signatures", description: "Cap on seeded signatures per kind. The oldest are evicted past this limit." },
+  { key: K.verificationWelcomeChannelId, category: "verification", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "After verifying, point to", description: "The channel the success message names, where new members pick what they see." },
+  // Privacy. Discord's Developer Terms have a bot delete what it no longer needs; these say when.
+  { key: K.retentionModerationDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep moderation history (days)", description: "Warns, notes, bans and timeouts, and the bot's other mod-log posts, are deleted after this long." },
+  { key: K.retentionTicketsDays, category: "privacy", type: "int", min: 30, max: 3650, default: 365, label: "Keep closed tickets (days)", description: "A closed ticket's record and transcript, and its closing post in the mod log, are deleted after this long." },
+  { key: K.deviceFeedChannelId, category: "device-feed", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Device feed channel", description: "Where devices new or changed on the site's Devices list are posted. Unset = off." },
+  { key: K.deviceFeedUrl, category: "device-feed", type: "text", default: "https://medius.k4tech.net/api/devices", label: "Devices list", description: "The site's Devices list as JSON, read every 10 minutes." },
+  { key: K.comparisonChannelId, category: "comparison", type: "channel", channelTypes: TEXT_CHANNELS, default: undefined, label: "Comparison channel", description: "Where the site's comparison summary is posted. Unset = off." },
+  { key: K.comparisonUrl, category: "comparison", type: "text", default: "https://medius.k4tech.net/api/comparison", label: "Comparison summary", description: "The site's comparison summary as JSON, read every 10 minutes." },
+  { key: K.retentionMemberLogDays, category: "privacy", type: "int", min: 7, max: 3650, default: 90, label: "Keep member-log posts (days)", description: "The bot's member-log posts (edited and deleted messages, joins, leaves, role and name changes) are deleted after this long." },
 ];
 
 export const REGISTRY_BY_KEY: Map<string, Setting> = new Map(REGISTRY.map((s) => [s.key, s]));
@@ -425,7 +455,7 @@ export function validateSetting(setting: Setting, value: unknown): boolean {
     case "roles":
       return (
         Array.isArray(value) &&
-        // Discord's own cap on a select. Anything longer could be stored but never shown,
+        // Discord's cap on a select. Anything longer could be stored but never shown,
         // and would be lost the first time an admin touched the picker.
         value.length <= ROLE_PICKER_MAX &&
         value.every((v) => typeof v === "string" && SNOWFLAKE.test(v)) &&

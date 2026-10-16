@@ -61,3 +61,8 @@ export function memberHasRole(
   if (Array.isArray(roles)) return roles.includes(roleId);
   return roles.cache.has(roleId);
 }
+
+// What a member sees once the captcha is solved; it names where to go next when that's set.
+export function verifiedText(welcomeChannelId?: string): string {
+  return welcomeChannelId ? `✅ You're verified. Welcome! Start in <#${welcomeChannelId}>.` : "✅ You're verified. Welcome!";
+}

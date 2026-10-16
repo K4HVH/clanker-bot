@@ -54,7 +54,7 @@ function footerRow(categoryId: string): ActionRowBuilder<ButtonBuilder> {
     new ButtonBuilder()
       .setCustomId(`cfg:reset:${categoryId}`)
       .setStyle(ButtonStyle.Danger)
-      .setLabel("Reset"),
+      .setLabel("Reset all"),
     new ButtonBuilder().setCustomId("cfg:close").setStyle(ButtonStyle.Secondary).setLabel("Close"),
   );
 }
@@ -96,7 +96,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       );
       const select = new ChannelSelectMenuBuilder()
         .setCustomId(`cfg:chan:${s.key}`)
-        .setPlaceholder("Select a channel…")
+        .setPlaceholder("Channel…")
         .setMinValues(0)
         .setMaxValues(1);
       if (s.channelTypes) select.setChannelTypes(s.channelTypes);
@@ -108,7 +108,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       const current = String(ctx.config.getEffective(guildId, s.key) ?? "");
       const chosen = s.choices?.find((c) => c.value === current);
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "—")}\`${descLine(s)}`),
+        new TextDisplayBuilder().setContent(`**${s.label}:** \`${chosen?.label ?? (current || "Unset")}\`${descLine(s)}`),
       );
       const select = new StringSelectMenuBuilder()
         .setCustomId(`cfg:choice:${s.key}`)
@@ -135,8 +135,8 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       );
       const select = new RoleSelectMenuBuilder()
         .setCustomId(`cfg:roles:${s.key}`)
-        .setPlaceholder("Select roles…")
-        // Zero so the list can be emptied again, and Discord's own cap as the ceiling:
+        .setPlaceholder("Roles…")
+        // Zero so the list can be emptied again, and Discord's cap as the ceiling:
         // no reason for this to be a smaller number than the picker itself allows.
         .setMinValues(0)
         .setMaxValues(25);
@@ -178,7 +178,7 @@ function categoryContainer(ctx: AppContext, guildId: string, categoryId: string)
       );
       const select = new RoleSelectMenuBuilder()
         .setCustomId(`cfg:role:${s.key}`)
-        .setPlaceholder("Select a role…")
+        .setPlaceholder("Role…")
         .setMinValues(0)
         .setMaxValues(1);
       if (id) select.setDefaultRoles(id);

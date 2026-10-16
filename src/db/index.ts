@@ -36,6 +36,9 @@ export function createDatabase(path: string): BotDatabase {
     close_reason: "TEXT",
     auto_close_hold: "INTEGER NOT NULL DEFAULT 0",
   });
+  ensureColumns(db, "scheduled_actions", {
+    quiet: "INTEGER NOT NULL DEFAULT 0",
+  });
   ensureColumns(db, "verification_challenges", {
     attempts: "INTEGER NOT NULL DEFAULT 0",
     dm_message_id: "TEXT",

@@ -37,3 +37,16 @@ test("a failing executor does not block deletion of the action", async () => {
   expect(count).toBe(1);
   expect(await runDueActions(ctx, {} as Client, 10, executors)).toBe(0);
 });
+
+test("a quiet unban lifts the ban and records nothing", async () => {
+  const { runDueActions } = await import("../../src/lib/scheduler");
+  const { silentContext } = await import("../helpers/fakes");
+  const { run } = await import("../../src/db/index");
+  const ctx = silentContext();
+  run(ctx.db, "INSERT INTO scheduled_actions (guild_id, type, user_id, reason, run_at, created_at, quiet) VALUES ('g', 'unban', 'u1', NULL, 1, 1, 1)");
+  const removed: string[] = [];
+  const client = { user: { id: "bot" }, guilds: { fetch: async () => ({ id: "g", bans: { remove: async (id: string) => void removed.push(id) } }) } };
+  await runDueActions(ctx, client as never, 10);
+  expect(removed).toEqual(["u1"]);
+  expect(ctx.db.query("SELECT COUNT(*) AS n FROM cases").get()).toEqual({ n: 0 });
+});
